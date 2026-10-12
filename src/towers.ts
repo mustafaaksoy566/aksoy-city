@@ -283,7 +283,9 @@ export function makeTower(height: number, seed: number, type: number) {
     for (const s of [-1, 1]) {
       const x = s * 0.21;
       add(facadeCylinder(0.19, 0.19, h, 14, base), glass, x, base + h / 2, 0);
-      let y = base + h;
+      // Gövdenin tepesi kapalı (yoksa üstteki daha dar katın kenarından kulenin içi görünüyor)
+      add(new THREE.CylinderGeometry(0.195, 0.195, 0.012, 14), T.frame, x, base + h + 0.006, 0);
+      let y = base + h + 0.012;
       for (const [r, th] of [[0.15, 0.1], [0.11, 0.08], [0.07, 0.07]]) {
         add(facadeCylinder(r + 0.03, r, th, 14, y), glass, x, y + th / 2, 0);
         add(new THREE.CylinderGeometry(r, r, 0.012, 14), T.frame, x, y + th + 0.006, 0);
@@ -309,6 +311,12 @@ export function makeTower(height: number, seed: number, type: number) {
       m.rotation.y = Math.PI / 8;
       y += h;
     }
+    // Tepe kapalı: metal çerçeveli sekizgen çatı, üstünde koyu teknik kat ve sivri uç (yukarıdan kulenin içi görünmesin)
+    const cap = add(new THREE.CylinderGeometry(0.175, 0.175, 0.016, 8), T.frame, 0, y + 0.008, 0);
+    cap.rotation.y = Math.PI / 8;
+    const crown = add(new THREE.CylinderGeometry(0.1, 0.12, 0.06, 8), T.dark, 0, y + 0.046, 0);
+    crown.rotation.y = Math.PI / 8;
+    y += 0.076;
     add(new THREE.CylinderGeometry(0.003, 0.03, 0.34, 6), T.metal, 0, y + 0.17, 0);
     top = y + 0.34;
   } else if (type === 5) {
