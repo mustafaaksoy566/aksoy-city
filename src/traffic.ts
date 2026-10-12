@@ -48,9 +48,14 @@ function randomStart(city: City, speed: number): Mover | null {
   return { tile, dIn, dOut: pickExit(city, tile, dIn), t: Math.random(), speed };
 }
 
-// İlerlet; yol yok olduysa false döner. Arabalar caddede ve bulvarda daha hızlı gider.
+// İlerlet; yol yok olduysa false döner. Arabalar bulvar ve caddede daha hızlı, tıkalı yolda yavaş gider.
 function advance(city: City, m: Mover, dt: number, car = false) {
-  m.t += dt * m.speed * (car ? ROAD_GRADES[city.tiles[m.tile]?.grade ?? 0].speed : 1);
+  let speed = m.speed;
+  if (car) {
+    const jam = city.congestion(m.tile);
+    speed *= ROAD_GRADES[city.tiles[m.tile]?.grade ?? 0].speed * (jam > 1 ? Math.max(0.35, 1 / jam) : 1);
+  }
+  m.t += dt * speed;
   while (m.t >= 1) {
     m.t -= 1;
     const x = (m.tile % SIZE) + DIRS[m.dOut][0];
@@ -68,16 +73,24 @@ function advance(city: City, m: Mover, dt: number, car = false) {
   return city.tiles[m.tile]?.kind === 'road';
 }
 
-// Kare içinde girişten çıkışa yumuşak bir eğri (ikinci derece Bezier) üzerinde konum ve yön
+// Kare içinde girişten çıkışa yumuşak bir eğri (ikinci derece Bezier) üzerinde konum ve yön.
+// laneAt: bir yol karesinde şeridin yol ortasına uzaklığı; kare sınırında iki karenin ortalaması alınır
 const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
-function lanePos(m: Mover, lane: number, y: number, out: THREE.Vector3): number {
-  const center = tileCenter(m.tile % SIZE, Math.floor(m.tile / SIZE)).setY(y);
+function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: number, out: THREE.Vector3): number {
+  const x = m.tile % SIZE, z = Math.floor(m.tile / SIZE);
+  const center = tileCenter(x, z).setY(y);
   const { dIn, dOut, t } = m;
-  A.copy(center).addScaledVector(fwd(dIn), -0.5).addScaledVector(right(dIn), lane);
-  B.copy(center).addScaledVector(fwd(dOut), 0.5).addScaledVector(right(dOut), lane);
+  const lane = laneAt(m.tile);
+  const side = (d: number, s: number) => {
+    const nx = x + DIRS[d][0] * s, nz = z + DIRS[d][1] * s;
+    return city.isRoad(nx, nz) ? (laneAt(idx(nx, nz)) + lane) / 2 : lane;
+  };
+  const laneIn = side(dIn, -1), laneOut = side(dOut, 1);
+  A.copy(center).addScaledVector(fwd(dIn), -0.5).addScaledVector(right(dIn), laneIn);
+  B.copy(center).addScaledVector(fwd(dOut), 0.5).addScaledVector(right(dOut), laneOut);
   if (dIn === dOut) C.copy(center).addScaledVector(right(dIn), lane);
   else if (dOut === (dIn + 2) % 4) C.copy(center).addScaledVector(fwd(dIn), 0.35);
-  else C.copy(center).addScaledVector(right(dIn), lane).addScaledVector(right(dOut), lane);
+  else C.copy(center).addScaledVector(right(dIn), laneIn).addScaledVector(right(dOut), laneOut);
   const u = 1 - t;
   out.set(0, 0, 0).addScaledVector(A, u * u).addScaledVector(C, 2 * u * t).addScaledVector(B, t * t);
   // Gidiş yönü: eğrinin türevi
@@ -90,7 +103,7 @@ function lanePos(m: Mover, lane: number, y: number, out: THREE.Vector3): number 
 // Her araba modeli için tek bir çoklu çizim (InstancedMesh) kullanılır: telefonda çok daha hızlı.
 export class Traffic {
   readonly root = new THREE.Group();
-  private cars: (Mover & { type: number })[] = [];
+  private cars: (Mover & { type: number; wide: number })[] = [];
   private meshes: THREE.InstancedMesh[] = [];
   private paths: string[] = [];
   private buses: Mover[] = [];
@@ -139,7 +152,7 @@ export class Traffic {
     } else if (this.buses.length > wanted) this.buses.pop();
     this.buses = this.buses.filter(b => advance(this.city, b, dt, true));
     this.buses.forEach((b, n) => {
-      this.tmp.rotation.y = lanePos(b, CAR_LANE, 0.03, this.tmp.position);
+      this.tmp.rotation.y = lanePos(this.city, b, tile => (this.city.tiles[tile]?.grade === 2 ? 0.3 : CAR_LANE), 0.03, this.tmp.position);
       this.tmp.updateMatrix();
       this.busMesh!.setMatrixAt(n, this.tmp.matrix);
     });
@@ -167,7 +180,7 @@ export class Traffic {
       const wanted = Math.min(MAX_CARS, Math.floor(roads / 3), 2 + Math.floor(this.city.population / 15));
       if (this.cars.length < wanted) {
         const m = randomStart(this.city, 0.8 + Math.random() * 0.6);
-        if (m) this.cars.push({ ...m, type: this.pickType() });
+        if (m) this.cars.push({ ...m, type: this.pickType(), wide: Math.random() < 0.5 ? 0.1 : 0.3 });
       } else if (this.cars.length > wanted) this.cars.pop();
     }
     this.updateBuses(dt);
@@ -176,7 +189,7 @@ export class Traffic {
     this.cars = this.cars.filter(car => advance(this.city, car, dt, true));
     const counts = this.meshes.map(() => 0);
     for (const car of this.cars) {
-      this.tmp.rotation.y = lanePos(car, CAR_LANE, CAR_Y, this.tmp.position);
+      this.tmp.rotation.y = lanePos(this.city, car, tile => (this.city.tiles[tile]?.grade === 2 ? car.wide : CAR_LANE), CAR_Y, this.tmp.position);
       this.tmp.updateMatrix();
       this.meshes[car.type].setMatrixAt(counts[car.type]++, this.tmp.matrix);
     }
@@ -299,7 +312,7 @@ export class Walkers {
       m.setMatrixAt(n, this.out.multiplyMatrices(this.base, this.local));
     };
     this.people.forEach((person, n) => {
-      this.tmp.rotation.y = lanePos(person, WALK_LANE, 0.05, this.tmp.position);
+      this.tmp.rotation.y = lanePos(this.city, person, tile => (this.city.tiles[tile]?.grade === 2 ? 0.468 : WALK_LANE), 0.05, this.tmp.position);
       const step = Math.sin(this.time * 9 + person.phase);
       this.tmp.position.y += Math.abs(step) * 0.005; // adım atarken hafifçe yükselir
       this.tmp.updateMatrix();

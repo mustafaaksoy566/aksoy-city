@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, COST, UNLOCK, type MatId, type BuildTool,
+  MATERIALS, MAT_IDS, MAKER_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -30,8 +30,7 @@ export interface CardActions {
   repair(i: number): void;
   claim(n: number): void;
   buyLand(plot: number): void;
-  sell(mat: MatId): void;
-  buy(mat: MatId): void;
+  upgradeMaker(i: number): void;
   openCatalog(group: string): void;
   ship(n: number): void;
   upgradeRoad(i: number): void;
@@ -50,40 +49,12 @@ const haveNeed = (city: City, cost: Partial<Record<MatId, number>>) =>
     ok: city.storage[m] >= n,
   }));
 
-export function describeTrade(city: City, act: CardActions): InfoCard {
-  const lines: InfoCard['lines'] = [{ text: 'Malzemelerini sat, ham madde eksikse iki katı fiyata satın al.' }];
-  if (!city.hasTrade) lines.push({ ok: false, text: 'Ticaret merkezi yola bağlı değil' });
-  const tiles: NonNullable<InfoCard['tiles']> = [];
-  for (const m of MAT_IDS) {
-    const mat = MATERIALS[m];
-    if (city.storage[m] > 0) {
-      tiles.push({ section: 'Sat', icon: mat.icon, name: mat.name, sub: `+💰${fmt(mat.price)}`, note: `x${city.storage[m]}`, enabled: city.hasTrade, run: () => act.sell(m) });
-    }
-  }
-  for (const m of MAT_IDS) {
-    const mat = MATERIALS[m];
-    if (mat.maker === 'factory' && city.isUnlocked(m)) {
-      tiles.push({ section: 'Satın al', icon: mat.icon, name: mat.name, sub: `−💰${fmt(mat.price * 2)}`, enabled: city.hasTrade && city.money >= mat.price * 2, run: () => act.buy(m) });
-    }
-  }
-  return {
-    title: 'Ticaret Merkezi',
-    subtitle: 'Malzeme al ve sat',
-    thumb: 'trade',
-    tone: groupColor('trade'),
-    stats: [
-      { icon: '📦', value: `${fmt(city.storageUsed)}/${fmt(city.storageCap)}`, label: 'Depo' },
-      { icon: '💰', value: fmt(city.money), label: 'Kasa' },
-    ],
-    lines,
-    tiles,
-  };
-}
-
 export function describeLand(city: City, plot: number, act: CardActions): InfoCard {
   const err = city.canBuyPlot(plot);
   const lines: InfoCard['lines'] = [{ text: 'Boş arazi. Satın alırsan şehrini buraya doğru büyütebilirsin.' }];
-  if (Math.floor(plot / PLOTS) === 0) lines.push({ text: '🌊 Sahil arazisi: kumsalına liman, plaj, yat limanı ve deniz feneri kurabilirsin.' });
+  const row = Math.floor(plot / PLOTS);
+  if (row < NORTH / PLOT) lines.push({ text: '🏝️ Ada ve deniz: adaya denizin üstünden yol çizerek asma köprü kurabilirsin.' });
+  else if (row === NORTH / PLOT) lines.push({ text: '🌊 Sahil arazisi: kumsalına liman, plaj, yat limanı ve deniz feneri kurabilirsin.' });
   if (err && err !== 'Yeterli para yok') lines.push({ ok: false, text: err });
   return {
     title: 'Satılık arazi',
@@ -109,10 +80,14 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
     tone: '#546e7a',
     stats: [
       { icon: '😊', value: `+%${Math.round(info.happy * 100)}`, label: 'Kenar evler', good: info.happy > 0 },
-      { icon: '🚗', value: `x${info.speed}`, label: 'Araç hızı' },
+      { icon: '🚦', value: `%${Math.round(city.congestion(i) * 100)}`, label: 'Trafik', bad: city.congestion(i) > 1, good: city.congestion(i) < 0.6 },
+      { icon: '🚗', value: `${Math.round(city.roadCapacity(i))}`, label: 'Kapasite' },
     ],
     lines: [{ text: 'Yolları yükselterek kenarındaki evleri daha mutlu edebilirsin.' }],
   };
+  if (city.congestion(i) > 1) {
+    card.lines!.push({ ok: false, text: 'Trafik sıkışık! Yolu yükselt ya da yakınına otobüs durağı, metro veya tren istasyonu kur.' });
+  }
   if (grade >= 2) {
     card.lines!.push({ ok: true, text: 'Bu en güzel yol çeşidi.' });
     return card;
@@ -123,7 +98,7 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
   const lock = UNLOCK[next.tool] ?? 0;
   const locked = city.level < lock;
   const blocked = t.level === 1 ? 'Tren yolunun geçtiği yol yükseltilemez' : locked ? `${next.label} şehir seviyesi ${lock}'te açılır` : null;
-  card.lines!.push({ text: `${next.label}: +%${Math.round(next.happy * 100)} mutluluk, araçlar x${next.speed} hızlı. ${street.length} kare yükseltilir (kare başı 💰${fmt(COST[next.tool] - COST[info.tool])}).` });
+  card.lines!.push({ text: `${next.label}: ${Math.round(TRAFFIC.capacity * next.capacity)} araç taşır, +%${Math.round(next.happy * 100)} mutluluk. ${street.length} kare yükseltilir (kare başı 💰${fmt(COST[next.tool] - COST[info.tool])}).` });
   if (blocked) card.lines!.push({ ok: false, text: blocked });
   card.actions = [{
     label: `${next.label === 'Cadde' ? 'Caddeye' : 'Bulvara'} yükselt  💰${fmt(cost)}`,
@@ -277,15 +252,24 @@ function production(city: City, i: number, act: CardActions, now: number): InfoC
   const list = city.jobs.get(i) ?? [];
   const lines: InfoCard['lines'] = [];
   if (!city.isConnected(i)) lines.push({ ok: false, text: 'Yol bağlantısı yok' });
-  lines.push({ text: isFactory ? 'Bir malzemeye dokun, üretim başlasın. Aynı anda iki tane yapar.' : 'Bir ürüne dokun, sıraya girsin. Ürünler sırayla yapılır.' });
+  const slots = city.makerSlots(i);
+  lines.push({ text: isFactory ? `Bir malzemeye dokun, üretim başlasın. Aynı anda ${slots} tane yapar.` : 'Bir ürüne dokun, sıraya girsin. Ürünler sırayla yapılır.' });
+  // Yükseltme: daha hızlı üretim ve bir yer daha
+  const next = MAKER_LEVELS[t.level + 1];
+  const blocker = city.makerUpgradeBlocker(i);
+  if (next) {
+    const faster = Math.round((1 - next.speed / MAKER_LEVELS[t.level].speed) * 100);
+    lines.push({ text: `⭐ ${t.level + 2}. seviye: üretim %${faster} daha hızlı, ${isFactory ? 'aynı anda' : 'sırada'} ${slots + 1} yer.` });
+    if (blocker && blocker !== 'Yeterli para yok') lines.push({ ok: false, text: blocker });
+  }
   const tiles = MAT_IDS.filter(m => MATERIALS[m].maker === kind).map(m => {
     const mat = MATERIALS[m];
     if (!city.isUnlocked(m)) return { icon: '🔒', name: mat.name, sub: `Seviye ${mat.unlock}`, enabled: false, run: () => {} };
     return {
       icon: mat.icon,
       name: mat.name,
-      sub: mat.needs ? costText(mat.needs) : `${mat.seconds} sn`,
-      note: mat.needs ? `${mat.seconds} sn` : undefined,
+      sub: mat.needs ? costText(mat.needs) : `${city.makerTime(i, m)} sn`,
+      note: mat.needs ? `${city.makerTime(i, m)} sn` : undefined,
       enabled: city.canMake(i, m) === null,
       run: () => act.make(i, m),
     };
@@ -297,11 +281,15 @@ function production(city: City, i: number, act: CardActions, now: number): InfoC
     tone: groupColor(kind),
     stats: [
       { icon: '📦', value: `${fmt(city.storageUsed)}/${fmt(city.storageCap)}`, label: 'Depo', bad: city.storageUsed >= city.storageCap },
-      { icon: '⚙️', value: `${list.length}/${isFactory ? FACTORY_SLOTS : STORE_QUEUE}`, label: isFactory ? 'Üretimde' : 'Sırada' },
+      { icon: '⚙️', value: `${list.length}/${slots}`, label: isFactory ? 'Üretimde' : 'Sırada' },
+      { icon: '⭐', value: `${t.level + 1}/${MAKER_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
     ],
     lines,
     jobs: jobsOf(city, i, now),
     tiles,
+    actions: next
+      ? [{ label: `Yükselt ⭐${t.level + 2}  💰${fmt(next.money)}`, enabled: blocker === null, primary: false, run: () => act.upgradeMaker(i) }]
+      : undefined,
   };
 }
 
@@ -368,7 +356,6 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   const road = { ok: connected, text: connected ? 'Şehrin yollarına bağlı' : 'Yol bağlantısı yok' };
 
   if (t.kind === 'hall') return describeHall(city, act);
-  if (t.kind === 'trade') return describeTrade(city, act);
   if (t.kind === 'port') return describePort(city, act, now);
   if ((MAKERS as string[]).includes(t.kind)) return production(city, i, act, now);
   if (t.kind === 'depot') return { ...describeStorage(city), thumb: 'depot', icon: undefined };
@@ -434,6 +421,8 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
         lines.push({ ok: missing.length === 0, text: missing.length ? `5. seviye için eksik: ${missing.join(', ')}` : '5. seviye için: bütün hizmetler var' });
       }
       if (t.level < 6) lines.push({ ok: city.decorBonus[i] >= 0.1 - 1e-6, text: '6. seviye için: yakında simge yapı (heykel, stadyum…)' });
+      if (t.level < 7) lines.push({ ok: city.bestRoad(i) >= 1, text: '7. seviye (gökdelen) için: yanındaki yol bulvar ya da cadde' });
+      if (t.level < 8) lines.push({ ok: city.transit[i] >= 0.25, text: '8. seviye (dev gökdelen) için: yakında metro ya da tren istasyonu' });
       const upCost = city.upgradeCost(i);
       if (upCost) {
         const blocker = city.upgradeBlocker(i);

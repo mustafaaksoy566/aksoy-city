@@ -5,6 +5,7 @@ import { makeModel } from './assets';
 import { makeAirliner } from './planes';
 import { mergeStatic } from './batcher';
 import { SEA_Y } from './water';
+import { HISTORIC } from './historic';
 
 // Simge yapılar: çeşme ve heykel hazır model, dönme dolap ve stadyum basit şekillerden.
 
@@ -50,36 +51,6 @@ function ferrisWheel() {
   wheel.add(part(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 10).rotateX(Math.PI / 2), M.red, 0, 0, 0));
   g.add(wheel);
   g.userData.wheel = { wheel, cabins };
-  return g;
-}
-
-function stadium() {
-  const g = new THREE.Group();
-  g.add(pad());
-  // Oval tribün
-  const shape = new THREE.Shape();
-  shape.absellipse(0, 0, 0.44, 0.4, 0, Math.PI * 2, false, 0);
-  const hole = new THREE.Path();
-  hole.absellipse(0, 0, 0.3, 0.25, 0, Math.PI * 2, true, 0);
-  shape.holes.push(hole);
-  const stands = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: false, curveSegments: 32 }).rotateX(-Math.PI / 2);
-  g.add(part(stands, M.stand, 0, 0.04, 0));
-  // Renkli koltuk şeridi
-  const ring = new THREE.Shape();
-  ring.absellipse(0, 0, 0.4, 0.35, 0, Math.PI * 2, false, 0);
-  const ringHole = new THREE.Path();
-  ringHole.absellipse(0, 0, 0.33, 0.28, 0, Math.PI * 2, true, 0);
-  ring.holes.push(ringHole);
-  g.add(part(new THREE.ExtrudeGeometry(ring, { depth: 0.01, bevelEnabled: false, curveSegments: 32 }).rotateX(-Math.PI / 2), M.seat, 0, 0.245, 0));
-  // Saha
-  g.add(part(new THREE.BoxGeometry(0.42, 0.01, 0.3), M.grass, 0, 0.06, 0));
-  g.add(part(new THREE.BoxGeometry(0.006, 0.004, 0.3), M.line, 0, 0.068, 0));
-  g.add(part(new THREE.TorusGeometry(0.05, 0.004, 4, 20).rotateX(Math.PI / 2), M.line, 0, 0.068, 0));
-  // Işık direkleri
-  for (const [x, z] of [[-0.4, -0.36], [0.4, -0.36], [-0.4, 0.36], [0.4, 0.36]]) {
-    g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 6), M.steel, x, 0.29, z));
-    g.add(part(new THREE.BoxGeometry(0.08, 0.05, 0.02), M.white, x, 0.55, z));
-  }
   return g;
 }
 
@@ -751,6 +722,7 @@ function mosque() {
 }
 
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind in HISTORIC) return HISTORIC[kind as keyof typeof HISTORIC]();
   if (kind === 'mosque') return mosque();
   if (kind === 'lighthouse') return lighthouse();
   if (kind === 'marina') return marina();
@@ -764,7 +736,6 @@ export function makeDecor(kind: DecorKind): THREE.Object3D {
   if (kind === 'busstop') return busStop();
   if (kind === 'station') return station();
   if (kind === 'wheel') return ferrisWheel();
-  if (kind === 'stadium') return stadium();
   const g = new THREE.Group();
   g.add(pad());
   const m = makeModel(DECOR_MODELS[kind]!);

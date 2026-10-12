@@ -1,5 +1,5 @@
 ﻿import * as THREE from 'three';
-import { SIZE, ROAD_TOOLS, type Tool } from './config';
+import { SIZE, ROWS, Z0, ROAD_TOOLS, type Tool } from './config';
 import { idx, isService, isUtility, isIndustry, isDecor } from './city';
 
 interface Handlers {
@@ -34,11 +34,11 @@ export class TileInput {
     this.ray.setFromCamera(ndc, this.camera);
     const p = this.ray.ray.intersectPlane(this.plane, new THREE.Vector3());
     if (!p) return null;
-    let x = Math.floor(p.x + SIZE / 2), z = Math.floor(p.z + SIZE / 2);
+    let x = Math.floor(p.x + SIZE / 2), z = Math.floor(p.z + Z0);
     if (clamp) {
       x = Math.min(SIZE - 1, Math.max(0, x));
-      z = Math.min(SIZE - 1, Math.max(0, z));
-    } else if (x < 0 || z < 0 || x >= SIZE || z >= SIZE) return null;
+      z = Math.min(ROWS - 1, Math.max(0, z));
+    } else if (x < 0 || z < 0 || x >= SIZE || z >= ROWS) return null;
     return [x, z];
   }
 

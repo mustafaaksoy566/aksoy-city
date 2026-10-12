@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
@@ -87,7 +87,7 @@ const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
 camera.position.set(start.x + 8, 11, start.z + 8);
 
 // Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
-const rig = new CameraRig(camera, renderer.domElement, SIZE / 2);
+const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 });
 rig.target.copy(start);
 rig.distance = 15;
 rig.apply();
@@ -98,15 +98,36 @@ const sun = new THREE.DirectionalLight('#fff6e0', 2.2);
 sun.position.set(-12, 30, 18);
 sun.castShadow = quality !== 'low';
 sun.shadow.mapSize.set(2048, 2048);
-const half = SIZE / 2 + 2;
-Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 80 });
+Object.assign(sun.shadow.camera, { near: 1, far: 90 });
 sun.shadow.normalBias = 0.02;
-scene.add(sun);
+scene.add(sun, sun.target);
+// Gölgeler kameranın baktığı bölgeyi kapsar (yakınken daha keskin); kamera epey kayınca yeniden çizilir
+let shadowKey = '';
+function followShadow() {
+  const half = THREE.MathUtils.clamp(Math.ceil((rig.distance * 0.95) / 4) * 4, 20, 48);
+  const step = half / 4;
+  const cx = Math.round(rig.target.x / step) * step, cz = Math.round(rig.target.z / step) * step;
+  const key = `${cx},${cz},${half}`;
+  if (key === shadowKey) return;
+  shadowKey = key;
+  sun.target.position.set(cx, 0, cz);
+  sun.target.updateMatrixWorld();
+  sun.position.set(cx - 12, 30, cz + 18);
+  Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half });
+  sun.shadow.camera.updateProjectionMatrix();
+  renderer.shadowMap.needsUpdate = true;
+}
 
 // Şehrin zemini çevre araziyle tek parça (terrain.ts); yolların asfaltı y=0'da, zemin biraz aşağıda
-const grid = new THREE.GridHelper(SIZE, SIZE, '#ffffff', '#ffffff');
-(grid.material as THREE.Material).transparent = true;
-(grid.material as THREE.Material).opacity = 0.18;
+// İnşa ızgarası: haritanın kareleri (dikdörtgen)
+const grid = (() => {
+  const pts: number[] = [];
+  const x0 = -SIZE / 2, x1 = SIZE / 2, z0 = -Z0, z1 = ROWS - Z0;
+  for (let x = x0; x <= x1; x++) pts.push(x, 0, z0, x, 0, z1);
+  for (let z = z0; z <= z1; z++) pts.push(x0, 0, z, x1, 0, z);
+  const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.18 }));
+})();
 grid.position.y = -0.01;
 grid.visible = false; // ızgara sadece bir şey inşa ederken görünür
 scene.add(grid);
@@ -286,19 +307,16 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
-  sell(mat) {
-    const err = city.sell(mat);
-    if (err) toast(err, 'error');
-    else {
-      floatIncome(MATERIALS[mat].price);
-      play('place', 0.4);
+  upgradeMaker(i) {
+    const err = city.upgradeMaker(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`⭐ ${TOOL_INFO[city.tiles[i]!.kind as BuildTool].label} ${city.tiles[i]!.level + 1}. seviyeye yükseldi: daha hızlı üretiyor!`);
     }
-    afterChange();
-  },
-  buy(mat) {
-    const err = city.buy(mat);
-    if (err) toast(err, 'error');
-    else play('click', 0.4);
     afterChange();
   },
   claim(n) {
@@ -369,8 +387,14 @@ onInfoClose(() => {
   highlight();
 });
 
+// Trafik haritası: yol aracı seçiliyken ya da bir yolun kartı açıkken
+function updateTrafficView() {
+  view.showTraffic(ROAD_TOOLS.includes(tool as BuildTool) || (typeof openCard === 'number' && city.tiles[openCard]?.kind === 'road'));
+}
+
 // Kartı açık binanın (ya da satılık arazinin) altını işaretle
 function highlight() {
+  updateTrafficView();
   if (tool !== 'pan') return;
   if (typeof openCard !== 'number' || openCard < 0) return view.showSelection([]);
   if (!city.isOwned(openCard) && city.tiles[openCard]?.kind !== 'road') {
@@ -390,7 +414,16 @@ function toggleCard(key: CardKey) {
 }
 
 // Bir şey değişince her yeri güncelle ve kaydet
+// Trafik ilk kez sıkışınca haber ver
+let lastJams = -1;
+function warnTraffic() {
+  const jams = city.jams;
+  if (jams > 0 && lastJams === 0) toast('🚗 Trafik sıkıştı! Kırmızı simgeli yollara dokunup bulvar ya da caddeye yükselt.', 'error');
+  lastJams = jams;
+}
+
 function afterChange() {
+  warnTraffic();
   findShowSpots();
   showEvents();
   checkLevelUps();
@@ -481,6 +514,7 @@ function pickTool(t: Tool) {
   setMode(t);
   grid.visible = t !== 'pan';
   view.showLandShade(t !== 'pan');
+  updateTrafficView();
   applyControls();
   play('click', 0.4);
 }
@@ -700,6 +734,7 @@ function frame() {
   weather.update(dt, rig.target);
   updateWater(clock.elapsedTime);
   updateTrees(clock.elapsedTime);
+  followShadow();
   dayNight.dome.position.copy(camera.position);
   fireworks.update(dt, phase(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS).night, showSpots);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
@@ -755,8 +790,8 @@ function makeMenuPictures() {
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
-  for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'trade', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -776,6 +811,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     // Oyun kapalıyken biten üretimleri depoya al
     const got = city.collect(Date.now());
     if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
+    if (city.tradeRefund) toast(`Ticaret merkezi kaldırıldı, parası iade edildi: 💰${fmt(city.tradeRefund)}`);
     if (city.seaRefund) toast(`Kuzey kıyısı artık deniz! Oradaki yapıların parası iade edildi: 💰${fmt(city.seaRefund)}`);
     afterChange();
     hideLoading();

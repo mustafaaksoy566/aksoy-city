@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, ENTRANCE_Z, SEA_ROWS } from './config';
+import { SIZE, ROWS, Z0, ENTRANCE_Z, COAST_ROW, ISLAND } from './config';
 import { mergeStatic } from './batcher';
 import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV, WATER, waterColor } from './water';
 import { isRiverXZ } from './city';
@@ -12,15 +12,18 @@ import { palm, lighthouseTower } from './landmarks';
 // şehrin içinden geçer ve kuzeyde denize dökülür. Şehrin dışı sadece görüntü, üzerine bina yapılmaz.
 
 const EXTENT = 240; // çevre arazinin genişliği
-const HALF = SIZE / 2;
+const HALF = SIZE / 2; // şehrin doğu-batı yarı genişliği
+const ZN = -Z0; // şehrin kuzey kenarı (denizin içinde)
+const ZS = ROWS - Z0; // şehrin güney kenarı
 const CITY_Y = -0.03; // şehrin zemini (yollar y=0'da)
 const RIVER_C = 18; // nehrin şehrin batısından çıktığı yerin ortası (41-42. sıralar)
 // Kıyı çizgisi (şehrin içinde): kumsal z = -22'de başlar, su biraz ileride
-const COAST_Z = SEA_ROWS - HALF - 0.5;
+const COAST_Z = COAST_ROW - Z0 - 0.5;
 
 const smooth = (x: number, a: number, b: number) => THREE.MathUtils.smoothstep(x, a, b);
 const lerp = THREE.MathUtils.lerp;
-const clampCity = (v: number) => THREE.MathUtils.clamp(v, -HALF, HALF);
+const clampX = (v: number) => THREE.MathUtils.clamp(v, -HALF, HALF);
+const clampZ = (v: number) => THREE.MathUtils.clamp(v, ZN, ZS);
 
 // Basit, tekrar edilebilir gürültü
 function hash(x: number, z: number) {
@@ -37,7 +40,7 @@ function noise(x: number, z: number) {
 const fbm = (x: number, z: number) => noise(x * 0.06, z * 0.06) * 0.65 + noise(x * 0.15, z * 0.15) * 0.35;
 
 // Şehir alanının kenarına uzaklık (içerideyse 0)
-const edgeDist = (x: number, z: number) => Math.hypot(Math.max(Math.abs(x) - HALF, 0), Math.max(Math.abs(z) - HALF, 0));
+const edgeDist = (x: number, z: number) => Math.hypot(Math.max(Math.abs(x) - HALF, 0), Math.max(ZN - z, z - ZS, 0));
 
 // --- Kıyı ---
 // Denizdeki adalar [x, z, yarıçap] (gemilerin yolundan uzakta)
@@ -45,12 +48,18 @@ const ISLANDS: [number, number, number][] = [[-48, -84, 9], [38, -97, 11], [66, 
 
 // Kıyıya uzaklık: pozitifse deniz. Şehrin yanlarında şehirdeki kıyıyla aynı çizgiden başlar;
 // batıda kara kuzeye doğru uzanır, doğuda deniz güneye doğru sokulur.
+// Şehrin içindeki ada (yapılabilir kareler elipsin içinde; görünen kıyı biraz daha dışarıda, etrafı kumsal)
+const ISLE = { x: ISLAND.cx - HALF, z: ISLAND.cz - Z0, rx: ISLAND.rx + 1.3, rz: ISLAND.rz + 1.3 };
+function islandCoast(x: number, z: number) {
+  const dx = (x - ISLE.x) / ISLE.rx, dz = (z - ISLE.z) / ISLE.rz;
+  return (Math.hypot(dx, dz) - 1) * ISLE.rz + (fbm(x * 3 + 20, z * 3) - 0.5) * 0.6;
+}
 export function coast(x: number, z: number) {
   const ex = Math.max(Math.abs(x) - HALF, 0);
   const bend = x < 0 ? -smooth(ex, 0, 50) * 10 : 0.3 * ex * smooth(ex, 0, 10);
   let c = COAST_Z - z + bend + (fbm(x + 50, z) - 0.5) * 5 * smooth(ex, 0, 14);
   for (const [ix, iz, r] of ISLANDS) c = Math.min(c, Math.hypot(x - ix, z - iz) - r + (fbm(x * 2 + ix, z * 2) - 0.5) * r * 0.5);
-  return c;
+  return Math.min(c, islandCoast(x, z));
 }
 
 // Kıyıdaki yükseklik: karada şehir hizası, suya doğru kumsal iner, sonra deniz derinleşir
@@ -62,7 +71,7 @@ const sandLine = (x: number) => -2.42 + 0.1 * Math.sin(x * 0.9) + 0.06 * Math.si
 // --- Otoyol ---
 // Batıdaki dağın tünelinden çıkar, şehrin girişine bağlanır; şehrin batısından güneye döner,
 // nehri köprüyle geçer ve şehrin güneyinden doğuya, ufka kadar uzanır.
-export const HW = { portal: -96.75, x: -30.5, z0: ENTRANCE_Z - HALF + 0.5, z1: HALF + 4.5, east: 118 };
+export const HW = { portal: -96.75, x: -30.5, z0: ENTRANCE_Z - Z0 + 0.5, z1: ZS + 4.5, east: 118 };
 const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) =>
   Math.hypot(px - THREE.MathUtils.clamp(px, Math.min(ax, bx), Math.max(ax, bx)), pz - THREE.MathUtils.clamp(pz, Math.min(az, bz), Math.max(az, bz)));
 // Otoyola uzaklık
@@ -104,7 +113,7 @@ function hills(x: number, z: number, d: number) {
 export function heightAt(x: number, z: number) {
   const d = edgeDist(x, z);
   // Şehrin içi düz; sadece kuzeydeki deniz sıralarında kumsal suya iner
-  const inner = shore(COAST_Z - clampCity(z));
+  const inner = shore(coast(clampX(x), clampZ(z)));
   if (d <= 0) return inner;
   const c = coast(x, z);
   let h = hills(x, z, d) * smooth(-c, 2, 14); // kıyıya doğru alçalır
@@ -147,12 +156,14 @@ function shoreColor(x: number, y: number, c: number, land: THREE.Color, out: THR
 // Şehrin içindeki zemin rengi (nehrin dibi kumlu)
 function cityColor(x: number, z: number, out: THREE.Color) {
   // Sadece suyun altında kalan köşeler (iki yanı da nehir olan) kumlu; kıyıdaki köşeler çimen kalır
-  const t = (v: number) => Math.min(SIZE - 1, Math.max(0, Math.floor(v + HALF)));
+  const tx = (v: number) => Math.min(SIZE - 1, Math.max(0, Math.floor(v + HALF)));
+  const tz = (v: number) => Math.min(ROWS - 1, Math.max(0, Math.floor(v + Z0)));
   const e = 0.001;
-  if (isRiverXZ(t(x - e), t(z - e)) && isRiverXZ(t(x + e), t(z + e)) && isRiverXZ(t(x - e), t(z + e)) && isRiverXZ(t(x + e), t(z - e))) {
+  if (isRiverXZ(tx(x - e), tz(z - e)) && isRiverXZ(tx(x + e), tz(z + e)) && isRiverXZ(tx(x - e), tz(z + e)) && isRiverXZ(tx(x + e), tz(z - e))) {
     return out.copy(C.bed);
   }
-  return shoreColor(x, shore(COAST_Z - z), COAST_Z - z, C.ground, out);
+  const c = coast(x, z);
+  return shoreColor(x, shore(c), c, C.ground, out);
 }
 
 const tmpLand = new THREE.Color();
@@ -170,7 +181,7 @@ function colorAt(x: number, z: number, y: number, out: THREE.Color) {
   if (r && r.d < r.half - 0.3) out.copy(C.bed);
   // Şehrin kenarında şehrin kendi rengine geçer
   const edge = 1 - smooth(d, 0.5, 5);
-  if (edge > 0) out.lerp(cityColor(clampCity(x), clampCity(z), new THREE.Color()), edge);
+  if (edge > 0) out.lerp(cityColor(clampX(x), clampZ(z), new THREE.Color()), edge);
   return out;
 }
 

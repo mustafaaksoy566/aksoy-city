@@ -132,7 +132,7 @@ export class Sky {
     BOAT_MODELS.forEach((path, k) => {
       const b = makeModel(path);
       const dir = new THREE.Vector3(k % 2 ? -1 : 1, 0, 0);
-      b.position.set(-80 + k * 22, SEA_Y - 0.04, -HALF - 16 - (k % 4) * 7);
+      b.position.set(-80 + k * 22, SEA_Y - 0.04, -HALF - 24 - (k % 4) * 6);
       b.rotation.y = Math.atan2(dir.x, dir.z);
       this.root.add(b);
       this.boats.push({ obj: b, speed: 0.6 + (k % 3) * 0.4, dir, limit: 100 });

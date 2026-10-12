@@ -1,10 +1,11 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
-  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
+  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
-  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SEA_ROWS, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
+  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -20,7 +21,7 @@ export interface Tile {
   fire?: number; // kaç gündür yanıyor
   damaged?: boolean; // depremde hasar gördü
   fp?: number; // büyük binalarda kenar uzunluğu (2 = 2x2 kare)
-  grade?: number; // yollarda: 1 = cadde, 2 = bulvar
+  grade?: number; // yollarda: 1 = bulvar, 2 = cadde (çift şerit)
 }
 
 // Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
@@ -48,7 +49,7 @@ export interface Order {
 export const DIRS: readonly [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 
 export const idx = (x: number, z: number) => z * SIZE + x;
-export const inBounds = (x: number, z: number) => x >= 0 && z >= 0 && x < SIZE && z < SIZE;
+export const inBounds = (x: number, z: number) => x >= 0 && z >= 0 && x < SIZE && z < ROWS;
 export const isZone = (k: Kind | undefined): k is 'res' | 'com' => k === 'res' || k === 'com';
 export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k && k in UTILITIES;
 export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
@@ -75,14 +76,25 @@ export function serviceArea(i: number, kind: ServiceKind, n = 1): number[] {
 
 export const sizeOf = (tool: BuildTool | Kind) => FOOTPRINT[tool as BuildTool] ?? 1;
 
-// Deniz: kuzey kenarındaki ilk sıralar. Hemen arkasında kumsal.
-export const isSeaXZ = (_x: number, z: number) => z < SEA_ROWS;
-export const isSandXZ = (_x: number, z: number) => z >= SEA_ROWS && z < SEA_ROWS + SAND_ROWS;
-export const isSea = (i: number) => Math.floor(i / SIZE) < SEA_ROWS;
+// Ada: ortası elipsin içinde kalan kareler
+export function isIslandXZ(x: number, z: number) {
+  const dx = (x + 0.5 - ISLAND.cx) / ISLAND.rx, dz = (z + 0.5 - ISLAND.cz) / ISLAND.rz;
+  return dx * dx + dz * dz <= 1;
+}
+// Deniz: ana karanın kumsalından kuzeye kadar her yer (ada hariç). Kumsal: ana karanın ilk iki sırası ve adanın kıyısı.
+export const isSeaXZ = (x: number, z: number) => z < COAST_ROW && !isIslandXZ(x, z);
+export function isSandXZ(x: number, z: number) {
+  if (z >= COAST_ROW && z < COAST_ROW + SAND_ROWS) return true;
+  if (!isIslandXZ(x, z)) return false;
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (!isIslandXZ(x + dx, z + dz)) return true;
+  return false;
+}
+export const isSea = (i: number) => isSeaXZ(i % SIZE, Math.floor(i / SIZE));
 // Nehir kareleri: doğuda iki sütun (denize dökülür), güneyde iki satır (köşede birleşir)
 export function isRiverXZ(x: number, z: number) {
   const [a, b] = RIVER;
-  return z >= SEA_ROWS && (((x === a || x === b) && z <= b) || ((z === a || z === b) && x <= b));
+  const [ra, rb] = RIVER_ROWS;
+  return z >= COAST_ROW && (((x === a || x === b) && z <= rb) || ((z === ra || z === rb) && x <= b));
 }
 export const isWaterXZ = (x: number, z: number) => isSeaXZ(x, z) || isRiverXZ(x, z);
 export const isWater = (i: number) => isWaterXZ(i % SIZE, Math.floor(i / SIZE));
@@ -100,11 +112,13 @@ const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Recor
 
 // [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?]
 type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?];
-// Yol aracının yaptığı yol çeşidi (cadde 1, bulvar 2); yol değilse -1
+// Yol aracının yaptığı yol çeşidi (bulvar 1, cadde 2); yol değilse -1
 export const gradeOf = (tool: BuildTool) => ROAD_TOOLS.indexOf(tool);
 export interface SaveData {
   v: 5;
-  sz: number; // harita boyutu
+  sz: number; // harita genişliği
+  rows?: number; // harita boyu (yoksa eski kare harita: sz x sz)
+  rg?: number; // yol çeşitlerinin sırası (yoksa eski: 1 cadde, 2 bulvar; ikisi de artık bulvar)
   own: number[]; // sahip olunan arazi parçaları
   money: number;
   day: number;
@@ -137,7 +151,7 @@ export interface Service {
 }
 
 export class City {
-  tiles: (Tile | null)[] = new Array(SIZE * SIZE).fill(null);
+  tiles: (Tile | null)[] = new Array(SIZE * ROWS).fill(null);
   money = START_MONEY;
   day = 1;
   xp = 0;
@@ -148,21 +162,24 @@ export class City {
   treasury = 0; // belediyede toplanmayı bekleyen vergi
   stats: CityStats = emptyStats();
   quests: Quest[] = [];
-  happy = new Float32Array(SIZE * SIZE); // her evin mutluluğu (0..1)
-  decorBonus = new Float32Array(SIZE * SIZE); // simge yapılardan gelen mutluluk
-  owned = new Uint8Array(PLOTS * PLOTS); // hangi arazi parçaları bizim
+  happy = new Float32Array(SIZE * ROWS); // her evin mutluluğu (0..1)
+  traffic = new Float32Array(SIZE * ROWS); // her yol karesinden geçen araba
+  transit = new Float32Array(SIZE * ROWS); // her karede toplu taşımaya binenlerin payı
+  decorBonus = new Float32Array(SIZE * ROWS); // simge yapılardan gelen mutluluk
+  owned = new Uint8Array(PLOTS * PLOT_ROWS); // hangi arazi parçaları bizim
   orders: Order[] = []; // limandaki komşu şehir siparişleri
   lastShipped = 0; // son geminin kalkış zamanı (sadece görüntü için)
   seaRefund = 0; // eski kayıtta denize kalan binaların geri ödenen parası
+  tradeRefund = 0; // kaldırılan ticaret merkezlerinin geri ödenen parası
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
   service: Service = { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } };
   // Her kare için hangi hizmetlerin kapsadığı (bit maskesi, SERVICE_KINDS sırasıyla)
-  private covered = new Uint8Array(SIZE * SIZE);
+  private covered = new Uint8Array(SIZE * ROWS);
 
   constructor() {
-    for (let pz = START_PLOT_MIN; pz <= START_PLOT_MAX; pz++) {
+    for (let pz = START_PZ_MIN; pz <= START_PZ_MAX; pz++) {
       for (let px = START_PLOT_MIN; px <= START_PLOT_MAX; px++) this.owned[pz * PLOTS + px] = 1;
     }
     for (let x = 0; x < ENTRANCE_LEN; x++) {
@@ -208,7 +225,7 @@ export class City {
     const px = p % PLOTS, pz = Math.floor(p / PLOTS);
     const next = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
       const x = px + dx, z = pz + dz;
-      return x >= 0 && z >= 0 && x < PLOTS && z < PLOTS && this.owned[z * PLOTS + x] === 1;
+      return x >= 0 && z >= 0 && x < PLOTS && z < PLOT_ROWS && this.owned[z * PLOTS + x] === 1;
     });
     if (!next) return 'Önce yanındaki araziyi satın al';
     if (this.money < this.landPrice) return 'Yeterli para yok';
@@ -355,7 +372,76 @@ export class City {
     this.updateReach();
     this.updateService();
     this.updateCoverage();
+    this.updateTraffic();
     this.updateHappiness();
+  }
+
+  // --- Trafik ---
+
+  // Her ev, arabalarını en kısa yoldan şehir girişine gönderir; geçtiği yolların yükü artar
+  private updateTraffic() {
+    const n = SIZE * ROWS;
+    this.traffic.fill(0);
+    const start = idx(0, ENTRANCE_Z);
+    if (this.tiles[start]?.kind !== 'road') return;
+    const parent = new Int32Array(n).fill(-2);
+    const order = new Int32Array(n).fill(-1);
+    parent[start] = -1;
+    const queue = [start];
+    for (let q = 0; q < queue.length; q++) {
+      const c = queue[q];
+      order[c] = q;
+      const x = c % SIZE, z = Math.floor(c / SIZE);
+      for (const [dx, dz] of DIRS) {
+        if (!inBounds(x + dx, z + dz)) continue;
+        const nb = idx(x + dx, z + dz);
+        if (parent[nb] !== -2 || this.tiles[nb]?.kind !== 'road') continue;
+        parent[nb] = c;
+        queue.push(nb);
+      }
+    }
+    // Toplu taşıma yakınındaki evlerden daha az araba çıkar
+    const transit = this.transit;
+    transit.fill(0);
+    this.tiles.forEach((t, i) => {
+      const share = t ? TRAFFIC.transit[t.kind] : 0;
+      if (!share || !isDecor(t!.kind)) return;
+      for (const c of areaAround(i, DECOR[t!.kind as DecorKind].radius, t!.fp ?? 1)) transit[c] = Math.min(TRAFFIC.maxTransit, transit[c] + share);
+    });
+    this.tiles.forEach((t, i) => {
+      if (t?.kind !== 'res' || t.level === 0) return;
+      const cars = RES_LEVELS[t.level - 1].pop * TRAFFIC.carsPerPerson * (1 - transit[i]);
+      const x = i % SIZE, z = Math.floor(i / SIZE);
+      let best = -1;
+      for (const [dx, dz] of DIRS) {
+        if (!inBounds(x + dx, z + dz)) continue;
+        const nb = idx(x + dx, z + dz);
+        if (order[nb] >= 0 && (best < 0 || order[nb] < order[best])) best = nb;
+      }
+      for (let c = best; c >= 0; c = parent[c]) this.traffic[c] += cars;
+    });
+  }
+
+  // Bir yolun taşıyabileceği araba
+  roadCapacity(i: number) {
+    return TRAFFIC.capacity * ROAD_GRADES[this.tiles[i]?.grade ?? 0].capacity;
+  }
+
+  // Yolun doluluğu (1'den büyükse tıkalı)
+  congestion(i: number) {
+    return this.tiles[i]?.kind === 'road' ? this.traffic[i] / this.roadCapacity(i) : 0;
+  }
+
+  get jams() {
+    let n = 0;
+    this.tiles.forEach((t, i) => t?.kind === 'road' && this.congestion(i) > 1 && n++);
+    return n;
+  }
+
+  // Yanında tıkalı yol var mı?
+  nearJam(i: number) {
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && this.congestion(idx(x + dx, z + dz)) > 1);
   }
 
   // Fabrika ya da santral yakınında mı? (kirlilik)
@@ -367,9 +453,9 @@ export class City {
   private updateHappiness() {
     this.happy.fill(0);
     // Simge yapıların mutluluk katkısı (aynı türden birden fazlası üst üste binmez)
-    const decor = new Float32Array(SIZE * SIZE);
+    const decor = new Float32Array(SIZE * ROWS);
     for (const kind of DECOR_KINDS) {
-      const seen = new Uint8Array(SIZE * SIZE);
+      const seen = new Uint8Array(SIZE * ROWS);
       this.tiles.forEach((t, i) => {
         if (t?.kind !== kind) return;
         for (const c of areaAround(i, DECOR[kind].radius, t.fp ?? 1)) seen[c] = 1;
@@ -384,6 +470,7 @@ export class City {
       if (this.shopNear(i)) h += HAPPY.shop;
       if (this.polluted(i)) h += HAPPY.pollution;
       h += ROAD_GRADES[this.bestRoad(i)].happy;
+      if (this.nearJam(i)) h += TRAFFIC.happy;
       h += Math.min(DECOR_MAX, decor[i]);
       this.decorBonus[i] = Math.min(DECOR_MAX, decor[i]);
       this.happy[i] = Math.min(1, Math.max(0, h));
@@ -632,6 +719,9 @@ export class City {
       if (this.shopNear(i)) max++;
       if (max === RES_BASE_MAX + 2 && this.allCovered(i)) max++;
       if (max === RES_BASE_MAX + 3 && this.decorBonus[i] >= LUXURY_DECOR - 1e-6) max++;
+      // Gökdelenler: 7. seviye için yanında bulvar ya da cadde, 8. seviye için yakında metro ya da tren
+      if (max === RES_BASE_MAX + 4 && this.bestRoad(i) >= 1) max++;
+      if (max === RES_BASE_MAX + 5 && this.transit[i] >= 0.25) max++;
       return Math.min(max, RES_LEVELS.length);
     }
     return Math.min(COM_LEVELS.length, 1 + Math.floor(this.population / POP_PER_COM_LEVEL));
@@ -655,28 +745,36 @@ export class City {
     for (const [m, n] of Object.entries(cost) as [MatId, number][]) this.storage[m] -= n;
   }
 
-  // --- Ticaret merkezi: malzeme sat / ham madde satın al ---
+  // --- Fabrika ve dükkan seviyeleri ---
 
-  get hasTrade() {
-    return this.tiles.some((t, i) => t?.kind === 'trade' && this.isConnected(i));
+  // Aynı anda kaç üretim (fabrika) ya da sırada kaç ürün (dükkan)
+  makerSlots(i: number) {
+    const t = this.tiles[i]!;
+    return (t.kind === 'factory' ? FACTORY_SLOTS : STORE_QUEUE) + t.level;
   }
 
-  sell(mat: MatId): string | null {
-    if (!this.hasTrade) return 'Önce yola bağlı bir ticaret merkezi kur';
-    if (this.storage[mat] < 1) return 'Depoda yok';
-    this.storage[mat]--;
-    this.money += MATERIALS[mat].price;
+  // Bu binada bir ürünün kaç saniyede yapıldığı
+  makerTime(i: number, mat: MatId) {
+    return Math.round(MATERIALS[mat].seconds * MAKER_LEVELS[this.tiles[i]?.level ?? 0].speed);
+  }
+
+  makerUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (!t) return 'Burada bina yok';
+    const next = MAKER_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
+    if (this.money < next.money) return 'Yeterli para yok';
     return null;
   }
 
-  buy(mat: MatId): string | null {
-    if (!this.hasTrade) return 'Önce yola bağlı bir ticaret merkezi kur';
-    if (MATERIALS[mat].maker !== 'factory' || !this.isUnlocked(mat)) return 'Bu malzeme satın alınamaz';
-    if (this.storageUsed >= this.storageCap) return 'Depo dolu';
-    const price = MATERIALS[mat].price * 2;
-    if (this.money < price) return 'Yeterli para yok';
-    this.money -= price;
-    this.storage[mat]++;
+  upgradeMaker(i: number): string | null {
+    const err = this.makerUpgradeBlocker(i);
+    if (err) return err;
+    const t = this.tiles[i]!;
+    this.money -= MAKER_LEVELS[t.level + 1].money;
+    t.level++;
+    this.addXp(XP.build * 3);
     return null;
   }
 
@@ -773,7 +871,9 @@ export class City {
       if (!this.parkNear(i)) return 'Yakında park lazım';
       if (!this.shopNear(i)) return 'Yakında dükkan lazım';
       if (!this.allCovered(i)) return 'Dört hizmetin de kapsaması lazım';
-      return 'Yakında bir simge yapı lazım (heykel, dönme dolap, stadyum…)';
+      if (this.decorBonus[i] < LUXURY_DECOR - 1e-6) return 'Yakında bir simge yapı lazım (heykel, dönme dolap, stadyum…)';
+      if (this.bestRoad(i) < 1) return 'Gökdelen için yanındaki yol en az bulvar olmalı';
+      return 'Dev gökdelen için yakında metro ya da tren istasyonu lazım';
     }
     const extra = RES_LEVELS[t.level].need - RES_LEVELS[t.level - 1].need;
     if (extra > this.spareUtility) return 'Şehre daha fazla elektrik ve su lazım';
@@ -810,8 +910,7 @@ export class City {
     if (!this.isUnlocked(mat)) return `Şehir seviyesi ${m.unlock}'te açılır`;
     if (!this.isConnected(i)) return 'Bina yola bağlı değil';
     const list = this.jobs.get(i) ?? [];
-    if (t.kind === 'factory' && list.length >= FACTORY_SLOTS) return 'Bütün üretim yerleri dolu';
-    if (t.kind !== 'factory' && list.length >= STORE_QUEUE) return 'Sıra dolu';
+    if (list.length >= this.makerSlots(i)) return t.kind === 'factory' ? 'Bütün üretim yerleri dolu' : 'Sıra dolu';
     if (m.needs && !this.hasMaterials(m.needs)) return 'Depoda yeterli malzeme yok';
     return null;
   }
@@ -824,7 +923,7 @@ export class City {
     if (m.needs) this.take(m.needs);
     // Fabrikada hepsi aynı anda, hırdavatçıda bir öncekinin bitmesini bekler
     const start = m.maker !== 'factory' && list.length ? Math.max(now, list[list.length - 1].end) : now;
-    list.push({ mat, end: start + m.seconds * 1000 });
+    list.push({ mat, end: start + this.makerTime(i, mat) * 1000 });
     this.jobs.set(i, list);
     return null;
   }
@@ -869,7 +968,10 @@ export class City {
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
-    if (cells.some(isSea)) return 'Denizin üstüne bir şey yapılamaz';
+    if (cells.some(isSea)) {
+      if (tool !== 'road') return gradeOf(tool) > 0 && t?.kind === 'road' ? 'Asma köprü yükseltilemez' : 'Denizin üstüne sadece yol (asma köprü) yapılır';
+      if (this.level < SEA_BRIDGE.level) return `Asma köprü şehir seviyesi ${SEA_BRIDGE.level}'te açılır`;
+    }
     if (!ROAD_TOOLS.includes(tool) && tool !== 'rail' && cells.some(isWater)) return 'Suyun üstüne sadece yol ya da ray (köprü) yapılır';
     // Cadde ve bulvar: boş kareye yeni yapılır ya da var olan yol yükseltilir
     const grade = gradeOf(tool);
@@ -917,7 +1019,8 @@ export class City {
       // Yükseltmede sadece aradaki fark ödenir
       const t = this.tiles[i];
       const price = gradeOf(tool) > 0 && t?.kind === 'road' ? COST[tool] - COST[ROAD_GRADES[t.grade ?? 0].tool] : COST[tool];
-      return s + price * ((ROAD_TOOLS.includes(tool) || tool === 'rail') && isWater(i) ? BRIDGE_COST : 1);
+      const bridge = isSea(i) ? SEA_BRIDGE.cost : BRIDGE_COST;
+      return s + price * ((ROAD_TOOLS.includes(tool) || tool === 'rail') && isWater(i) ? bridge : 1);
     }, 0);
   }
 
@@ -1091,7 +1194,7 @@ export class City {
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
     const own: number[] = [];
     this.owned.forEach((v, p) => v && own.push(p));
-    return { v: 5, sz: SIZE, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
+    return { v: 5, sz: SIZE, rows: ROWS, rg: 2, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
   }
 
   static readonly VERSION = 5;
@@ -1109,15 +1212,23 @@ export class City {
     c.quests = [];
     c.money = data.money;
     c.day = data.day;
-    // Eski 32x32 kayıtlar yeni haritanın ortasına taşınır
+    // Eski 32x32 kayıtlar yeni haritanın ortasına taşınır; kare haritalı kayıtlar kuzeye eklenen deniz sıraları kadar aşağı kayar
     const oldSize = data.v === 5 ? data.sz : OLD_SIZE;
-    const shift = (SIZE - oldSize) / 2;
-    const move = (i: number) => idx((i % oldSize) + shift, Math.floor(i / oldSize) + shift);
+    const oldRows = (data.v === 5 && data.rows) || oldSize;
+    const shiftX = (SIZE - oldSize) / 2;
+    const shiftZ = shiftX + (ROWS - SIZE) - (oldRows - oldSize);
+    const move = (i: number) => idx((i % oldSize) + shiftX, Math.floor(i / oldSize) + shiftZ);
     if (data.v === 5) {
       c.owned.fill(0);
-      for (const p of data.own) if (p >= 0 && p < c.owned.length) c.owned[p] = 1;
+      const oldPlots = oldSize / PLOT;
+      for (const p of data.own) {
+        const px = (p % oldPlots) + shiftX / PLOT, pz = Math.floor(p / oldPlots) + shiftZ / PLOT;
+        if (px >= 0 && px < PLOTS && pz >= 0 && pz < PLOT_ROWS) c.owned[pz * PLOTS + px] = 1;
+      }
     }
-    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, grade] of data.t as TileRow[]) {
+    const newGrades = data.v === 5 && data.rg === 2;
+    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade] of data.t as TileRow[]) {
+      const grade = rawGrade && !newGrades ? 1 : rawGrade;
       const i = move(oldI);
       // Büyük binanın parçaları ana karenin numarasını tutar; o da taşınmalı
       const variant = rawKind === 'part' ? move(rawVariant) : rawVariant;
@@ -1173,6 +1284,13 @@ export class City {
       }
     });
     c.money += c.seaRefund;
+    // Ticaret merkezleri kaldırıldı (fabrika ve dükkanlar yeterli); parası geri verilir
+    c.tiles.forEach((t, i) => {
+      if (t?.kind !== 'trade') return;
+      c.tradeRefund += COST.trade;
+      for (const cell of c.cellsOf(i)) c.tiles[cell] = null;
+    });
+    c.money += c.tradeRefund;
     c.placeHall();
     c.refresh();
     c.fillQuests();

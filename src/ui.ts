@@ -54,15 +54,14 @@ function effectOf(t: BuildTool): string {
   }
   switch (t) {
     case 'road': return 'Her şeyi birbirine bağlar';
-    case 'avenue': return '🌳 Kenar evler +%5 mutlu';
-    case 'boulevard': return '🌷 Kenar evler +%10 mutlu';
+    case 'boulevard': return '🌷 Kenar evler +%8 mutlu';
+    case 'avenue': return '🛣️ Çift şerit, 3 kat araç';
     case 'rail': return 'Trenler için ray';
     case 'res': return '👥 Ev ve apartmanlar';
     case 'com': return '💼 Dükkan ve ofisler';
     case 'park': return '🌳 Evler büyüyebilir';
     case 'factory': return '🔩 Ham madde üretir';
     case 'depot': return `📦 +${DEPOT_STORAGE} depo yeri`;
-    case 'trade': return '💱 Malzeme al ve sat';
     case 'port': return '🚢 Komşu şehirlere sat';
     case 'store': case 'market': case 'furniture': case 'bakery': case 'fashion':
       return MAT_IDS.filter(m => MATERIALS[m].maker === t).map(m => MATERIALS[m].icon).join(' ');

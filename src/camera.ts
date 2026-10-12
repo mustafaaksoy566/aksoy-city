@@ -37,7 +37,12 @@ export class CameraRig {
   private ndc = new THREE.Vector2();
   private keys = new Set<string>();
 
-  constructor(private camera: THREE.PerspectiveCamera, private el: HTMLElement, private limit: number) {
+  // bounds: hedefin gezebileceği alan (dünya koordinatında)
+  constructor(
+    private camera: THREE.PerspectiveCamera,
+    private el: HTMLElement,
+    public bounds: { minX: number; maxX: number; minZ: number; maxZ: number },
+  ) {
     el.addEventListener('pointerdown', e => this.down(e));
     el.addEventListener('pointermove', e => this.move(e));
     el.addEventListener('pointerup', e => this.up(e));
@@ -74,8 +79,8 @@ export class CameraRig {
   }
 
   private clamp() {
-    this.target.x = THREE.MathUtils.clamp(this.target.x, -this.limit, this.limit);
-    this.target.z = THREE.MathUtils.clamp(this.target.z, -this.limit, this.limit);
+    this.target.x = THREE.MathUtils.clamp(this.target.x, this.bounds.minX, this.bounds.maxX);
+    this.target.z = THREE.MathUtils.clamp(this.target.z, this.bounds.minZ, this.bounds.maxZ);
     this.distance = THREE.MathUtils.clamp(this.distance, this.minDistance, this.maxDistance);
   }
 
