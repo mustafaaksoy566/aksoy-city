@@ -1,8 +1,8 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, type MatId,
+  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, type MatId,
 } from './config';
-import { City, isService, isUtility, serviceArea } from './city';
+import { City, isService, isUtility, isDecor, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
 
 // Bir binaya dokununca çıkan kartın içeriği
@@ -20,6 +20,18 @@ export interface CardActions {
   extinguish(i: number): void;
   repair(i: number): void;
   claim(n: number): void;
+  buyLand(plot: number): void;
+}
+
+export function describeLand(city: City, plot: number, act: CardActions): InfoCard {
+  const err = city.canBuyPlot(plot);
+  const lines: InfoCard['lines'] = [{ text: `${PLOT}x${PLOT} karelik boş arazi. Şehrini büyütmek için satın al.` }];
+  if (err && err !== 'Yeterli para yok') lines.push({ ok: false, text: err });
+  return {
+    title: '🏞️ Satılık arazi',
+    lines,
+    actions: [{ label: `🏞️ Satın al (💰${fmt(city.landPrice)})`, enabled: err === null, primary: true, run: () => act.buyLand(plot) }],
+  };
 }
 
 const pct = (x: number) => `%${Math.round(x * 100)}`;
@@ -106,6 +118,7 @@ export function describeStorage(city: City): InfoCard {
 
 export function describeTile(city: City, i: number, act: CardActions, now = Date.now()): InfoCard | null {
   const t = city.tiles[i];
+  if (!city.isOwned(i) && t?.kind !== 'road') return describeLand(city, city.plotOf(i), act);
   if (!t || t.kind === 'road') return null;
   const connected = city.isConnected(i);
   const road = { ok: connected, text: connected ? 'Şehrin yollarına bağlı' : 'Yol bağlantısı yok' };
@@ -185,6 +198,18 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     return {
       title: '🌳 Park',
       lines: [{ text: `Çevresindeki ${PARK_RADIUS} kare içindeki evler 3. seviyeye çıkabilir.` }],
+    };
+  }
+
+  if (isDecor(t.kind)) {
+    const d = DECOR[t.kind];
+    const info = TOOL_INFO[t.kind];
+    return {
+      title: `${info.icon} ${info.label}`,
+      lines: [
+        { text: `😊 Çevresindeki ${d.radius} kare içindeki evlerin mutluluğu +${pct(d.happy)}` },
+        { text: `🔧 Bakım: ${d.upkeep}/gün` },
+      ],
     };
   }
 

@@ -1,4 +1,6 @@
 Bu klasördeki 3D modeller Poly Pizza (poly.pizza) üzerinden indirildi ve CC0 1.0 (kamu malı) lisanslıdır.
 
-city/  - Kenney "City Kit" (ticari binalar) - https://poly.pizza/bundle/City-Kit-0CkvGrBJ0u
-cars/  - Quaternius araba modelleri - https://poly.pizza/u/Quaternius
+city/   - Kenney "City Kit" (ticari binalar) - https://poly.pizza/bundle/City-Kit-0CkvGrBJ0u
+cars/   - Quaternius araba modelleri - https://poly.pizza/u/Quaternius
+extra/  - k-*: Kenney banliyö evleri (https://poly.pizza/u/Kenney)
+          q-*: Quaternius heykel ve meydan çeşmesi (https://poly.pizza/u/Quaternius)

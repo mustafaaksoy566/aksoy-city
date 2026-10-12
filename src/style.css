@@ -108,8 +108,8 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   transform: translateX(-50%);
   bottom: calc(env(safe-area-inset-bottom) + 10px);
   display: flex;
-  gap: 4px;
-  padding: 6px;
+  gap: 3px;
+  padding: 5px;
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
@@ -118,7 +118,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 56px;
+  width: min(56px, calc((100vw - 52px) / 7));
   padding: 6px 0 5px;
   border: 0;
   border-radius: 16px;
@@ -126,7 +126,7 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   font-size: 11px;
   font-weight: 600;
 }
-#tools .ico { font-size: 24px; line-height: 1.15; }
+#tools .ico { font-size: 22px; line-height: 1.15; }
 #tools small { font-size: 10px; color: #6b7c8a; font-weight: 500; }
 #tools button.active, #submenu button.active { background: #ffca28; box-shadow: inset 0 -3px 0 #f9a825; }
 

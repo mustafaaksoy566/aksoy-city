@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from './config';
-import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isZone } from './city';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS, ROOF_COLORS, PLOT, PLOTS } from './config';
+import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
+import { makeDecor, animateDecor } from './landmarks';
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -45,10 +46,10 @@ const FACING_TURNS = [2, 1, 0, 3];
 
 export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - SIZE / 2 + 0.5);
 
-type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full' | 'fire' | 'repair' | 'coin';
+type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full' | 'fire' | 'repair' | 'coin' | 'sale';
 const ICON_COLORS: Record<IconType, string> = {
   road: '#e53935', power: '#ffb300', water: '#1e88e5', upgrade: '#43a047', full: '#8e44ad',
-  fire: '#ff5722', repair: '#607d8b', coin: '#f9a825',
+  fire: '#ff5722', repair: '#607d8b', coin: '#f9a825', sale: '#00897b',
 };
 
 // Binaların üstünde çıkan simgeler: yol yok (!), elektrik yok (şimşek), su yok (damla),
@@ -106,6 +107,10 @@ function iconTexture(type: IconType) {
     g.fillRect(-4, -26, 8, 12);
     g.restore();
     g.fillStyle = '#fff';
+  } else if (type === 'sale') {
+    // Artı işareti: satın alınabilir arazi
+    g.fillRect(28, 14, 8, 36);
+    g.fillRect(14, 28, 36, 8);
   } else if (type === 'coin') {
     // Para: içinde ₺ yazan altın
     g.font = 'bold 34px sans-serif';
@@ -163,6 +168,8 @@ export class CityView {
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
   private time = 0;
+  private land = new THREE.Group(); // satın alınmamış arazinin koyu örtüsü
+  private landMat = new THREE.MeshBasicMaterial({ color: '#1d3b24', transparent: true, opacity: 0.38, depthWrite: false });
 
   constructor(private city: City) {
     const geo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
@@ -181,6 +188,28 @@ export class CityView {
     this.coverage.count = 0;
     this.coverage.renderOrder = 1;
     this.root.add(this.coverage);
+    this.root.add(this.land);
+  }
+
+  // Satın alınmamış arazi parçalarını koyulaştır, satılık olanların ortasına "+" koy
+  updateLand() {
+    this.land.clear();
+    const geo = new THREE.PlaneGeometry(PLOT, PLOT).rotateX(-Math.PI / 2);
+    for (let p = 0; p < PLOTS * PLOTS; p++) {
+      if (this.city.owned[p]) continue;
+      const px = p % PLOTS, pz = Math.floor(p / PLOTS);
+      const m = new THREE.Mesh(geo, this.landMat);
+      m.position.set((px + 0.5) * PLOT - SIZE / 2, 0.09, (pz + 0.5) * PLOT - SIZE / 2);
+      m.renderOrder = 1;
+      this.land.add(m);
+      const next = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => this.city.owned[(pz + dz) * PLOTS + px + dx] === 1 && px + dx >= 0 && px + dx < PLOTS && pz + dz >= 0 && pz + dz < PLOTS);
+      if (next) {
+        const s = new THREE.Sprite(ICON_MATS.sale);
+        s.position.set(m.position.x, 0.8, m.position.z);
+        s.scale.setScalar(0.9);
+        this.land.add(s);
+      }
+    }
   }
 
   setCity(city: City) {
@@ -189,6 +218,7 @@ export class CityView {
   }
 
   rebuildAll() {
+    this.updateLand();
     for (const i of [...this.objs.keys()]) this.remove(i);
     for (let i = 0; i < SIZE * SIZE; i++) this.build(i, false);
     this.updateIcons();
@@ -239,6 +269,10 @@ export class CityView {
       o = makeService(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       this.animated.add(o);
+    } else if (isDecor(t.kind)) {
+      o = makeDecor(t.kind);
+      o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
+      this.animated.add(o);
     } else if (isIndustry(t.kind)) {
       o = makeIndustry(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
@@ -276,7 +310,9 @@ export class CityView {
     const path = models[variant % models.length];
     const group = new THREE.Group();
     const isCity = path.startsWith('polypizza/');
-    const b = makeModel(path, isCity ? WALL_COLORS[Math.floor(variant / 7) % WALL_COLORS.length] : undefined);
+    const wall = isCity ? WALL_COLORS[Math.floor(variant / 7) % WALL_COLORS.length] : undefined;
+    const roof = isCity ? ROOF_COLORS[Math.floor(variant / 3) % ROOF_COLORS.length] : undefined;
+    const b = makeModel(path, wall, roof);
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
     group.add(b);
     // Ticari kit binalarının altına kaldırım koy
@@ -384,6 +420,7 @@ export class CityView {
     for (const o of this.animated) {
       animateUtility(o, this.time, dt);
       animateService(o, this.time);
+      animateDecor(o, dt);
       const fl = o.getObjectByName('flames');
       if (fl) {
         fl.children.forEach((c, n) => {

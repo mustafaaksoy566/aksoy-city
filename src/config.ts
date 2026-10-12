@@ -1,13 +1,21 @@
 // Oyunun ayarları: fiyatlar, harita boyutu, bina seviyeleri
-export const SIZE = 32; // harita SIZE x SIZE kare
+export const SIZE = 48; // harita SIZE x SIZE kare
+
+// Arazi: harita 8x8'lik parçalara bölünür. Başta ortadaki 32x32 alan senindir, gerisi satın alınır.
+export const PLOT = 8;
+export const PLOTS = SIZE / PLOT; // bir kenarda kaç parça var
+export const START_PLOT_MIN = 1; // başta sahip olunan parçalar: 1..4 (her iki yönde)
+export const START_PLOT_MAX = 4;
+export const OLD_SIZE = 32; // eski kayıtlar 32x32 haritadaydı
+export const LAND = { price: 1500, step: 750, level: 3 }; // her yeni parça bir öncekinden pahalı
 export const DAY_SECONDS = 4; // bir oyun günü kaç saniye sürer
 export const START_MONEY = 3000;
 export const TAX_PER_PERSON = 0.5; // kişi başı günlük vergi
 export const TAX_PER_JOB = 0.5; // iş yeri başına günlük vergi
 
-// Şehir girişi: haritanın sol kenarından giren, yıkılamayan yol
+// Şehir girişi: haritanın sol kenarından giren, yıkılamayan yol (satın alınmamış arazinin içinden geçer)
 export const ENTRANCE_Z = SIZE / 2;
-export const ENTRANCE_LEN = 3;
+export const ENTRANCE_LEN = PLOT * START_PLOT_MIN + 3;
 
 // Elektrik ve su yapıları
 export type UtilKind = 'wind' | 'plant' | 'tower' | 'pump';
@@ -100,7 +108,18 @@ export const FIRE = { chance: 0.05, days: 4, cost: 150 }; // itfaiye kapsamayan 
 export const CRIME = { chance: 0.06, minPop: 60 }; // polis kapsamayan mahallelerde hırsızlık
 export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 2, wood: 1 } as Partial<Record<MatId, number>> };
 
-export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | 'bulldoze';
+// Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
+export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium';
+export const DECOR: Record<DecorKind, { radius: number; happy: number; upkeep: number }> = {
+  fountain: { radius: 4, happy: 0.1, upkeep: 1 },
+  statue: { radius: 5, happy: 0.12, upkeep: 1 },
+  wheel: { radius: 7, happy: 0.18, upkeep: 6 },
+  stadium: { radius: 9, happy: 0.22, upkeep: 12 },
+};
+export const DECOR_KINDS = Object.keys(DECOR) as DecorKind[];
+export const DECOR_MAX = 0.3; // simgelerden gelen toplam mutluluk en fazla bu kadar
+
+export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
@@ -108,6 +127,7 @@ export const COST: Record<BuildTool, number> = {
   wind: 300, plant: 1500, tower: 250, pump: 1200,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300,
+  fountain: 600, statue: 900, wheel: 2500, stadium: 5000,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -116,6 +136,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   store: 3, fire: 3,
   health: 4, plant: 4,
   school: 5, pump: 5,
+  fountain: 2, statue: 3, wheel: 5, stadium: 6,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -136,6 +157,10 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   factory: { icon: '🏭', label: 'Fabrika', hint: 'Fabrika metal ve odun üretir. Dokunup üretim başlat.' },
   store: { icon: '🔨', label: 'Hırdavatçı', hint: 'Hırdavatçı metal ve odundan çivi, çekiç gibi ürünler yapar.' },
   depot: { icon: '📦', label: 'Depo', hint: 'Her depo malzeme saklama yerini 40 artırır.' },
+  fountain: { icon: '⛲', label: 'Çeşme', hint: 'Meydan çeşmesi: çevresindeki evleri mutlu eder.' },
+  statue: { icon: '🗿', label: 'Heykel', hint: 'Atlı heykel: çevresindeki evleri mutlu eder.' },
+  wheel: { icon: '🎡', label: 'Dönme dolap', hint: 'Dönme dolap: geniş bir alanı çok mutlu eder.' },
+  stadium: { icon: '🏟️', label: 'Stadyum', hint: 'Stadyum: şehrin büyük bir kısmını çok mutlu eder.' },
 };
 export const HALL_INFO = { icon: '🏛️', label: 'Belediye' };
 
@@ -147,18 +172,27 @@ export const TOOLBAR: ToolbarItem[] = [
   { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', tools: ['factory', 'store', 'depot'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'plant', 'tower', 'pump'] },
-  { group: 'services', icon: '🏛️', label: 'Hizmet', tools: ['police', 'fire', 'health', 'school', 'park'] },
+  { group: 'services', icon: '🏛️', label: 'Hizmet', tools: ['police', 'fire', 'health', 'school'] },
+  { group: 'decor', icon: '🎡', label: 'Simge', tools: ['park', 'fountain', 'statue', 'wheel', 'stadium'] },
   'bulldoze',
 ];
 
 // Kenney başlangıç paketi (k/) ve Poly Pizza'dan gelen ticari binalar (c/)
 const k = (n: string) => `kenney/models/${n}`;
 const c = (n: string) => `polypizza/city/${n}`;
+const x = (n: string) => `polypizza/extra/${n}`;
 
 // Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
 export const RES_LEVELS = [
-  { pop: 6, need: 1, models: [k('building-small-a'), k('building-small-d'), c('small-building-3')] },
-  { pop: 14, need: 2, models: [k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6')] },
+  { pop: 6, need: 1, models: [k('building-small-a'), k('building-small-d'), c('small-building-3'), x('k-house-1'), x('k-house-2'), x('k-house-1'), x('k-house-2')] },
+  {
+    pop: 14,
+    need: 2,
+    models: [
+      k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6'),
+      x('k-house2-1'), x('k-house2-2'), x('k-house2-3'), x('k-house2-4'), x('k-house2-5'), x('k-house2-6'),
+    ],
+  },
   { pop: 30, need: 4, models: [c('large-building-1'), c('large-building-3'), c('large-building-5'), c('low-wide-1'), c('low-wide-2')] },
   { pop: 60, need: 7, models: [c('skyscraper-3'), c('skyscraper-6'), c('large-building-4')] },
   { pop: 100, need: 12, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5')] },
@@ -191,6 +225,9 @@ export const CAR_MODELS = ['car-1', 'car-2', 'suv', 'sports-1', 'sports-2', 'tax
 
 // Ticari binaların duvar renkleri (her bina rastgele birini alır)
 export const WALL_COLORS = ['#f3e3c3', '#f2b88b', '#e98b6d', '#9fd3ea', '#c7e3a4', '#f6d77c', '#ececec', '#c5b3e6', '#f5a9a0', '#b9d4c8'];
+// Banliyö evlerinin çatı renkleri
+export const ROOF_COLORS = ['#7fbfa6', '#c0503a', '#5a6f8a', '#8a5a44', '#d9874a', '#6b8e4e', '#9b6fa8'];
+export const DECOR_MODELS: Partial<Record<DecorKind, string>> = { fountain: x('q-town-center-1'), statue: x('q-horse-statue') };
 
 export const ALL_MODELS = [
   ...new Set([
@@ -200,5 +237,6 @@ export const ALL_MODELS = [
     ...PARK_MODELS,
     PAVEMENT,
     ...CAR_MODELS,
+    ...(Object.values(DECOR_MODELS) as string[]),
   ]),
 ];

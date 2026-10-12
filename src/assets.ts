@@ -51,7 +51,7 @@ export async function loadModels(paths: string[]) {
           o.receiveShadow = true;
         }
       });
-      if (path.startsWith('polypizza/city/')) {
+      if (path.startsWith('polypizza/city/') || path.startsWith('polypizza/extra/')) {
         obj = normalize(obj, 0, s => Math.min(BUILDING_MAX_SCALE, BUILDING_FIT / Math.max(s.x, s.z)));
       } else if (path.startsWith('polypizza/cars/')) {
         obj = normalize(obj, carTurn(obj), s => CAR_LENGTH / Math.max(s.x, s.z));
@@ -61,22 +61,23 @@ export async function loadModels(paths: string[]) {
   );
 }
 
-// Modelin bir kopyasını ver; istenirse gri duvarları verilen renge boya
-export function makeModel(path: string, wallColor?: string): THREE.Object3D {
+// Modelin bir kopyasını ver; istenirse duvarları ve çatıyı verilen renklere boya
+export function makeModel(path: string, wallColor?: string, roofColor?: string): THREE.Object3D {
   const m = models.get(path);
   if (!m) throw new Error(`Model yüklenmedi: ${path}`);
   const copy = m.clone(true);
-  if (wallColor) {
+  if (wallColor || roofColor) {
     copy.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       const mat = mesh.material as THREE.MeshStandardMaterial;
-      if (mat.name !== '_defaultMat') return;
-      const key = `${mat.uuid}|${wallColor}`;
+      const color = mat.name === '_defaultMat' ? wallColor : mat.name === 'roof' ? roofColor : undefined;
+      if (!color) return;
+      const key = `${mat.uuid}|${color}`;
       let t = tinted.get(key);
       if (!t) {
         const c = mat.clone();
-        c.color.set(wallColor);
+        c.color.set(color);
         tinted.set(key, c);
         t = c;
       }

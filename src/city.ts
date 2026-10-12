@@ -3,12 +3,13 @@ import {
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
-  HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE,
-  type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type MatId,
+  HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND,
+  type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
 
-export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | UtilKind | ServiceKind | IndustryKind;
+export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | UtilKind | ServiceKind | IndustryKind | DecorKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
@@ -40,7 +41,20 @@ export const isZone = (k: Kind | undefined): k is 'res' | 'com' => k === 'res' |
 export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k && k in UTILITIES;
 export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
 export const isIndustry = (k: Kind | string | undefined): k is IndustryKind => !!k && k in INDUSTRY;
-const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS];
+export const isDecor = (k: Kind | string | undefined): k is DecorKind => !!k && k in DECOR;
+const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS, ...DECOR_KINDS];
+
+// Daire şeklinde bir alanın kareleri (hizmet ve simge yapılar için)
+export function areaAround(i: number, r: number): number[] {
+  const x0 = i % SIZE, z0 = Math.floor(i / SIZE);
+  const out: number[] = [];
+  for (let z = z0 - r; z <= z0 + r; z++) {
+    for (let x = x0 - r; x <= x0 + r; x++) {
+      if (inBounds(x, z) && (x - x0) ** 2 + (z - z0) ** 2 <= r * r + r) out.push(idx(x, z));
+    }
+  }
+  return out;
+}
 
 // Bir hizmet binasının kapsadığı kareler (daire şeklinde)
 export function serviceArea(i: number, kind: ServiceKind): number[] {
@@ -61,7 +75,9 @@ const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Recor
 // [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?]
 type TileRow = [number, Kind, number, number, number, number?, number?];
 export interface SaveData {
-  v: 4;
+  v: 5;
+  sz: number; // harita boyutu
+  own: number[]; // sahip olunan arazi parçaları
   money: number;
   day: number;
   xp: number;
@@ -74,7 +90,10 @@ export interface SaveData {
 }
 // Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu, v3'te belediye ve görev yoktu
 interface OldSaveData {
-  v: 1 | 2 | 3;
+  v: 1 | 2 | 3 | 4;
+  tr?: number;
+  ss?: CityStats;
+  q?: Quest[];
   money: number;
   day: number;
   xp?: number;
@@ -101,6 +120,8 @@ export class City {
   stats: CityStats = emptyStats();
   quests: Quest[] = [];
   happy = new Float32Array(SIZE * SIZE); // her evin mutluluğu (0..1)
+  decorBonus = new Float32Array(SIZE * SIZE); // simge yapılardan gelen mutluluk
+  owned = new Uint8Array(PLOTS * PLOTS); // hangi arazi parçaları bizim
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
@@ -109,6 +130,9 @@ export class City {
   private covered = new Uint8Array(SIZE * SIZE);
 
   constructor() {
+    for (let pz = START_PLOT_MIN; pz <= START_PLOT_MAX; pz++) {
+      for (let px = START_PLOT_MIN; px <= START_PLOT_MAX; px++) this.owned[pz * PLOTS + px] = 1;
+    }
     for (let x = 0; x < ENTRANCE_LEN; x++) {
       this.tiles[idx(x, ENTRANCE_Z)] = { kind: 'road', level: 0, facing: 0, variant: 0, locked: true };
     }
@@ -121,11 +145,50 @@ export class City {
   private placeHall() {
     if (this.tiles.some(t => t?.kind === 'hall')) return;
     this.updateReach();
-    const near = [idx(1, ENTRANCE_Z - 1), idx(1, ENTRANCE_Z + 1), idx(2, ENTRANCE_Z - 1), idx(2, ENTRANCE_Z + 1), idx(0, ENTRANCE_Z - 1)];
-    const free = (i: number) => !this.tiles[i] && this.isConnected(i);
+    const e = ENTRANCE_LEN;
+    const near = [idx(e - 2, ENTRANCE_Z - 1), idx(e - 2, ENTRANCE_Z + 1), idx(e - 1, ENTRANCE_Z - 1), idx(e - 1, ENTRANCE_Z + 1), idx(e - 3, ENTRANCE_Z - 1)];
+    const free = (i: number) => !this.tiles[i] && this.isConnected(i) && this.isOwned(i);
     const spot = near.find(free) ?? this.tiles.findIndex((_, i) => free(i));
     if (spot < 0) return;
     this.tiles[spot] = { kind: 'hall', level: 0, facing: this.facingFor(spot), variant: 0, locked: true };
+  }
+
+  // --- Arazi ---
+
+  plotOf(i: number) {
+    return Math.floor(Math.floor(i / SIZE) / PLOT) * PLOTS + Math.floor((i % SIZE) / PLOT);
+  }
+
+  isOwned(i: number) {
+    return this.owned[this.plotOf(i)] === 1;
+  }
+
+  // Bir sonraki arazi parçasının fiyatı
+  get landPrice() {
+    const start = (START_PLOT_MAX - START_PLOT_MIN + 1) ** 2;
+    const bought = this.owned.reduce((s, v) => s + v, 0) - start;
+    return LAND.price + LAND.step * bought;
+  }
+
+  canBuyPlot(p: number): string | null {
+    if (this.owned[p]) return 'Bu arazi zaten senin';
+    if (this.level < LAND.level) return `Arazi almak için şehir seviyesi ${LAND.level} lazım`;
+    const px = p % PLOTS, pz = Math.floor(p / PLOTS);
+    const next = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
+      const x = px + dx, z = pz + dz;
+      return x >= 0 && z >= 0 && x < PLOTS && z < PLOTS && this.owned[z * PLOTS + x] === 1;
+    });
+    if (!next) return 'Önce yanındaki araziyi satın al';
+    if (this.money < this.landPrice) return 'Yeterli para yok';
+    return null;
+  }
+
+  buyPlot(p: number): string | null {
+    const err = this.canBuyPlot(p);
+    if (err) return err;
+    this.money -= this.landPrice;
+    this.owned[p] = 1;
+    return null;
   }
 
   get hall() {
@@ -217,6 +280,16 @@ export class City {
   // Her evin mutluluğu: hizmetler, park, dükkan artırır; kirlilik azaltır
   private updateHappiness() {
     this.happy.fill(0);
+    // Simge yapıların mutluluk katkısı (aynı türden birden fazlası üst üste binmez)
+    const decor = new Float32Array(SIZE * SIZE);
+    for (const kind of DECOR_KINDS) {
+      const seen = new Uint8Array(SIZE * SIZE);
+      this.tiles.forEach((t, i) => {
+        if (t?.kind !== kind) return;
+        for (const c of areaAround(i, DECOR[kind].radius)) seen[c] = 1;
+      });
+      seen.forEach((v, c) => v && (decor[c] += DECOR[kind].happy));
+    }
     this.tiles.forEach((t, i) => {
       if (t?.kind !== 'res' || t.level === 0) return;
       let h = HAPPY.base;
@@ -224,6 +297,8 @@ export class City {
       if (this.parkNear(i)) h += HAPPY.park;
       if (this.shopNear(i)) h += HAPPY.shop;
       if (this.polluted(i)) h += HAPPY.pollution;
+      h += Math.min(DECOR_MAX, decor[i]);
+      this.decorBonus[i] = Math.min(DECOR_MAX, decor[i]);
       this.happy[i] = Math.min(1, Math.max(0, h));
     });
   }
@@ -355,6 +430,7 @@ export class City {
       if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep;
       if (isService(t.kind)) sum += SERVICES[t.kind].upkeep;
       if (isIndustry(t.kind)) sum += INDUSTRY[t.kind].upkeep;
+      if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep;
     }
     return sum;
   }
@@ -565,6 +641,7 @@ export class City {
       return t.locked ? 'Şehir girişi yıkılamaz' : null;
     }
     if (!this.isUnlocked(tool)) return `Şehir seviyesi ${this.unlockLevel(tool)}'te açılır`;
+    if (inBounds(x, z) && !this.isOwned(idx(x, z))) return 'Bu arazi henüz senin değil';
     if (t) return 'Burası dolu';
     if (tool === 'res' || tool === 'com') {
       if (this.roadMask(x, z) === 0) return 'Bölgeler yol kenarına çizilmeli';
@@ -707,10 +784,12 @@ export class City {
     const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => [job.mat, job.end] as [MatId, number])]);
     const st: SaveData['st'] = {};
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
-    return { v: 4, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests };
+    const own: number[] = [];
+    this.owned.forEach((v, p) => v && own.push(p));
+    return { v: 5, sz: SIZE, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests };
   }
 
-  static readonly VERSION = 4;
+  static readonly VERSION = 5;
 
   // Bu kaydı okuyabilir miyiz? (sürüm kontrolü tek yerde)
   static canLoad(data: unknown): data is SaveData | OldSaveData {
@@ -725,7 +804,16 @@ export class City {
     c.quests = [];
     c.money = data.money;
     c.day = data.day;
-    for (const [i, rawKind, rawLevel, facing, variant, fire, damaged] of data.t as TileRow[]) {
+    // Eski 32x32 kayıtlar yeni haritanın ortasına taşınır
+    const oldSize = data.v === 5 ? data.sz : OLD_SIZE;
+    const shift = (SIZE - oldSize) / 2;
+    const move = (i: number) => idx((i % oldSize) + shift, Math.floor(i / oldSize) + shift);
+    if (data.v === 5) {
+      c.owned.fill(0);
+      for (const p of data.own) if (p >= 0 && p < c.owned.length) c.owned[p] = 1;
+    }
+    for (const [oldI, rawKind, rawLevel, facing, variant, fire, damaged] of data.t as TileRow[]) {
+      const i = move(oldI);
       let kind = rawKind as Kind;
       let level = rawLevel;
       if (data.v === 1 && (rawKind as string) === 'house') {
@@ -740,13 +828,14 @@ export class City {
         if (damaged) c.tiles[i]!.damaged = true;
       }
     }
-    if (data.v === 3 || data.v === 4) {
+    if (data.v >= 3) {
       c.xp = data.xp ?? 0;
       for (const m of MAT_IDS) c.storage[m] = data.st?.[m] ?? 0;
-      for (const [i, list] of data.j ?? []) {
+      for (const [oldI, list] of data.j ?? []) {
+        const i = move(oldI);
         if (isIndustry(c.tiles[i]?.kind)) c.jobs.set(i, list.filter(([m]) => m in MATERIALS).map(([mat, end]) => ({ mat, end })));
       }
-      if (data.v === 4) {
+      if (data.v >= 4) {
         c.treasury = data.tr ?? 0;
         c.stats = { ...emptyStats(), ...data.ss };
         c.quests = (data.q ?? []).filter(q => q && q.type);

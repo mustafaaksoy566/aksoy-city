@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import {
-  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
+  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
   type Tool, type BuildTool, type MatId,
 } from './config';
 import { City, isUtility, isService, isIndustry, serviceArea } from './city';
@@ -9,7 +9,8 @@ import { describeTile, describeStorage, describeQuests, describeHall, type CardA
 import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
-import { Traffic } from './traffic';
+import { Traffic, Walkers } from './traffic';
+import { DayNight, CYCLE_DAYS } from './daynight';
 import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
@@ -32,7 +33,7 @@ scene.background = new THREE.Color('#9fd8f0');
 scene.fog = new THREE.Fog('#9fd8f0', 70, 150);
 
 const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 400);
-const start = tileCenter(8, ENTRANCE_Z);
+const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
 camera.position.set(start.x + 12, 18, start.z + 12);
 
 const controls = new MapControls(camera, renderer.domElement);
@@ -42,7 +43,8 @@ controls.enableRotate = false;
 controls.minDistance = 8;
 controls.maxDistance = 60;
 
-scene.add(new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.6));
+const hemi = new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.6);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff6e0', 2.2);
 sun.position.set(-12, 30, 18);
 sun.castShadow = true;
@@ -101,6 +103,9 @@ const view = new CityView(city);
 scene.add(view.root);
 const traffic = new Traffic(city);
 scene.add(traffic.root);
+const walkers = new Walkers(city);
+scene.add(walkers.root);
+const dayNight = new DayNight(scene, hemi, sun);
 
 const updateStats = () =>
   setStats({
@@ -205,6 +210,19 @@ const cardActions: CardActions = {
       toast('🔧 Bina onarıldı!');
       view.refresh([i], true);
       play('grow', 0.5);
+    }
+    afterChange();
+  },
+  buyLand(plot) {
+    const err = city.buyPlot(plot);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      view.updateLand();
+      openCard = null;
+      play('grow', 0.6);
+      toast('🏞️ Yeni arazi senin! Şehrini büyütebilirsin.');
     }
     afterChange();
   },
@@ -396,6 +414,7 @@ document.getElementById('reset')!.addEventListener('click', () => {
   openCard = null;
   view.setCity(city);
   traffic.setCity(city);
+  walkers.setCity(city);
   afterChange();
   toast('Yeni şehir kuruldu!');
 });
@@ -485,6 +504,8 @@ function frame() {
 
   view.update(dt);
   traffic.update(dt);
+  walkers.update(dt);
+  dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
   if (shake > 0) {
