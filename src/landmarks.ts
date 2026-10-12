@@ -8,6 +8,10 @@ import { SEA_Y } from './water';
 import { HISTORIC } from './historic';
 import { lake, hill, volley, casino } from './extras';
 import { ferrisWheel, funfair, museum, fountain, statue, observatory } from './fun';
+import { station, busStop, metro, airport, university, beach, palm, RUNWAY } from './places';
+import { bench, lamp } from './parts';
+
+export { palm, RUNWAY };
 
 // Simge yapılar. Dönme dolap, lunapark, müze, çeşme ve heykel fun.ts'te; tarihi yapılar historic.ts'te.
 
@@ -21,36 +25,6 @@ const M = {
   stand: mat('#d0d6dc'),
 };
 
-// Tren istasyonu (2x2 olarak büyütülür): önde peron ve sundurma, arkada bina
-function station() {
-  const g = new THREE.Group();
-  g.add(pad());
-  const concrete = mat('#d9d4cb');
-  const roof = mat('#2e7d5b');
-  const brick = mat('#c86b4a');
-  // Peron (rayın olduğu taraf: +z)
-  g.add(part(new THREE.BoxGeometry(0.9, 0.06, 0.3), concrete, 0, 0.07, 0.28));
-  g.add(part(new THREE.BoxGeometry(0.9, 0.012, 0.03), mat('#f2c14e'), 0, 0.105, 0.41));
-  // Sundurma: direkler ve yeşil çatı
-  for (const x of [-0.38, -0.12, 0.12, 0.38]) g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 6), M.steel, x, 0.21, 0.28));
-  const canopy = part(new THREE.BoxGeometry(0.92, 0.025, 0.3), roof, 0, 0.33, 0.28);
-  canopy.rotation.x = -0.08;
-  g.add(canopy);
-  // İstasyon binası ve saat
-  g.add(part(new THREE.BoxGeometry(0.62, 0.3, 0.32), brick, 0, 0.19, -0.16));
-  g.add(part(new THREE.BoxGeometry(0.66, 0.04, 0.36), roof, 0, 0.36, -0.16));
-  g.add(part(new THREE.BoxGeometry(0.16, 0.16, 0.16), brick, 0, 0.44, -0.16));
-  g.add(part(new THREE.CylinderGeometry(0.05, 0.05, 0.01, 16).rotateX(Math.PI / 2), M.white, 0, 0.45, -0.075));
-  for (const x of [-0.2, 0.2]) g.add(part(new THREE.BoxGeometry(0.1, 0.12, 0.01), mat('#9fd3ea'), x, 0.2, 0.002));
-  g.add(part(new THREE.BoxGeometry(0.12, 0.17, 0.01), mat('#3c3f44'), 0, 0.13, 0.002));
-  // Peronda bank
-  const bench = makeModel('kaykit/bench');
-  bench.position.set(-0.25, 0.1, 0.22);
-  g.add(bench);
-  return g;
-}
-
-// Otobüs durağı: camlı sundurma, bank ve tabela (yolun olduğu taraf +z)
 // Otopark (1x1): asfalt, arka sırada üç park yeri, önü yola açık; köşede mavi "P" tabelası.
 // Park eden arabaları trafik çizer (traffic.ts), burada sadece zemin var.
 function parkingLot() {
@@ -87,29 +61,6 @@ function parkingLot() {
   return g;
 }
 
-function busStop() {
-  const g = new THREE.Group();
-  const glass = new THREE.MeshStandardMaterial({ color: '#bfe6f5', transparent: true, opacity: 0.55 });
-  const roof = mat('#1e6fd9');
-  g.add(part(new THREE.BoxGeometry(0.5, 0.02, 0.22), mat('#d9d4cb'), 0, 0.03, 0.3));
-  g.add(part(new THREE.BoxGeometry(0.46, 0.2, 0.012), glass, 0, 0.14, 0.2));
-  for (const x of [-0.22, 0.22]) g.add(part(new THREE.BoxGeometry(0.012, 0.2, 0.18), glass, x, 0.14, 0.29));
-  g.add(part(new THREE.BoxGeometry(0.52, 0.025, 0.24), roof, 0, 0.255, 0.3));
-  const bench = makeModel('kaykit/bench');
-  bench.position.set(0, 0.04, 0.26);
-  g.add(bench);
-  // Tabela direği
-  g.add(part(new THREE.CylinderGeometry(0.01, 0.01, 0.34, 6), M.steel, 0.32, 0.17, 0.4));
-  g.add(part(new THREE.BoxGeometry(0.09, 0.09, 0.012), roof, 0.32, 0.33, 0.4));
-  g.add(part(new THREE.BoxGeometry(0.05, 0.05, 0.014), M.white, 0.32, 0.33, 0.4));
-  // Arkada küçük çim ve çalı
-  g.add(part(new THREE.BoxGeometry(0.9, 0.02, 0.5), mat('#6cc35a'), 0, 0.01, -0.2));
-  const bush = makeModel(PROPS.bush);
-  bush.position.set(-0.25, 0.02, -0.2);
-  g.add(bush);
-  return g;
-}
-
 // Büyütülen yapıların içindeki ağaç gibi eşyalar normal boyda kalsın (n = kaç kare)
 function tree(path: string, x: number, z: number, n: number, rot = 0, size = 0.65) {
   const t = makeModel(path);
@@ -117,228 +68,6 @@ function tree(path: string, x: number, z: number, n: number, rot = 0, size = 0.6
   t.position.set(x, 0.03, z);
   t.rotation.y = rot;
   return t;
-}
-
-// Üniversite (3x3): arkada kubbeli ana bina, iki yanda kanatlar, ortada çimenli avlu, köşede saat kulesi
-function university() {
-  const g = new THREE.Group();
-  const lawn = mat('#79c35f');
-  const stone = mat('#e9e1d0');
-  const slate = mat('#55667a');
-  const brick = mat('#b5573f');
-  const copper = mat('#5fa58f');
-  const path = mat('#e6d8b8');
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), lawn, 0, 0.01, 0));
-  // Avlu yolları
-  g.add(part(new THREE.BoxGeometry(0.08, 0.006, 0.66), path, 0, 0.023, 0.16));
-  g.add(part(new THREE.BoxGeometry(0.5, 0.006, 0.06), path, 0, 0.023, 0.12));
-  // Ana bina
-  g.add(part(new THREE.BoxGeometry(0.66, 0.2, 0.2), brick, 0, 0.12, -0.3));
-  g.add(part(new THREE.BoxGeometry(0.67, 0.015, 0.21), stone, 0, 0.222, -0.3));
-  g.add(part(new THREE.BoxGeometry(0.68, 0.025, 0.22), slate, 0, 0.24, -0.3));
-  for (let k = 0; k < 6; k++) g.add(part(new THREE.BoxGeometry(0.06, 0.07, 0.006), windowMat, -0.27 + k * 0.108, 0.15, -0.198));
-  // Sütunlu giriş ve alınlık
-  g.add(part(new THREE.BoxGeometry(0.28, 0.02, 0.08), stone, 0, 0.03, -0.16));
-  for (let k = 0; k < 5; k++) g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.17, 8), stone, -0.11 + k * 0.055, 0.12, -0.14));
-  g.add(part(new THREE.BoxGeometry(0.3, 0.025, 0.07), stone, 0, 0.215, -0.15));
-  const tri = new THREE.Shape([new THREE.Vector2(-0.16, 0), new THREE.Vector2(0.16, 0), new THREE.Vector2(0, 0.07)]);
-  g.add(part(new THREE.ExtrudeGeometry(tri, { depth: 0.07, bevelEnabled: false }), stone, 0, 0.228, -0.185));
-  // Kubbe
-  g.add(part(new THREE.CylinderGeometry(0.09, 0.09, 0.07, 20), stone, 0, 0.275, -0.3));
-  g.add(part(new THREE.SphereGeometry(0.09, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), copper, 0, 0.31, -0.3));
-  g.add(part(new THREE.CylinderGeometry(0.015, 0.015, 0.06, 8), stone, 0, 0.42, -0.3));
-  // Yan kanatlar
-  for (const side of [-1, 1]) {
-    const x = side * 0.34;
-    g.add(part(new THREE.BoxGeometry(0.2, 0.15, 0.36), brick, x, 0.095, 0.02));
-    g.add(part(new THREE.BoxGeometry(0.21, 0.012, 0.37), stone, x, 0.174, 0.02));
-    g.add(part(new THREE.BoxGeometry(0.22, 0.02, 0.38), slate, x, 0.188, 0.02));
-    for (let k = 0; k < 3; k++) {
-      g.add(part(new THREE.BoxGeometry(0.006, 0.05, 0.06), windowMat, x - side * 0.103, 0.11, -0.1 + k * 0.12));
-    }
-  }
-  // Saat kulesi (ön sağ köşe)
-  g.add(part(new THREE.BoxGeometry(0.08, 0.36, 0.08), brick, 0.36, 0.2, 0.36));
-  g.add(part(new THREE.BoxGeometry(0.09, 0.02, 0.09), stone, 0.36, 0.38, 0.36));
-  g.add(part(new THREE.ConeGeometry(0.065, 0.1, 4).rotateY(Math.PI / 4), copper, 0.36, 0.44, 0.36));
-  g.add(part(new THREE.CylinderGeometry(0.025, 0.025, 0.006, 16).rotateX(Math.PI / 2), mat('#ffffff'), 0.36, 0.33, 0.403));
-  // Avlu: küçük çeşme, banklar ve ağaçlar
-  g.add(part(new THREE.CylinderGeometry(0.06, 0.065, 0.02, 16), stone, 0, 0.03, 0.12));
-  g.add(part(new THREE.CylinderGeometry(0.045, 0.045, 0.006, 16), mat('#4fb3e8'), 0, 0.042, 0.12));
-  const n = 3;
-  for (const [x, z] of [[-0.16, 0.3], [0.16, 0.3], [-0.16, -0.04], [0.16, -0.04]] as [number, number][]) {
-    g.add(tree(PROPS.treeSmall, x, z, n, x * 9, 0.7));
-  }
-  for (const [x, z] of [[-0.42, 0.42], [-0.3, 0.44], [0.2, 0.44], [-0.44, -0.42], [0.44, -0.42]] as [number, number][]) {
-    g.add(tree(PROPS.treeSmall, x, z, n, z * 7, 0.55));
-  }
-  for (const x of [-0.08, 0.08]) {
-    const b = makeModel(PROPS.bench);
-    b.scale.multiplyScalar(1 / (n * 0.96));
-    b.position.set(x, 0.02, 0.24);
-    b.rotation.y = Math.PI;
-    g.add(b);
-  }
-  return g;
-}
-
-// Havalimanı (4x4): arkada pist, ortada apron ve park etmiş uçaklar, önde terminal, yanda kule ve hangar.
-// Pistin uçları sky.ts'teki kalkış/iniş için RUNWAY ile verilir (yerel ölçüde).
-export const RUNWAY = { x0: -0.44, x1: 0.44, z: -0.3 };
-function airport() {
-  const g = new THREE.Group();
-  const grass = mat('#8bc96b');
-  const asphalt = mat('#4b5058');
-  const apron = mat('#6b717a');
-  const white = mat('#f4f6f8');
-  const yellow = mat('#f2c14e');
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), grass, 0, 0.01, 0));
-  // Pist: koyu asfalt, beyaz orta çizgi ve uç işaretleri
-  g.add(part(new THREE.BoxGeometry(0.94, 0.008, 0.15), asphalt, 0, 0.024, RUNWAY.z));
-  for (let k = 0; k < 11; k++) g.add(part(new THREE.BoxGeometry(0.035, 0.002, 0.006), white, -0.33 + k * 0.066, 0.029, RUNWAY.z));
-  for (const end of [-1, 1]) {
-    for (let k = 0; k < 4; k++) g.add(part(new THREE.BoxGeometry(0.04, 0.002, 0.012), white, end * 0.43, 0.029, RUNWAY.z - 0.05 + k * 0.033));
-  }
-  // Pist kenar ışıkları (gece yanar)
-  const lamp = new THREE.MeshStandardMaterial({ color: '#ffe082', emissive: '#ffe082', emissiveIntensity: 0 });
-  lamp.name = 'lamp';
-  for (let k = 0; k < 9; k++) {
-    for (const dz of [-0.082, 0.082]) g.add(part(new THREE.BoxGeometry(0.008, 0.006, 0.008), lamp, -0.44 + k * 0.11, 0.03, RUNWAY.z + dz));
-  }
-  // Taksi yolu ve apron
-  g.add(part(new THREE.BoxGeometry(0.05, 0.008, 0.2), asphalt, 0.3, 0.024, -0.14));
-  g.add(part(new THREE.BoxGeometry(0.05, 0.008, 0.2), asphalt, -0.3, 0.024, -0.14));
-  g.add(part(new THREE.BoxGeometry(0.74, 0.008, 0.2), apron, -0.03, 0.023, 0.0));
-  for (let k = 0; k < 3; k++) g.add(part(new THREE.BoxGeometry(0.004, 0.002, 0.16), yellow, -0.26 + k * 0.2, 0.028, 0.0));
-  // Park etmiş uçaklar
-  for (const [x, livery, rot] of [[-0.22, 0, 0], [0.0, 2, 0]] as [number, number, number][]) {
-    const p = makeAirliner(livery);
-    p.scale.setScalar(0.085);
-    p.position.set(x, 0.055, 0.0);
-    p.rotation.y = rot;
-    p.traverse(o => ((o as THREE.Mesh).castShadow = true));
-    g.add(p);
-  }
-  // Terminal: uzun cam bina, kavisli çatı, yolcu köprüleri
-  g.add(part(new THREE.BoxGeometry(0.62, 0.1, 0.14), white, -0.08, 0.07, 0.24));
-  g.add(part(new THREE.BoxGeometry(0.6, 0.06, 0.006), windowMat, -0.08, 0.08, 0.313));
-  g.add(part(new THREE.BoxGeometry(0.6, 0.05, 0.006), windowMat, -0.08, 0.08, 0.167));
-  g.add(part(new THREE.BoxGeometry(0.66, 0.018, 0.17), mat('#6f8297'), -0.08, 0.129, 0.24));
-  g.add(part(new THREE.BoxGeometry(0.66, 0.01, 0.02), white, -0.08, 0.14, 0.32));
-  for (let k = 0; k < 5; k++) g.add(part(new THREE.BoxGeometry(0.07, 0.012, 0.05), windowMat, -0.32 + k * 0.12, 0.14, 0.24));
-  for (const x of [-0.22, 0.0]) g.add(part(new THREE.BoxGeometry(0.025, 0.025, 0.07), white, x, 0.07, 0.135));
-  // Kontrol kulesi
-  g.add(part(new THREE.CylinderGeometry(0.018, 0.026, 0.26, 10), white, 0.36, 0.15, 0.22));
-  g.add(part(new THREE.CylinderGeometry(0.044, 0.034, 0.045, 8), windowMat, 0.36, 0.3, 0.22));
-  g.add(part(new THREE.CylinderGeometry(0.05, 0.05, 0.012, 8), mat('#37474f'), 0.36, 0.328, 0.22));
-  g.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.06, 6), mat('#37474f'), 0.36, 0.36, 0.22));
-  // Hangar (yarım silindir)
-  const hangar = part(new THREE.CylinderGeometry(0.09, 0.09, 0.14, 16, 1, false, 0, Math.PI), mat("#9aa5b1"), 0.42, 0.02, -0.03);
-  hangar.rotation.z = Math.PI / 2;
-  g.add(hangar);
-  // Önde otopark çizgileri ve ağaçlar
-  g.add(part(new THREE.BoxGeometry(0.5, 0.006, 0.08), apron, -0.08, 0.022, 0.42));
-  for (let k = 0; k < 8; k++) g.add(part(new THREE.BoxGeometry(0.004, 0.002, 0.05), white, -0.3 + k * 0.063, 0.026, 0.42));
-  for (const x of [0.25, 0.33, 0.43]) g.add(tree(PROPS.treeSmall, x, 0.43, 4, x * 11));
-  return g;
-}
-
-// Palmiye: eğik gövde ve sarkan yapraklar (yerel ölçüde, s = boy)
-export function palm(x: number, z: number, s: number, lean = 0.15) {
-  const g = new THREE.Group();
-  const trunk = part(new THREE.CylinderGeometry(0.03 * s, 0.045 * s, s, 6), mat('#8d6e4c'), 0, s / 2, 0);
-  g.add(trunk);
-  const leaf = mat('#3f9b3f');
-  for (let k = 0; k < 7; k++) {
-    const arm = new THREE.Group();
-    arm.position.y = s;
-    arm.rotation.y = (k / 7) * Math.PI * 2;
-    const l = part(new THREE.BoxGeometry(0.42 * s, 0.015 * s, 0.1 * s), leaf, 0.2 * s, -0.06 * s, 0);
-    l.rotation.z = -0.45;
-    arm.add(l);
-    g.add(arm);
-  }
-  g.rotation.z = lean;
-  g.position.set(x, 0.02, z);
-  return g;
-}
-
-// Plaj (2x2): kum, şemsiyeler, havlular, cankurtaran kulesi, palmiyeler, büfe. Ön yüz (+z) nehre bakar.
-function beach() {
-  const g = new THREE.Group();
-  const sand = mat('#f3dfa6');
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), sand, 0, 0.01, 0));
-  g.add(part(new THREE.BoxGeometry(0.98, 0.021, 0.12), mat('#e2c27f'), 0, 0.011, 0.43));
-  const colors = ['#e53935', '#1e88e5', '#fdd835', '#43a047', '#fb8c00'];
-  const spots: [number, number][] = [[-0.3, 0.18], [0.0, 0.24], [0.28, 0.14], [-0.14, -0.06], [0.16, -0.1]];
-  spots.forEach(([x, z], k) => {
-    const c = mat(colors[k % colors.length]);
-    g.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.13, 5), mat('#eeeeee'), x, 0.085, z));
-    g.add(part(new THREE.ConeGeometry(0.075, 0.035, 10), c, x, 0.16, z));
-    g.add(part(new THREE.SphereGeometry(0.008, 6, 4), mat('#ffffff'), x, 0.18, z));
-    const towel = part(new THREE.BoxGeometry(0.05, 0.003, 0.09), mat(colors[(k + 2) % colors.length]), x + 0.06, 0.022, z + 0.02);
-    towel.rotation.y = 0.3 * (k % 2 ? 1 : -1);
-    g.add(towel);
-  });
-  // Cankurtaran kulesi
-  const wood = mat('#c8955a');
-  for (const dx of [-0.03, 0.03]) for (const dz of [-0.03, 0.03]) g.add(part(new THREE.BoxGeometry(0.008, 0.14, 0.008), wood, 0.4 + dx, 0.09, -0.08 + dz));
-  g.add(part(new THREE.BoxGeometry(0.09, 0.012, 0.09), wood, 0.4, 0.16, -0.08));
-  g.add(part(new THREE.BoxGeometry(0.07, 0.05, 0.07), mat('#ffffff'), 0.4, 0.19, -0.08));
-  g.add(part(new THREE.BoxGeometry(0.09, 0.012, 0.09), mat('#e53935'), 0.4, 0.222, -0.08));
-  g.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.1, 4), mat('#eeeeee'), 0.44, 0.27, -0.08));
-  g.add(part(new THREE.BoxGeometry(0.004, 0.025, 0.04), mat('#e53935'), 0.44, 0.305, -0.06));
-  // Büfe
-  g.add(part(new THREE.BoxGeometry(0.16, 0.08, 0.1), mat('#ffffff'), -0.02, 0.06, -0.36));
-  for (let k = 0; k < 4; k++) {
-    const s = part(new THREE.BoxGeometry(0.045, 0.006, 0.07), mat(k % 2 ? '#ffffff' : '#00acc1'), -0.088 + k * 0.045, 0.11, -0.3);
-    s.rotation.x = 0.3;
-    g.add(s);
-  }
-  // Voleybol filesi
-  for (const dx of [-0.12, 0.12]) g.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 5), mat('#eeeeee'), -0.3 + dx, 0.07, -0.3));
-  g.add(part(new THREE.BoxGeometry(0.24, 0.035, 0.003), mat('#37474f'), -0.3, 0.1, -0.3));
-  // Palmiyeler (arka köşelerde)
-  g.add(palm(-0.42, -0.4, 0.22, 0.12));
-  g.add(palm(0.4, -0.38, 0.25, -0.15));
-  g.add(palm(-0.44, 0.02, 0.19, 0.2));
-  return g;
-}
-
-// Metro istasyonu: merdiven girişi, camlı sundurma, kırmızı "M" tabelası
-function metro() {
-  const g = new THREE.Group();
-  g.add(part(new THREE.BoxGeometry(0.92, 0.04, 0.92), mat('#d6d2c9'), 0, 0.02, 0));
-  const steel = mat('#8d99a6');
-  // Aşağı inen merdiven (koyu açıklık ve basamak çizgileri)
-  g.add(part(new THREE.BoxGeometry(0.26, 0.004, 0.36), mat('#2b2f36'), 0, 0.042, 0.04));
-  for (let k = 0; k < 6; k++) g.add(part(new THREE.BoxGeometry(0.24, 0.005, 0.012), mat('#6b7078'), 0, 0.045, 0.19 - k * 0.055));
-  for (const x of [-0.145, 0.145]) g.add(part(new THREE.BoxGeometry(0.025, 0.07, 0.38), mat('#9aa3ad'), x, 0.075, 0.04));
-  // Camlı sundurma
-  for (const x of [-0.15, 0.15]) for (const z of [-0.13, 0.2]) g.add(part(new THREE.CylinderGeometry(0.007, 0.007, 0.18, 6), steel, x, 0.19, z));
-  g.add(part(new THREE.BoxGeometry(0.34, 0.012, 0.4), showcaseMat, 0, 0.285, 0.035));
-  g.add(part(new THREE.BoxGeometry(0.36, 0.016, 0.016), steel, 0, 0.285, 0.235));
-  g.add(part(new THREE.BoxGeometry(0.36, 0.016, 0.016), steel, 0, 0.285, -0.165));
-  // "M" tabelası
-  g.add(part(new THREE.CylinderGeometry(0.01, 0.01, 0.4, 6), steel, 0.32, 0.22, 0.3));
-  g.add(part(new THREE.BoxGeometry(0.13, 0.13, 0.02), mat('#d32f2f'), 0.32, 0.46, 0.3));
-  const white = mat('#ffffff');
-  for (const dx of [-0.035, 0.035]) g.add(part(new THREE.BoxGeometry(0.014, 0.08, 0.006), white, 0.32 + dx, 0.46, 0.312));
-  for (const side of [-1, 1]) {
-    const d = part(new THREE.BoxGeometry(0.012, 0.05, 0.006), white, 0.32 + side * 0.017, 0.475, 0.312);
-    d.rotation.z = side * 0.6;
-    g.add(d);
-  }
-  // Arkada bank ve çalılar
-  const bench = makeModel(PROPS.bench);
-  bench.position.set(-0.3, 0.04, -0.32);
-  g.add(bench);
-  for (const x of [0.22, 0.36]) {
-    const b = makeModel(PROPS.bush);
-    b.position.set(x, 0.04, -0.34);
-    g.add(b);
-  }
-  return g;
 }
 
 // Saat kulesi: taş gövde, dört yüzde saat, sivri çatı, çevresinde çiçekli meydan
@@ -379,13 +108,10 @@ function clockTower() {
   tw.add(part(new THREE.BoxGeometry(0.25, 0.03, 0.25), stone, 0, 0.975, 0));
   tw.add(part(new THREE.ConeGeometry(0.17, 0.3, 4).rotateY(Math.PI / 4), mat('#5d6d7e'), 0, 1.14, 0));
   tw.add(part(new THREE.SphereGeometry(0.025, 8, 6), mat('#e0b84c'), 0, 1.3, 0));
-  // Banklar
-  for (const [x, z, r] of [[0, 0.3, Math.PI], [0, -0.3, 0]] as [number, number, number][]) {
-    const b = makeModel(PROPS.bench);
-    b.position.set(x, 0.04, z);
-    b.rotation.y = r;
-    g.add(b);
-  }
+  // Banklar ve lambalar
+  bench(g, 0, 0.3, Math.PI);
+  bench(g, 0, -0.3, 0);
+  for (const x of [-0.2, 0.2]) lamp(g, x, 0.3);
   return g;
 }
 
