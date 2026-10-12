@@ -1107,7 +1107,27 @@ window.addEventListener('keydown', e => {
 });
 
 // --- Ekran boyutu ve oyun döngüsü ---
+// iPhone'da ana ekrandan açılınca (tam ekran uygulama) bazı iOS sürümleri sayfanın boyunu saat çubuğu kadar kısa
+// hesaplıyor ve altta boşluk kalıyor. O durumda oyun alanı doğrudan telefonun ekran boyuna ayarlanır.
+function fitStandalone() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  const standalone = nav.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  if (!standalone) {
+    app.removeAttribute('style');
+    document.documentElement.style.removeProperty('--sgap');
+    return;
+  }
+  const portrait = matchMedia('(orientation: portrait)').matches;
+  const a = screen.width, b = screen.height;
+  const w = portrait ? Math.min(a, b) : Math.max(a, b), h = portrait ? Math.max(a, b) : Math.min(a, b);
+  app.style.cssText = `top:0;left:0;right:auto;bottom:auto;width:${w}px;height:${h}px`;
+  // Sayfa kısa kaldıysa alttaki düğmeler de o kadar aşağı insin (ekranın gerçek altına göre dursun)
+  document.documentElement.style.setProperty('--sgap', `${Math.max(0, h - window.innerHeight)}px`);
+}
 function resize() {
+  fitStandalone();
   const el = renderer.domElement;
   const w = el.clientWidth || window.innerWidth, h = el.clientHeight || window.innerHeight;
   if (!w || !h) return;

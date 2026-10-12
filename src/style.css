@@ -25,7 +25,7 @@
   --green: #34a853;
   --red: #e53935;
   --top: env(safe-area-inset-top);
-  --bottom: env(safe-area-inset-bottom);
+  --bottom: calc(env(safe-area-inset-bottom) - var(--sgap, 0px));
   --outline: 0 2px 0 var(--ink), 0 -1px 0 var(--ink), 1px 0 0 var(--ink), -1px 0 0 var(--ink), 1px 1px 0 var(--ink), -1px 1px 0 var(--ink);
 }
 
