@@ -5,6 +5,7 @@ import {
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
+import { productPic } from './production';
 
 // Bir binaya (ya da üstteki düğmelere) dokununca çıkan kartın içeriği
 export interface InfoCard {
@@ -270,7 +271,7 @@ function production(city: City, i: number, act: CardActions, now: number): InfoC
     const mat = MATERIALS[m];
     if (!city.isUnlocked(m)) return { icon: '🔒', name: mat.name, sub: `Seviye ${mat.unlock}`, enabled: false, run: () => {} };
     return {
-      icon: mat.icon,
+      icon: productPic(m, 'tpic'),
       name: mat.name,
       sub: mat.needs ? costText(mat.needs) : `${city.makerTime(i, m)} sn`,
       note: mat.needs ? `${city.makerTime(i, m)} sn` : undefined,
@@ -345,8 +346,16 @@ export function describeStorage(city: City): InfoCard {
     subtitle: `${fmt(city.storageUsed)}/${fmt(city.storageCap)} dolu`,
     icon: '📦',
     tone: '#8d6e63',
-    stats: have.map(m => ({ icon: MATERIALS[m].icon, value: fmt(city.storage[m]), label: MATERIALS[m].name })),
     lines,
+    // Depodaki mallar resimleriyle (ham maddeler ve ürünler ayrı)
+    tiles: have.map(m => ({
+      icon: productPic(m, 'tpic'),
+      name: MATERIALS[m].name,
+      sub: `${fmt(city.storage[m])} tane`,
+      section: MATERIALS[m].maker === 'factory' ? 'Ham maddeler' : 'Ürünler',
+      enabled: true,
+      run: () => {},
+    })).sort((a, b) => (a.section === b.section ? 0 : a.section === 'Ham maddeler' ? -1 : 1)),
   };
 }
 

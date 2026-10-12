@@ -25,6 +25,9 @@ function picture(key: string | undefined, emoji = '') {
   return src ? `<img src="${src}" alt="">` : `<span class="emo">${emoji}</span>`;
 }
 
+// Bir binanın menü resmi (yoksa undefined)
+export const thumbOf = (key: string) => thumbs.get(key);
+
 export function setThumbs(map: Map<string, string>) {
   thumbs = new Map([...thumbs, ...map]);
   document.querySelectorAll<HTMLElement>('[data-thumb]').forEach(el => {
@@ -65,7 +68,7 @@ function effectOf(t: BuildTool): string {
     case 'factory': return '🔩 Ham madde üretir';
     case 'depot': return `📦 +${DEPOT_STORAGE} depo yeri`;
     case 'port': return '🚢 Komşu şehirlere sat';
-    case 'store': case 'market': case 'furniture': case 'bakery': case 'fashion':
+    case 'store': case 'market': case 'furniture': case 'bakery': case 'fashion': case 'garden': case 'cafe': case 'electro':
       return MAT_IDS.filter(m => MATERIALS[m].maker === t).map(m => MATERIALS[m].icon).join(' ');
   }
   return '';
@@ -559,7 +562,7 @@ export function confirmDialog(title: string, text: string, ok: string): Promise<
 }
 
 export type Quality = 'high' | 'mid' | 'low';
-export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string; demo: boolean }
+export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string; demo: boolean; screen?: string }
 export interface SettingsHandlers {
   sound(on: boolean): void;
   quality(q: Quality): void;
@@ -584,6 +587,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     <button class="danger-row">${icon('trash')}Yeni şehir kur</button>
     <div class="btns"><button class="big-btn green" data-close>Tamam</button></div>
     <div class="credits">3D modeller: Kenney, KayKit, Quaternius (CC0) · Yazı tipi: Fredoka (OFL)</div>
+    ${state.screen ? `<div class="credits">${esc(state.screen)}</div>` : ''}
   </div>`;
   el.hidden = false;
   el.querySelectorAll<HTMLButtonElement>('.switch').forEach(b =>

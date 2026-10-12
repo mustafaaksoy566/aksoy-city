@@ -1,7 +1,7 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_KINDS, TAX_PER_PERSON,
-  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS, SHOPS,
+  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS, SHOPS, EXTRA_SLOTS, SPEEDUP,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
@@ -23,6 +23,7 @@ export interface Tile {
   damaged?: boolean; // depremde hasar gördü
   fp?: number; // büyük binalarda kenar uzunluğu (2 = 2x2 kare)
   grade?: number; // yollarda: 1 = bulvar, 2 = cadde (çift şerit)
+  slots?: number; // fabrika ve dükkanlarda parayla açılan ek üretim yeri
 }
 
 // Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
@@ -35,6 +36,7 @@ export type CityEvent =
 export interface Job {
   mat: MatId;
   end: number;
+  start?: number; // üretimin başladığı zaman (dükkanda sıradakiler bir öncekinin bitişinde başlar)
 }
 
 // Komşu şehrin siparişi: until = 0 ise gönderilebilir, değilse gemi yolda (o zamana kadar)
@@ -111,8 +113,8 @@ export function block(x: number, z: number, n: number): number[] | null {
 const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Record<MatId, number>;
 
-// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?]
-type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?];
+// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?, ek üretim yeri?]
+type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?, number?];
 // Yol aracının yaptığı yol çeşidi (bulvar 1, cadde 2); yol değilse -1
 export const gradeOf = (tool: BuildTool) => ROAD_TOOLS.indexOf(tool);
 export interface SaveData {
@@ -126,7 +128,7 @@ export interface SaveData {
   xp: number;
   st: Partial<Record<MatId, number>>;
   t: TileRow[];
-  j: [number, [MatId, number][]][];
+  j: [number, [MatId, number, number?][]][];
   tr: number; // belediyede bekleyen vergi
   ss: CityStats;
   q: Quest[];
@@ -778,7 +780,25 @@ export class City {
   // Aynı anda kaç üretim (fabrika) ya da sırada kaç ürün (dükkan)
   makerSlots(i: number) {
     const t = this.tiles[i]!;
-    return (t.kind === 'factory' ? FACTORY_SLOTS : STORE_QUEUE) + t.level;
+    return (t.kind === 'factory' ? FACTORY_SLOTS : STORE_QUEUE) + t.level + (t.slots ?? 0);
+  }
+
+  // Bir sonraki ek üretim yerinin fiyatı (alınamıyorsa null)
+  slotPrice(i: number): number | null {
+    const t = this.tiles[i];
+    if (!t) return null;
+    return EXTRA_SLOTS[t.slots ?? 0] ?? null;
+  }
+
+  // Parayla bir üretim yeri daha aç
+  buySlot(i: number): string | null {
+    const t = this.tiles[i];
+    const price = this.slotPrice(i);
+    if (!t || price === null) return 'Daha fazla yer açılamaz';
+    if (this.money < price) return 'Yeterli para yok';
+    this.money -= price;
+    t.slots = (t.slots ?? 0) + 1;
+    return null;
   }
 
   // Bu binada bir ürünün kaç saniyede yapıldığı
@@ -1113,37 +1133,100 @@ export class City {
     const m = MATERIALS[mat];
     const list = this.jobs.get(i) ?? [];
     if (m.needs) this.take(m.needs);
-    // Fabrikada hepsi aynı anda, hırdavatçıda bir öncekinin bitmesini bekler
-    const start = m.maker !== 'factory' && list.length ? Math.max(now, list[list.length - 1].end) : now;
-    list.push({ mat, end: start + this.makerTime(i, mat) * 1000 });
+    // Fabrikada hepsi aynı anda, dükkanda bir öncekinin bitmesini bekler (hazır bekleyenler sırayı tutmaz)
+    const busy = list.filter(j => j.end > now);
+    const start = m.maker !== 'factory' && busy.length ? Math.max(now, busy[busy.length - 1].end) : now;
+    list.push({ mat, start, end: start + this.makerTime(i, mat) * 1000 });
     this.jobs.set(i, list);
     return null;
   }
 
-  // Biten üretimleri depoya taşı (depo doluysa binada bekler)
-  collect(now: number): MatId[] {
+  // Bir üretimin başladığı zaman (eski kayıtlarda yoksa süresinden hesaplanır)
+  jobStart(i: number, job: Job) {
+    return job.start ?? job.end - this.makerTime(i, job.mat) * 1000;
+  }
+
+  // Bu binada hazır (bitmiş) ürünler
+  readyAt(i: number, now: number) {
+    return (this.jobs.get(i) ?? []).filter(j => j.end <= now).map(j => j.mat);
+  }
+
+  // Binadaki hazır ürünleri depoya al (depo dolarsa kalanlar binada bekler)
+  collectAt(i: number, now: number): MatId[] {
+    const list = this.jobs.get(i);
+    if (!list) return [];
     const got: MatId[] = [];
-    for (const [i, list] of this.jobs) {
-      const keep: Job[] = [];
-      for (const job of list) {
-        if (job.end <= now && this.storageUsed < this.storageCap) {
-          this.storage[job.mat]++;
-          this.stats.produced[job.mat] = (this.stats.produced[job.mat] ?? 0) + 1;
-          this.addXp(MATERIALS[job.mat].maker === 'factory' ? XP.raw : XP.crafted);
-          got.push(job.mat);
-        } else keep.push(job);
-      }
-      if (keep.length) this.jobs.set(i, keep);
-      else this.jobs.delete(i);
+    const keep: Job[] = [];
+    for (const job of list) {
+      if (job.end <= now && this.storageUsed < this.storageCap) {
+        this.storage[job.mat]++;
+        this.stats.produced[job.mat] = (this.stats.produced[job.mat] ?? 0) + 1;
+        this.addXp(MATERIALS[job.mat].maker === 'factory' ? XP.raw : XP.crafted);
+        got.push(job.mat);
+      } else keep.push(job);
     }
+    if (keep.length) this.jobs.set(i, keep);
+    else this.jobs.delete(i);
     return got;
   }
 
-  // Ürünü bitmiş ama depo dolu olduğu için bekleyen binalar
+  // Bütün binalardaki hazır ürünleri depoya al
+  collect(now: number): MatId[] {
+    const got: MatId[] = [];
+    for (const i of [...this.jobs.keys()]) got.push(...this.collectAt(i, now));
+    return got;
+  }
+
+  // Ürünü hazır olan (toplanmayı bekleyen) binalar
   waiting(now: number) {
     const out: number[] = [];
     for (const [i, list] of this.jobs) if (list.some(j => j.end <= now)) out.push(i);
     return out;
+  }
+
+  // Bir üretimi hemen bitirmenin fiyatı (bitmişse ya da henüz başlamamışsa null)
+  speedUpCost(i: number, k: number, now: number): number | null {
+    const job = this.jobs.get(i)?.[k];
+    if (!job || job.end <= now || this.jobStart(i, job) > now) return null;
+    return Math.max(SPEEDUP.min, Math.ceil(((job.end - now) / 1000) * SPEEDUP.perSecond));
+  }
+
+  // Parayla üretimi hemen bitir; dükkanda sıradakiler de o kadar öne gelir
+  speedUp(i: number, k: number, now: number): string | null {
+    const cost = this.speedUpCost(i, k, now);
+    if (cost === null) return 'Hızlandırılacak üretim yok';
+    if (this.money < cost) return 'Yeterli para yok';
+    this.money -= cost;
+    const list = this.jobs.get(i)!;
+    const saved = list[k].end - now;
+    list[k].end = now;
+    if (this.tiles[i]?.kind !== 'factory') {
+      for (let n = k + 1; n < list.length; n++) {
+        if (list[n].end <= now) continue;
+        list[n].start = Math.max(now, this.jobStart(i, list[n]) - saved);
+        list[n].end -= saved;
+      }
+    }
+    return null;
+  }
+
+  // Sırada bekleyen (henüz başlamamış) ürünü iptal et: malzemeler depoya geri döner, sıradakiler öne gelir
+  cancelJob(i: number, k: number, now: number): string | null {
+    const list = this.jobs.get(i);
+    const job = list?.[k];
+    if (!list || !job) return 'Üretim yok';
+    if (this.jobStart(i, job) <= now) return 'Başlamış üretim iptal edilemez';
+    const needs = MATERIALS[job.mat].needs;
+    if (needs) for (const [m, n] of Object.entries(needs) as [MatId, number][]) this.storage[m] += n;
+    const dur = job.end - this.jobStart(i, job);
+    list.splice(k, 1);
+    for (let n = k; n < list.length; n++) {
+      if (list[n].end <= now) continue;
+      list[n].start = Math.max(now, this.jobStart(i, list[n]) - dur);
+      list[n].end -= dur;
+    }
+    if (!list.length) this.jobs.delete(i);
+    return null;
   }
 
   // --- Yapma ve yıkma ---
@@ -1467,11 +1550,12 @@ export class City {
     this.tiles.forEach((tile, i) => {
       if (!tile || (tile.locked && tile.kind === 'road' && !tile.grade)) return;
       const row: TileRow = [i, tile.kind, tile.level, tile.facing, tile.variant];
-      if (tile.fire || tile.damaged || tile.fp || tile.grade) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
-      if (tile.grade) row.push(tile.grade);
+      if (tile.fire || tile.damaged || tile.fp || tile.grade || tile.slots) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
+      if (tile.grade || tile.slots) row.push(tile.grade ?? 0);
+      if (tile.slots) row.push(tile.slots);
       t.push(row);
     });
-    const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => [job.mat, job.end] as [MatId, number])]);
+    const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => (job.start ? [job.mat, job.end, job.start] : [job.mat, job.end]) as [MatId, number, number?])]);
     const st: SaveData['st'] = {};
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
     const own: number[] = [];
@@ -1517,7 +1601,7 @@ export class City {
         if (i >= 0 && i < c.metro.length) c.metro[i] = 1;
       }
     }
-    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade] of data.t as TileRow[]) {
+    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade, slots] of data.t as TileRow[]) {
       const grade = rawGrade && !newGrades ? 1 : rawGrade;
       const i = move(oldI);
       // Büyük binanın parçaları ana karenin numarasını tutar; o da taşınmalı
@@ -1538,6 +1622,7 @@ export class City {
         if (fire) c.tiles[i]!.fire = fire;
         if (damaged) c.tiles[i]!.damaged = true;
         if (fp && fp > 1) c.tiles[i]!.fp = fp;
+        if (slots) c.tiles[i]!.slots = slots;
       }
     }
     if (data.v >= 3) {
@@ -1545,7 +1630,7 @@ export class City {
       for (const m of MAT_IDS) c.storage[m] = data.st?.[m] ?? 0;
       for (const [oldI, list] of data.j ?? []) {
         const i = move(oldI);
-        if (isIndustry(c.tiles[i]?.kind)) c.jobs.set(i, list.filter(([m]) => m in MATERIALS).map(([mat, end]) => ({ mat, end })));
+        if (isIndustry(c.tiles[i]?.kind)) c.jobs.set(i, list.filter(([m]) => m in MATERIALS).map(([mat, end, start]) => (start ? { mat, end, start } : { mat, end })));
       }
       if (data.v >= 4) {
         c.treasury = data.tr ?? 0;

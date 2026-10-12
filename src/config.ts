@@ -87,7 +87,7 @@ export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; col
 export const SERVICE_KINDS = Object.keys(SERVICES) as ServiceKind[];
 
 // Sanayi: fabrika ham madde üretir; hırdavatçı, pazar ve mobilyacı onlardan ürün yapar; depo yer açar
-export type IndustryKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion' | 'depot' | 'trade' | 'port';
+export type IndustryKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion' | 'garden' | 'cafe' | 'electro' | 'depot' | 'trade' | 'port';
 // jobs: kaç kişiye iş verir (iş yeri başına vergi gelir; yükseltilen fabrika ve dükkan daha çok çalışan alır)
 export const INDUSTRY: Record<IndustryKind, { upkeep: number; jobs: number }> = {
   trade: { upkeep: 3, jobs: 0 }, // eski ticaret merkezi (artık yok)
@@ -97,17 +97,24 @@ export const INDUSTRY: Record<IndustryKind, { upkeep: number; jobs: number }> = 
   furniture: { upkeep: 4, jobs: 20 }, // mobilyacı: sandalye ve koltuk
   bakery: { upkeep: 4, jobs: 20 }, // fırın: simit ve pasta
   fashion: { upkeep: 5, jobs: 25 }, // giyim mağazası: tişört ve ayakkabı
+  garden: { upkeep: 5, jobs: 20 }, // bahçe market: fidan ve bahçe cücesi
+  cafe: { upkeep: 6, jobs: 25 }, // dondurma ve burger dükkanı
+  electro: { upkeep: 8, jobs: 30 }, // beyaz eşya: televizyon ve buzdolabı
   depot: { upkeep: 1, jobs: 8 },
   port: { upkeep: 12, jobs: 40 }, // liman: komşu şehirlere sipariş gönderilir
 };
 // Evlerin yakınında olması gereken dükkanlar (4. seviye için)
-export const SHOPS: IndustryKind[] = ['store', 'market', 'furniture', 'bakery', 'fashion'];
+export const SHOPS: IndustryKind[] = ['store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro'];
 // Ürün yapan dükkanlar (fabrika dışındakiler sırayla üretir)
-export type MakerKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion';
-export const MAKERS: MakerKind[] = ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion'];
+export type MakerKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion' | 'garden' | 'cafe' | 'electro';
+export const MAKERS: MakerKind[] = ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro'];
 export const INDUSTRY_KINDS = Object.keys(INDUSTRY) as IndustryKind[];
 export const FACTORY_SLOTS = 2; // bir fabrika aynı anda kaç şey üretir
 export const STORE_QUEUE = 3; // hırdavatçıda sıraya kaç ürün konabilir
+// Parayla açılan ek üretim yerleri (SimCity'deki gibi "+" yuvası): her binada en fazla bu kadar, fiyatı artarak
+export const EXTRA_SLOTS = [600, 1500, 3500];
+// Üretimi hemen bitirmek: kalan her saniye için bu kadar para (en az MIN)
+export const SPEEDUP = { perSecond: 4, min: 25 };
 // Fabrika ve dükkan seviyeleri: her seviye üretimi hızlandırır ve bir yer daha açar
 export const MAKER_LEVELS = [
   { speed: 1, money: 0, level: 0 },
@@ -120,9 +127,9 @@ export const DEPOT_STORAGE = 40; // her depo bu kadar yer ekler
 
 // Malzemeler: fabrikada ham madde, hırdavatçıda ürün. Süreler gerçek saniye (oyun kapalıyken de işler).
 export type MatId =
-  | 'metal' | 'wood' | 'plastic' | 'mineral' | 'seeds' | 'textile'
+  | 'metal' | 'wood' | 'plastic' | 'mineral' | 'seeds' | 'textile' | 'chem' | 'sugar' | 'glass' | 'parts'
   | 'nails' | 'hammer' | 'paint' | 'brick' | 'veggies' | 'flour' | 'chair' | 'sofa'
-  | 'simit' | 'cake' | 'shirt' | 'shoes';
+  | 'simit' | 'cake' | 'shirt' | 'shoes' | 'sapling' | 'gnome' | 'icecream' | 'burger' | 'tv' | 'fridge';
 export interface Material {
   name: string;
   icon: string;
@@ -139,6 +146,10 @@ export const MATERIALS: Record<MatId, Material> = {
   mineral: { name: 'Mineral', icon: '🪨', seconds: 40, price: 55, maker: 'factory', unlock: 5 },
   seeds: { name: 'Tohum', icon: '🌱', seconds: 25, price: 30, maker: 'factory', unlock: 4 },
   textile: { name: 'Kumaş', icon: '🧵', seconds: 50, price: 70, maker: 'factory', unlock: 6 },
+  chem: { name: 'Kimyasal', icon: '🧪', seconds: 60, price: 80, maker: 'factory', unlock: 9 },
+  sugar: { name: 'Şeker', icon: '🍬', seconds: 70, price: 90, maker: 'factory', unlock: 10 },
+  glass: { name: 'Cam', icon: '🪟', seconds: 80, price: 110, maker: 'factory', unlock: 11 },
+  parts: { name: 'Elektronik Parça', icon: '💾', seconds: 100, price: 140, maker: 'factory', unlock: 12 },
   nails: { name: 'Çivi', icon: '📌', seconds: 30, price: 60, maker: 'store', needs: { metal: 2 }, unlock: 3 },
   hammer: { name: 'Çekiç', icon: '🔨', seconds: 45, price: 90, maker: 'store', needs: { metal: 1, wood: 1 }, unlock: 3 },
   paint: { name: 'Boya', icon: '🎨', seconds: 60, price: 110, maker: 'store', needs: { plastic: 2 }, unlock: 4 },
@@ -151,6 +162,12 @@ export const MATERIALS: Record<MatId, Material> = {
   cake: { name: 'Pasta', icon: '🎂', seconds: 90, price: 560, maker: 'bakery', needs: { flour: 2, veggies: 1 }, unlock: 8 },
   shirt: { name: 'Tişört', icon: '👕', seconds: 60, price: 400, maker: 'fashion', needs: { textile: 2, plastic: 1 }, unlock: 8 },
   shoes: { name: 'Ayakkabı', icon: '👟', seconds: 90, price: 600, maker: 'fashion', needs: { textile: 1, plastic: 2, wood: 1 }, unlock: 9 },
+  sapling: { name: 'Fidan', icon: '🌳', seconds: 90, price: 420, maker: 'garden', needs: { seeds: 2, chem: 1 }, unlock: 9 },
+  gnome: { name: 'Bahçe Cücesi', icon: '🍄', seconds: 120, price: 520, maker: 'garden', needs: { mineral: 2, paint: 1 }, unlock: 10 },
+  icecream: { name: 'Dondurma', icon: '🍦', seconds: 60, price: 450, maker: 'cafe', needs: { sugar: 1, plastic: 1, veggies: 1 }, unlock: 10 },
+  burger: { name: 'Hamburger', icon: '🍔', seconds: 100, price: 640, maker: 'cafe', needs: { flour: 1, veggies: 1, sugar: 1 }, unlock: 11 },
+  tv: { name: 'Televizyon', icon: '📺', seconds: 150, price: 900, maker: 'electro', needs: { parts: 2, glass: 1, plastic: 1 }, unlock: 12 },
+  fridge: { name: 'Buzdolabı', icon: '🧊', seconds: 180, price: 1050, maker: 'electro', needs: { parts: 1, metal: 3, chem: 1 }, unlock: 13 },
 };
 export const MAT_IDS = Object.keys(MATERIALS) as MatId[];
 
@@ -280,7 +297,7 @@ export const COST: Record<BuildTool, number> = {
   wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150, parking: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
-  bakery: 1500, fashion: 2000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
+  bakery: 1500, fashion: 2000, garden: 2500, cafe: 3000, electro: 4000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000, mosque: 5000,
   zoo: 11000, lake: 1500, biglake: 3500, hill: 1200, volley: 2500, casino: 15000, observatory: 9000, eiffel: 30000, liberty: 25000, pisa: 12000, colosseum: 32000, galata: 10000, pyramid: 28000,
 };
@@ -299,7 +316,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
   market: 4, furniture: 6, uni: 7, airport: 9,
-  beach: 6, bakery: 7, port: 8, fashion: 8, metro: 10, clocktower: 4, museum: 8, funfair: 9, lighthouse: 5, marina: 7,
+  beach: 6, bakery: 7, port: 8, fashion: 8, garden: 9, cafe: 10, electro: 12, metro: 10, clocktower: 4, museum: 8, funfair: 9, lighthouse: 5, marina: 7,
   boulevard: 4, avenue: 8, mosque: 6,
   zoo: 8, lake: 3, biglake: 6, hill: 3, volley: 6, casino: 10, observatory: 9, galata: 6, pisa: 7, liberty: 9, eiffel: 10, colosseum: 11, pyramid: 12,
 };
@@ -337,6 +354,9 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   airport: { icon: '✈️', label: 'Havalimanı', hint: 'Havalimanı: uçaklar kalkıp iner, turistler her gün para getirir.' },
   bakery: { icon: '🥯', label: 'Fırın', hint: 'Fırın: undan simit ve pasta yapar.' },
   fashion: { icon: '👕', label: 'Giyim', hint: 'Giyim mağazası: kumaştan tişört ve ayakkabı yapar.' },
+  garden: { icon: '🌳', label: 'Bahçe Market', hint: 'Bahçe market: tohum ve kimyasaldan fidan, mineral ve boyadan bahçe cücesi yapar.' },
+  cafe: { icon: '🍦', label: 'Dondurmacı', hint: 'Dondurma ve burger dükkanı: şeker, sebze ve undan dondurma ve hamburger yapar.' },
+  electro: { icon: '📺', label: 'Elektronik', hint: 'Beyaz eşya mağazası: elektronik parça ve camdan televizyon ve buzdolabı yapar.' },
   port: { icon: '🚢', label: 'Liman', hint: 'Liman deniz ya da nehir kıyısına kurulur. Komşu şehirlerin siparişlerini gemiyle gönder.' },
   beach: { icon: '🏖️', label: 'Plaj', hint: 'Plaj deniz ya da nehir kıyısına kurulur. Turist getirir, çevreyi çok mutlu eder.' },
   lighthouse: { icon: '🗼', label: 'Deniz Feneri', hint: 'Deniz feneri: deniz kıyısına kurulur, geceleri ışığı döner. Biraz turist getirir.' },

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
@@ -478,6 +478,80 @@ function iconTexture(type: IconType) {
 const ICON_MATS = Object.fromEntries(
   (Object.keys(ICON_COLORS) as IconType[]).map(t => [t, new THREE.SpriteMaterial({ map: iconTexture(t), depthTest: false })]),
 ) as Record<IconType, THREE.SpriteMaterial>;
+
+// Ürün resimleri (3D modelden çizilmiş, veri adresi); hazır ürün baloncuklarında kullanılır
+const ITEM_PICS = new Map<string, string>();
+const READY_MATS = new Map<MatId, THREE.SpriteMaterial>();
+// Hazır ürün baloncuğu: beyaz konuşma balonu, içinde ürünün resmi (SimCity'deki gibi; dokununca depoya gelir)
+function readyMat(mat: MatId) {
+  let m = READY_MATS.get(mat);
+  if (m) return m;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const draw = (img?: HTMLImageElement) => {
+    g.clearRect(0, 0, 128, 128);
+    // Balon ve kuyruğu
+    g.fillStyle = 'rgba(16,33,56,0.25)';
+    g.beginPath();
+    g.arc(64, 58, 50, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.arc(64, 54, 48, 0, Math.PI * 2);
+    g.moveTo(52, 96);
+    g.lineTo(64, 122);
+    g.lineTo(76, 96);
+    g.fill();
+    g.strokeStyle = '#34a853';
+    g.lineWidth = 5;
+    g.beginPath();
+    g.arc(64, 54, 45, 0, Math.PI * 2);
+    g.stroke();
+    if (img) g.drawImage(img, 22, 12, 84, 84);
+    else {
+      g.font = '54px sans-serif';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(MATERIALS[mat].icon, 64, 58);
+    }
+  };
+  draw();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const src = ITEM_PICS.get(mat);
+  if (src) {
+    const img = new Image();
+    img.onload = () => {
+      draw(img);
+      tex.needsUpdate = true;
+    };
+    img.src = src;
+  }
+  m = new THREE.SpriteMaterial({ map: tex, depthTest: false });
+  READY_MATS.set(mat, m);
+  return m;
+}
+// Boşta bekleyen fabrika ve dükkanın üstünde "Zz"
+const IDLE_MAT = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.font = 'bold 30px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineWidth = 6;
+  g.strokeStyle = '#1f2d3d';
+  g.fillStyle = '#ffffff';
+  for (const [t, x, y, s] of [['Z', 24, 42, 30], ['z', 42, 22, 22]] as [string, number, number, number][]) {
+    g.font = `bold ${s}px sans-serif`;
+    g.strokeText(t, x, y);
+    g.fillText(t, x, y);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.SpriteMaterial({ map: tex, depthTest: false, opacity: 0.9, transparent: true });
+})();
 const ICON_Y = 2.2;
 const MAX_ICONS = 60;
 
@@ -1292,13 +1366,53 @@ export class CityView {
     return o;
   }
 
+  // Ürün resimlerini al (hazır ürün baloncukları bunlarla çizilir)
+  setItemPics(pics: Map<string, string>) {
+    for (const [k, v] of pics) ITEM_PICS.set(k, v);
+    for (const m of READY_MATS.values()) m.map?.dispose();
+    READY_MATS.clear();
+    for (const [key, s] of this.icons) {
+      if (!key.includes('|ready|')) continue;
+      this.root.remove(s);
+      this.icons.delete(key);
+    }
+    this.updateIcons();
+  }
+
+  // Ekranda bu noktaya dokununca hangi binanın hazır ürün baloncuğu var? (yoksa null)
+  readyBubbleAt(x: number, y: number, camera: THREE.Camera, rect: DOMRect): number | null {
+    let best: number | null = null, bestD = Infinity;
+    const p = new THREE.Vector3(), q = new THREE.Vector3();
+    for (const s of this.icons.values()) {
+      if (s.userData.ready === undefined) continue;
+      p.copy(s.position).project(camera);
+      if (p.z > 1) continue;
+      const sx = rect.left + ((p.x + 1) / 2) * rect.width, sy = rect.top + ((1 - p.y) / 2) * rect.height;
+      // Baloncuğun ekrandaki yarıçapı (uzaklığa göre)
+      q.copy(s.position).addScaledVector(camera.up, s.scale.y / 2).project(camera);
+      const r = Math.max(22, Math.abs(q.y - p.y) * rect.height * 0.5 * 1.1);
+      const d = Math.hypot(x - sx, y - sy);
+      if (d < r && d < bestD) {
+        bestD = d;
+        best = s.userData.ready as number;
+      }
+    }
+    return best;
+  }
+
   // Binaların üstündeki simgeleri güncelle (sorunlar, yükseltme, depo dolu)
   updateIcons() {
     if (this.trafficOn) this.showTraffic(true);
     const want = new Map<string, { i: number; type: IconType; slot: number }>();
     const now = Date.now();
-    for (const i of this.city.waiting(now)) want.set(`${i}|full`, { i, type: 'full', slot: 0 });
+    // Hazır ürünler: binanın üstünde ürünün resmi olan baloncuk (dokununca depoya gelir); boştakilerde "Zz"
+    const extra = new Map<string, { i: number; mat: MatId | null }>();
+    for (const i of this.city.waiting(now)) {
+      const mat = this.city.readyAt(i, now)[0];
+      extra.set(`${i}|ready|${mat}`, { i, mat });
+    }
     this.city.tiles.forEach((t, i) => {
+      if (t && (MAKERS as string[]).includes(t.kind) && !this.city.jobs.has(i) && this.city.isConnected(i)) extra.set(`${i}|idle`, { i, mat: null });
       if (t?.kind === 'factory') {
         const obj = this.objs.get(i);
         if (obj) setWorking(obj, (this.city.jobs.get(i) ?? []).some(j => j.end > now));
@@ -1337,7 +1451,7 @@ export class CityView {
       for (const [k, v] of keep) want.set(k, v);
     }
     for (const [key, s] of this.icons) {
-      if (!want.has(key)) {
+      if (!want.has(key) && !extra.has(key)) {
         this.root.remove(s);
         this.icons.delete(key);
       }
@@ -1352,6 +1466,20 @@ export class CityView {
       s.userData.y = top + slot * 0.55;
       s.userData.phase = (i * 0.37) % (Math.PI * 2);
       s.scale.setScalar(type === 'upgrade' ? 0.42 : type === 'traffic' ? 0.42 : 0.5);
+      s.renderOrder = 2;
+      this.root.add(s);
+      this.icons.set(key, s);
+    }
+    // Hazır ürün baloncukları ve "Zz": büyük binada ortada, binanın tepesinin biraz üstünde
+    for (const [key, { i, mat }] of extra) {
+      if (this.icons.has(key)) continue;
+      const s = new THREE.Sprite(mat ? readyMat(mat) : IDLE_MAT);
+      const n = this.city.tiles[i]?.fp ?? 1;
+      s.position.copy(tileCenter((i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2));
+      s.userData.y = (mat ? 1.05 : 0.95) + (n - 1) * 0.35;
+      s.userData.phase = (i * 0.37) % (Math.PI * 2);
+      s.userData.ready = mat ? i : undefined;
+      s.scale.setScalar(mat ? 0.62 : 0.34);
       s.renderOrder = 2;
       this.root.add(s);
       this.icons.set(key, s);

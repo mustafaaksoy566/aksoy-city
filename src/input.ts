@@ -7,7 +7,7 @@ interface Handlers {
   preview(cells: number[]): void;
   commit(cells: number[]): void;
   cancel(): void;
-  tap(cell: number | null): void; // Gez modunda kısa dokunuş (bilgi kartı için)
+  tap(cell: number | null, x: number, y: number): void; // Gez modunda kısa dokunuş (bilgi kartı için); x, y ekrandaki yer
   // Gez modunda binaya basılı tutunca: bina kalkar (taşınabiliyorsa true), parmakla gezer, bırakınca yerleşir
   lift(cell: number | null): boolean;
   // Yerleştirme beklerken (✓/✗) binanın üstüne dokununca beklemeden sürüklenir
@@ -184,7 +184,7 @@ export class TileInput {
       const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
       if (moved < 10 && performance.now() - tap.t < 500) {
         const t = this.tileAt(e, false);
-        this.h.tap(t ? idx(t[0], t[1]) : null);
+        this.h.tap(t ? idx(t[0], t[1]) : null, e.clientX, e.clientY);
       }
     }
     if (!this.drag || e.pointerId !== this.drag.id) return;

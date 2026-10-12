@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
-  LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
+  LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
 import {
@@ -40,8 +40,9 @@ import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
-  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, type Quality,
+  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, thumbOf, type Quality,
 } from './ui';
+import { ProductionPanel } from './production';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
 const QUALITY_KEY = 'aksoy-city-quality';
@@ -457,7 +458,131 @@ function renderCard() {
   showInfo(card);
 }
 
+// --- Üretim ekranı (fabrika ve dükkanlar, SimCity'deki gibi) ---
+const isMaker = (k: string | undefined) => !!k && (MAKERS as string[]).includes(k);
+// Binanın ortası (büyük binada kapladığı alanın ortası)
+function buildingCenter(i: number) {
+  const n = city.tiles[i]?.fp ?? 1;
+  return tileCenter((i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2);
+}
+// Kamera binaya yumuşakça yaklaşır
+let camTween: { from: THREE.Vector3; to: THREE.Vector3; d0: number; d1: number; t: number } | null = null;
+function focusOn(i: number) {
+  const n = city.tiles[i]?.fp ?? 1;
+  camTween = { from: rig.target.clone(), to: buildingCenter(i), d0: rig.distance, d1: 8 + (n - 1) * 2.5, t: 0 };
+}
+function stepCamTween(dt: number) {
+  if (!camTween) return;
+  camTween.t = Math.min(1, camTween.t + dt / 0.45);
+  const k = 1 - Math.pow(1 - camTween.t, 3);
+  rig.target.lerpVectors(camTween.from, camTween.to, k);
+  rig.distance = camTween.d0 + (camTween.d1 - camTween.d0) * k;
+  rig.apply();
+  if (camTween.t >= 1) camTween = null;
+}
+// Hazır ürünleri depoya al; ekrandaki yerden depo düğmesine uçsunlar
+function collectFrom(i: number, from?: { x: number; y: number }) {
+  const before = city.readyAt(i, Date.now()).length;
+  const got = city.collectAt(i, Date.now());
+  if (got.length) {
+    floatStorage(got);
+    if (from) prod.flyToStorage(got, from);
+    play('place', 0.45);
+  }
+  if (got.length < before) {
+    toast('📦 Depo dolu! Depo kur, liman siparişi gönder ya da ev yükselt.', 'error');
+    play('error', 0.3);
+  }
+  afterChange();
+  return got;
+}
+// Fabrika ve dükkanlar sırayla (◀ ▶ ile gezilir)
+function makerList() {
+  const out: number[] = [];
+  city.tiles.forEach((t, i) => t && isMaker(t.kind) && out.push(i));
+  return out.sort((a, b) => MAKERS.indexOf(city.tiles[a]!.kind as never) - MAKERS.indexOf(city.tiles[b]!.kind as never) || a - b);
+}
+const prodHandlers = {
+  city: () => city,
+  thumb: (k: string) => thumbOf(k),
+  anchor(i: number) {
+    const n = city.tiles[i]?.fp ?? 1;
+    const p = buildingCenter(i).setY(0.3 + n * 0.12).project(camera);
+    if (p.z > 1) return null;
+    const r = renderer.domElement.getBoundingClientRect();
+    return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+  },
+  make(i: number, mat: MatId) {
+    const err = city.startJob(i, mat, Date.now());
+    if (!err) afterChange();
+    return err;
+  },
+  collect: (i: number) => collectFrom(i),
+  speedUp(i: number, k: number) {
+    const err = city.speedUp(i, k, Date.now());
+    if (!err) afterChange();
+    return err;
+  },
+  cancel(i: number, k: number) {
+    const err = city.cancelJob(i, k, Date.now());
+    if (!err) afterChange();
+    return err;
+  },
+  async buySlot(i: number) {
+    const price = city.slotPrice(i);
+    if (price === null) return;
+    const ok = await confirmDialog('Yeni üretim yeri', `Bu binaya bir üretim yeri daha açılsın mı? Fiyatı 💰${fmt(price)}.`, `Aç 💰${fmt(price)}`);
+    if (!ok) return;
+    const err = city.buySlot(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      play('grow', 0.5);
+      toast('➕ Yeni üretim yeri açıldı!');
+    }
+    afterChange();
+  },
+  upgrade(i: number) {
+    cardActions.upgradeMaker(i);
+  },
+  info(i: number) {
+    closeProduction();
+    openTile(i);
+  },
+  cycle(d: number) {
+    const list = makerList();
+    if (!list.length || prod.i === null) return;
+    const k = list.indexOf(prod.i);
+    const next = list[(k + d + list.length) % list.length];
+    openProduction(next);
+    play('click', 0.3);
+  },
+  close: () => closeProduction(),
+  sound: (name: 'click' | 'place' | 'error' | 'grow') => play(name, name === 'error' ? 0.3 : 0.4),
+  toast: (text: string, error?: boolean) => toast(text, error ? 'error' : 'info'),
+};
+const prod = new ProductionPanel(prodHandlers);
+function openProduction(i: number) {
+  if (openCard !== null) openTile(null);
+  focusOn(i);
+  // Açılınca hazır ürünler hemen depoya gelir
+  const ready = city.readyAt(i, Date.now()).length;
+  prod.open(i);
+  if (ready) {
+    const a = prodHandlers.anchor(i);
+    collectFrom(i, a ?? undefined);
+  }
+  view.showSelection(city.cellsOf(i));
+}
+function closeProduction() {
+  if (!prod.isOpen) return;
+  prod.close();
+  view.showSelection([]);
+}
+
 function openTile(cell: CardKey | null) {
+  if (cell !== null) closeProduction();
   openCard = cell;
   renderCard();
   highlight();
@@ -625,6 +750,7 @@ function afterChange() {
   checkLevelUps();
   view.updateIcons();
   renderCard();
+  if (prod.isOpen) prod.refresh();
   if (mapKind) renderServiceMap();
   if (metroView.visible) metroView.rebuild(city);
   const mb = document.getElementById('metro-btn');
@@ -701,6 +827,7 @@ const lockedAt = (t: Tool) => (t === 'pan' || city.isUnlocked(t) ? null : city.u
 
 function pickTool(t: Tool) {
   cancelMove();
+  closeProduction();
   const lock = lockedAt(t);
   if (lock) {
     toast(`🔒 Şehir seviyesi ${lock}'te açılır`, 'error');
@@ -938,8 +1065,28 @@ const input = new TileInput(renderer.domElement, camera, {
     setChip(null);
     showCoverage();
   },
-  tap(cell) {
+  tap(cell, x, y) {
     if (moving) return; // yerleştirme beklerken kart açılmasın
+    // Binanın üstündeki hazır ürün baloncuğuna dokununca ürünler depoya gelir
+    const bubble = view.readyBubbleAt(x, y, camera, renderer.domElement.getBoundingClientRect());
+    if (bubble !== null) {
+      collectFrom(bubble, { x, y });
+      if (prod.isOpen && prod.i !== bubble) openProduction(bubble);
+      return;
+    }
+    // Fabrika ya da dükkan: hazır ürün varsa önce toplanır, yoksa üretim ekranı açılır
+    const a = cell !== null ? city.anchorOf(cell) : null;
+    if (a !== null && isMaker(city.tiles[a]?.kind)) {
+      if (!prod.isOpen && city.readyAt(a, Date.now()).length) collectFrom(a, { x, y });
+      else openProduction(a);
+      play('click', 0.3);
+      return;
+    }
+    // Üretim ekranı açıkken başka yere dokununca kapanır
+    if (prod.isOpen) {
+      closeProduction();
+      return;
+    }
     openTile(cell);
     if (openCard !== null) play('click', 0.3);
   },
@@ -958,6 +1105,7 @@ renderer.domElement.addEventListener('pointerdown', () => openTile(null));
 // Ana düğmeler
 document.getElementById('build')!.addEventListener('click', () => {
   cancelMove();
+  closeProduction();
   if (tool !== 'pan') pickTool('pan');
   openTile(null);
   catalog.open();
@@ -1062,10 +1210,18 @@ async function resetCity() {
   toast('Yeni şehir kuruldu!');
 }
 
+// Ekran bilgisi (ayarların altında): ana ekrandan açılınca bulanıklık olursa nedenini görmek için
+function screenInfo() {
+  const nav = navigator as Navigator & { standalone?: boolean };
+  const app = nav.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  const el = renderer.domElement;
+  return `${app ? 'Ana ekran' : 'Tarayıcı'} · pencere ${innerWidth}×${innerHeight} · ekran ${screen.width}×${screen.height} · tuval ${el.clientWidth}×${el.clientHeight} → ${el.width}×${el.height} · keskinlik ${pixelRatio.toFixed(2)}/${dpr()} · ${Math.round(fpsAvg)} fps`;
+}
+
 document.getElementById('settings')!.addEventListener('click', () => {
   play('click', 0.3);
   openSettings(
-    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName, demo: readPref(DEMO_KEY) === '1' && !!readPref(BACKUP_KEY) },
+    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName, demo: readPref(DEMO_KEY) === '1' && !!readPref(BACKUP_KEY), screen: screenInfo() },
     {
       sound: on => setMuted(!on),
       quality: applyQuality,
@@ -1155,10 +1311,15 @@ resize();
 const clock = new THREE.Clock();
 let dayTimer = 0;
 let prodTimer = 0;
+let lastReady = 0;
+let fpsAvg = 60;
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.25);
+  if (dt > 0) fpsAvg += (1 / dt - fpsAvg) * 0.05;
   rig.update(dt);
+  stepCamTween(dt);
+  prod.update(dt);
   updateCompass();
 
   dayTimer += dt;
@@ -1173,19 +1334,18 @@ function frame() {
     afterChange();
   }
 
-  // Fabrika ve dükkan üretimlerini yarım saniyede bir kontrol et
+  // Fabrika ve dükkan üretimleri: biten ürün binada baloncukla bekler (dokununca depoya gelir)
   prodTimer += dt;
   if (prodTimer >= 0.5) {
     prodTimer = 0;
-    const got = city.collect(Date.now());
-    if (got.length) {
-      floatStorage(got);
-      play('place', 0.25);
-      afterChange();
-    } else {
-      view.updateIcons();
-      if (openCard !== null) renderCard();
+    const ready = city.waiting(Date.now()).length;
+    if (ready !== lastReady) {
+      if (ready > lastReady) play('place', 0.2);
+      lastReady = ready;
+      if (prod.isOpen) prod.refresh();
     }
+    view.updateIcons();
+    if (openCard !== null) renderCard();
     // Gemisi dönen limana yeni sipariş gelsin
     if (city.updateOrders(Date.now())) afterChange();
   }
@@ -1286,9 +1446,9 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     sky.init();
     view.rebuildAll();
     makeMenuPictures();
-    // Oyun kapalıyken biten üretimleri depoya al
-    const got = city.collect(Date.now());
-    if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
+    // Oyun kapalıyken biten üretimler binalarda bekler
+    const done = city.waiting(Date.now()).length;
+    if (done) toast(`Sen yokken ${done} binada ürün hazır oldu! Baloncuklara dokunup topla 📦`);
     if (city.tradeRefund) toast(`Ticaret merkezi kaldırıldı, parası iade edildi: 💰${fmt(city.tradeRefund)}`);
     if (city.seaRefund) toast(`Kuzey kıyısı artık deniz! Oradaki yapıların parası iade edildi: 💰${fmt(city.seaRefund)}`);
     afterChange();
@@ -1296,7 +1456,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod } });
   })
   .catch(err => {
     console.error(err);
