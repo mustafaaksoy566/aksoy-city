@@ -357,6 +357,16 @@ export const towerPaths = (height: number, count: number, seed: number, types: n
     return path;
   });
 
+// Orta yükseklikte apartmanlar (gökdelenlerle aynı cephe tarzında): 'proc/midrise-<boy>-<çeşit>'
+export const midrisePaths = (height: number, count: number, seed: number, types: number[]) =>
+  Array.from({ length: count }, (_, k) => {
+    const path = `proc/midrise-${height}-${seed + k}`;
+    const h = height * (0.92 + hash(seed + k, 9) * 0.16);
+    const type = types[k % types.length];
+    TOWER_MODELS[path] = () => makeTower(h, seed + k * 13, type);
+    return path;
+  });
+
 // --- Evler: kiremit çatılı villalar ve balkonlu apartmanlar (her biri farklı renkte) ---
 const WIN = new THREE.MeshStandardMaterial({ color: '#9fd3ea', roughness: 0.3, metalness: 0.1 });
 WIN.name = 'window';
