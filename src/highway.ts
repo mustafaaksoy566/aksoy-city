@@ -245,13 +245,19 @@ function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; h
 }
 
 // İki şeritli yol (şehrin girişine ve kayak merkezine): asfalt, orta çizgi, kenar çizgileri, bordür
+// Göbek kavşağın ağzında (yolun genişlediği kısım) kenar çizgisi ve bordür, ayırıcı adacığa kadar orta çizgi çizilmez
+const ringDist = (p: V2) => Math.hypot(p.x - ring.x, p.y - ring.z);
+const edgeParts = (pts: V2[]) => pieces(pts, pts.map(() => 0), k => ringDist(pts[k]) > ring.outer + 1.0);
+const midParts = (pts: V2[]) => pieces(pts, pts.map(() => 0), k => ringDist(pts[k]) > ring.outer + 1.15);
 function smallRoad(pts: V2[]) {
   const g = new THREE.Group();
   g.add(mesh(strip(pts, -SMALL, SMALL, Y), M.asphalt));
-  g.add(mesh(strip(pts, -0.012, 0.012, Y + 0.001, [0.2, 0.2]), M.line));
+  for (const pc of midParts(pts)) g.add(mesh(strip(pc.pts, -0.012, 0.012, Y + 0.001, [0.2, 0.2]), M.line));
   for (const s of [-1, 1]) {
-    g.add(mesh(strip(pts, s * 0.3 - 0.01, s * 0.3 + 0.01, Y + 0.001), M.line));
-    g.add(mesh(wall(pts, s * (SMALL + 0.02), 0.04, Y - 0.02, Y + 0.014), M.curb));
+    for (const pc of edgeParts(pts)) {
+      g.add(mesh(strip(pc.pts, s * 0.3 - 0.01, s * 0.3 + 0.01, Y + 0.001), M.line));
+      g.add(mesh(wall(pc.pts, s * (SMALL + 0.02), 0.04, Y - 0.02, Y + 0.014), M.curb));
+    }
   }
   return g;
 }
@@ -387,20 +393,25 @@ function cityRoad(pts: V2[], grade: number) {
   const g = new THREE.Group();
   g.add(mesh(strip(pts, -SMALL, SMALL, Y), M.asphalt));
   for (const s of [-1, 1]) {
-    g.add(mesh(wall(pts, s * (SMALL + 0.02), 0.04, Y - 0.02, Y + 0.014), M.curb));
-    g.add(mesh(strip(pts, s * 0.39 - 0.01, s * 0.39 + 0.01, Y + 0.001), M.line));
+    for (const pc of edgeParts(pts)) {
+      g.add(mesh(wall(pc.pts, s * (SMALL + 0.02), 0.04, Y - 0.02, Y + 0.014), M.curb));
+      g.add(mesh(strip(pc.pts, s * 0.39 - 0.01, s * 0.39 + 0.01, Y + 0.001), M.line));
+    }
   }
+  const mid = midParts(pts);
   if (grade === 2) {
     // Cadde: ortada beton bariyer ve sarı çizgiler, şeritler arasında kesik çizgi
-    g.add(mesh(wall(pts.slice(2), 0, 0.035, Y, Y + 0.03), M.concrete));
-    for (const s of [-1, 1]) {
-      g.add(mesh(strip(pts, s * 0.035 - 0.008, s * 0.035 + 0.008, Y + 0.001), M.yellow));
-      g.add(mesh(strip(pts, s * 0.2 - 0.008, s * 0.2 + 0.008, Y + 0.001, [0.16, 0.17]), M.line));
+    for (const pc of mid) {
+      g.add(mesh(wall(pc.pts, 0, 0.035, Y, Y + 0.03), M.concrete));
+      for (const s of [-1, 1]) g.add(mesh(strip(pc.pts, s * 0.035 - 0.008, s * 0.035 + 0.008, Y + 0.001), M.yellow));
     }
+    for (const s of [-1, 1]) g.add(mesh(strip(pts, s * 0.2 - 0.008, s * 0.2 + 0.008, Y + 0.001, [0.16, 0.17]), M.line));
   } else {
     // Bulvar: ortada çimenli refüj
-    g.add(mesh(wall(pts.slice(2), 0, 0.12, Y, Y + 0.02), M.curb));
-    g.add(mesh(strip(pts.slice(2), -0.05, 0.05, Y + 0.0205), M.grass));
+    for (const pc of mid) {
+      g.add(mesh(wall(pc.pts, 0, 0.12, Y, Y + 0.02), M.curb));
+      g.add(mesh(strip(pc.pts, -0.05, 0.05, Y + 0.0205), M.grass));
+    }
   }
   return g;
 }
