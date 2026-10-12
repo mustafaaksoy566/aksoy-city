@@ -106,9 +106,12 @@ const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 
 const woodMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
 
 export const TREE_MODELS: Record<string, () => THREE.Object3D> = {};
-for (const type of ['round', 'pine', 'cypress', 'bush', 'blossom'] as TreeType[]) {
-  TREE_MODELS[`proc/tree-${type}`] = () => {
-    const { crown, wood } = treeParts(type, 1);
+// 'street': cadde kenarındaki sade ağaç (daha az üçgen, çok sayıda dikildiği için)
+for (const [name, type, detail] of [
+  ['round', 'round', 1], ['pine', 'pine', 1], ['cypress', 'cypress', 1], ['bush', 'bush', 1], ['blossom', 'blossom', 1], ['street', 'round', 0],
+] as [string, TreeType, number][]) {
+  TREE_MODELS[`proc/tree-${name}`] = () => {
+    const { crown, wood } = treeParts(type, detail);
     const g = new THREE.Group();
     for (const [geo, m] of [[crown, leafMat], [wood, woodMat]] as [THREE.BufferGeometry | null, THREE.Material][]) {
       if (!geo) continue;

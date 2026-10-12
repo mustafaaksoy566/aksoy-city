@@ -669,7 +669,89 @@ function marina() {
   return g;
 }
 
+// Cami (2x2): arkada büyük kubbeli ana bina ve köşe kubbeleri, iki yanda şerefeli ince minareler,
+// önde revaklı avlu ve ortasında şadırvan. Ön yüz (+z) yola bakar. Minare şerefeleri gece ışıklanır.
+const MQ = {
+  stone: mat('#f1e8d8'),
+  dome: mat('#8fa5b8'),
+  dark: mat('#3d4b58'),
+  gold: new THREE.MeshStandardMaterial({ color: '#e0b84c', metalness: 0.6, roughness: 0.35 }),
+  court: mat('#ddd4c2'),
+  lamp: new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 }),
+};
+MQ.lamp.name = 'lamp';
+const halfDome = (r: number) => new THREE.SphereGeometry(r, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+function mosque() {
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cfc6b3'), 0, 0.01, 0));
+  st.add(part(new THREE.BoxGeometry(0.62, 0.012, 0.38), MQ.court, 0, 0.026, 0.27));
+  // Ana bina ve kubbe
+  const cz = -0.17;
+  st.add(part(new THREE.BoxGeometry(0.52, 0.2, 0.46), MQ.stone, 0, 0.12, cz));
+  st.add(part(new THREE.BoxGeometry(0.54, 0.02, 0.48), mat('#e2d6c0'), 0, 0.225, cz));
+  st.add(part(new THREE.CylinderGeometry(0.17, 0.185, 0.06, 18), MQ.stone, 0, 0.26, cz));
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    const w = part(new THREE.BoxGeometry(0.018, 0.03, 0.006), MQ.dark, Math.sin(a) * 0.183, 0.262, cz + Math.cos(a) * 0.183);
+    w.rotation.y = a;
+    st.add(w);
+  }
+  st.add(part(halfDome(0.175), MQ.dome, 0, 0.29, cz));
+  st.add(part(new THREE.CylinderGeometry(0.004, 0.006, 0.07, 6), MQ.gold, 0, 0.5, cz));
+  st.add(part(new THREE.SphereGeometry(0.012, 8, 6), MQ.gold, 0, 0.54, cz));
+  // Köşe kubbeleri
+  for (const dx of [-0.18, 0.18]) {
+    for (const dz of [cz - 0.15, cz + 0.15]) {
+      st.add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.025, 12), MQ.stone, dx, 0.245, dz));
+      st.add(part(halfDome(0.06), MQ.dome, dx, 0.257, dz));
+    }
+  }
+  // Ön cephe: taç kapı ve kemerli pencereler
+  const front = cz + 0.231;
+  st.add(part(new THREE.BoxGeometry(0.16, 0.24, 0.04), MQ.stone, 0, 0.14, front + 0.01));
+  st.add(part(new THREE.BoxGeometry(0.07, 0.12, 0.006), MQ.dark, 0, 0.08, front + 0.032));
+  st.add(part(new THREE.CylinderGeometry(0.035, 0.035, 0.006, 12, 1, false, -Math.PI / 2, Math.PI), MQ.dark, 0, 0.14, front + 0.032).rotateX(-Math.PI / 2));
+  for (const x of [-0.19, -0.12, 0.12, 0.19]) {
+    st.add(part(new THREE.BoxGeometry(0.035, 0.06, 0.006), MQ.dark, x, 0.13, front + 0.003));
+    st.add(part(new THREE.CylinderGeometry(0.0175, 0.0175, 0.006, 10, 1, false, -Math.PI / 2, Math.PI), MQ.dark, x, 0.16, front + 0.003).rotateX(-Math.PI / 2));
+  }
+  // Avlunun iki yanında revaklar (küçük kubbeler)
+  for (const x of [-0.27, 0.27]) {
+    st.add(part(new THREE.BoxGeometry(0.08, 0.07, 0.34), MQ.stone, x, 0.055, 0.27));
+    for (let k = 0; k < 3; k++) {
+      st.add(part(halfDome(0.034), MQ.dome, x, 0.09, 0.15 + k * 0.12));
+      st.add(part(new THREE.BoxGeometry(0.006, 0.04, 0.05), MQ.dark, x + (x < 0 ? 0.041 : -0.041), 0.05, 0.15 + k * 0.12));
+    }
+  }
+  // Şadırvan
+  st.add(part(new THREE.CylinderGeometry(0.06, 0.065, 0.03, 8), MQ.stone, 0, 0.047, 0.28));
+  st.add(part(new THREE.CylinderGeometry(0.045, 0.045, 0.006, 8), mat('#4fb3e8'), 0, 0.063, 0.28));
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    st.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.06, 5), MQ.stone, Math.sin(a) * 0.055, 0.09, 0.28 + Math.cos(a) * 0.055));
+  }
+  st.add(part(new THREE.ConeGeometry(0.075, 0.045, 8), MQ.dome, 0, 0.142, 0.28));
+  // Minareler: ana binanın ön köşelerinde
+  for (const x of [-0.33, 0.33]) {
+    const z = cz + 0.2;
+    st.add(part(new THREE.BoxGeometry(0.06, 0.08, 0.06), MQ.stone, x, 0.04, z));
+    st.add(part(new THREE.CylinderGeometry(0.021, 0.025, 0.5, 12), MQ.stone, x, 0.33, z));
+    st.add(part(new THREE.CylinderGeometry(0.036, 0.026, 0.018, 12), MQ.stone, x, 0.48, z));
+    st.add(part(new THREE.CylinderGeometry(0.034, 0.034, 0.012, 12, 1, true), MQ.lamp, x, 0.495, z));
+    st.add(part(new THREE.CylinderGeometry(0.017, 0.02, 0.12, 12), MQ.stone, x, 0.55, z));
+    st.add(part(new THREE.CylinderGeometry(0.027, 0.02, 0.012, 12), MQ.stone, x, 0.615, z));
+    st.add(part(new THREE.ConeGeometry(0.022, 0.13, 12), MQ.dome, x, 0.685, z));
+    st.add(part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.04, 5), MQ.gold, x, 0.765, z));
+  }
+  // Servi ağaçları
+  for (const [x, z] of [[-0.42, 0.42], [0.42, 0.42], [-0.43, -0.42], [0.43, -0.42]] as [number, number][]) st.add(tree(PROPS.treeSmall, x, z, 2, x * 5, 0.6));
+  g.add(mergeStatic([st]));
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'mosque') return mosque();
   if (kind === 'lighthouse') return lighthouse();
   if (kind === 'marina') return marina();
   if (kind === 'clocktower') return clockTower();

@@ -4,7 +4,7 @@ import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, i
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
-import { riverMat, worldUV, RIVER_Y, SEA_Y } from './water';
+import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
 
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
@@ -38,6 +38,78 @@ export function streetLight(dx: number, dz: number, rot: number) {
   const bulb = new THREE.Mesh(lampGeo, lampMat);
   bulb.position.set(-0.11, 0.455, 0); // kolun ucu (lamba modeli kolu -x yönünde)
   g.add(bulb);
+  return g;
+}
+
+// Cadde ve bulvar süsleri (yol z yönünde uzanıyormuş gibi kurulur, x yönündeyse döndürülür).
+// Arabalar şeridin ortasından 0.16 uzakta gider; refüj onlara değmeyecek kadar ince.
+const roadDeco = {
+  curb: new THREE.MeshStandardMaterial({ color: '#d4cec1', roughness: 0.9 }),
+  hedge: new THREE.MeshStandardMaterial({ color: '#4f9e3f', roughness: 0.9 }),
+  lawn: new THREE.MeshStandardMaterial({ color: '#6cc35a', roughness: 0.9 }),
+  pole: new THREE.MeshStandardMaterial({ color: '#2f3b45', roughness: 0.5, metalness: 0.4 }),
+  stone: new THREE.MeshStandardMaterial({ color: '#e4dccb', roughness: 0.9 }), // caddenin taş kaldırımı
+  brick: new THREE.MeshStandardMaterial({ color: '#c98a6a', roughness: 0.9 }), // bulvarın tuğla kaldırımı
+  flowers: ['#ff5c8a', '#ffd23f', '#ffffff', '#ff8a3d', '#c77dff'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 })),
+  geo: {
+    curbA: new THREE.BoxGeometry(0.08, 0.024, 1),
+    hedgeA: new THREE.BoxGeometry(0.058, 0.042, 0.96),
+    curbB: new THREE.BoxGeometry(0.14, 0.024, 1),
+    lawnB: new THREE.BoxGeometry(0.12, 0.026, 0.98),
+    flower: new THREE.IcosahedronGeometry(0.015, 0),
+    walk: new THREE.BoxGeometry(0.1, 0.004, 1),
+    pole: new THREE.CylinderGeometry(0.005, 0.007, 0.3, 6),
+    arm: new THREE.BoxGeometry(0.012, 0.006, 0.11),
+    bulb: new THREE.SphereGeometry(0.016, 8, 6),
+  },
+};
+function roadExtras(grade: number, alongX: boolean, along: number, nearJunction: boolean, seed: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+  // Kaldırımın döşemesi: caddede açık renk taş, bulvarda tuğla
+  for (const side of [-1, 1]) add(roadDeco.geo.walk, grade === 1 ? roadDeco.stone : roadDeco.brick, side * 0.448, 0.052, 0).receiveShadow = true;
+  // Kaldırımda ağaçlar (iki yanda, karşılıklı değil kaydırılmış); sokak lambası olan karede yok
+  const lampTile = grade < 2 && along % 3 === 0;
+  for (const side of lampTile ? [] : [-1, 1]) {
+    g.add(prop(PROPS.treeStreet, side * 0.465, side * 0.22, seed + side, 0.42 + hash(seed, side + 3) * 0.08));
+  }
+  if (!nearJunction) {
+    if (grade === 1) {
+      // Cadde: ince refüj ve üstünde çit
+      add(roadDeco.geo.curbA, roadDeco.curb, 0, 0.048, 0);
+      add(roadDeco.geo.hedgeA, roadDeco.hedge, 0, 0.078, 0);
+    } else {
+      // Bulvar: çimenli geniş refüj, çiçekler; bir karede ağaç, ötekinde iki kollu süslü lamba
+      add(roadDeco.geo.curbB, roadDeco.curb, 0, 0.048, 0);
+      add(roadDeco.geo.lawnB, roadDeco.lawn, 0, 0.052, 0);
+      for (let k = 0; k < 10; k++) {
+        const z = -0.45 + k * 0.1;
+        if (Math.abs(z) < 0.09) continue;
+        add(roadDeco.geo.flower, roadDeco.flowers[(k + seed) % roadDeco.flowers.length], (k % 2 ? 1 : -1) * 0.03, 0.072, z);
+      }
+      if (along % 2 === 0) g.add(prop(PROPS.treeSmall, 0, 0, seed, 0.6));
+      else {
+        add(roadDeco.geo.pole, roadDeco.pole, 0, 0.21, 0);
+        add(roadDeco.geo.arm, roadDeco.pole, 0, 0.35, 0).rotation.y = Math.PI / 2;
+        for (const s of [-1, 1]) add(roadDeco.geo.bulb, lampMat, s * 0.05, 0.335, 0);
+      }
+    }
+  }
+  if (alongX) g.rotation.y = Math.PI / 2;
+  return g;
+}
+
+// Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 cadde, 2 bulvar)
+export function gradedRoadModel(grade: number) {
+  const g = new THREE.Group();
+  g.add(makeModel(ROAD_BASES[0][0]));
+  if (grade) g.add(roadExtras(grade, false, 1, false, 3));
   return g;
 }
 
@@ -247,9 +319,26 @@ function park(variant: number, x: number, z: number) {
 
 // Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
 const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
-// Nehrin denize karıştığı yer: nehir suyuyla aynı, ama denize doğru saydamlaşır
+// Nehrin denize karıştığı yer: nehir suyuyla aynı, denize doğru saydamlaşıp denize karışır
 const mouthMat = riverMat.clone();
 Object.assign(mouthMat, { vertexColors: true, transparent: true, depthWrite: false });
+
+// Şehirdeki nehrin kıyıları (dünya koordinatında doğru parçaları): suyun rengi kıyıya uzaklığa göre
+function riverBanks(): [number, number, number, number][] {
+  const [a, b] = RIVER;
+  const w = (v: number) => v - SIZE / 2;
+  const top = w(SEA_ROWS), x0 = w(a), x1 = w(b + 1);
+  return [[x0, top, x0, x0], [x1, top, x1, x1], [w(0), x1, x1, x1], [w(0), x0, x0, x0]];
+}
+function bankDist(x: number, z: number, banks: [number, number, number, number][]) {
+  let d = Infinity;
+  for (const [ax, az, bx, bz] of banks) {
+    const cx = THREE.MathUtils.clamp(x, Math.min(ax, bx), Math.max(ax, bx));
+    const cz = THREE.MathUtils.clamp(z, Math.min(az, bz), Math.max(az, bz));
+    d = Math.min(d, Math.hypot(x - cx, z - cz));
+  }
+  return d;
+}
 function river() {
   const g = new THREE.Group();
   const [a, b] = RIVER;
@@ -261,13 +350,19 @@ function river() {
     g.add(mesh);
   };
   // Su: doğu kolu (denizden köşeye) ve güney kolu (batıdan köşeye), şehir dışındaki nehirle aynı yükseklikte
+  const banks = riverBanks();
   const water = (geo: THREE.BufferGeometry) => {
+    const p = geo.attributes.position;
+    const col = new Float32Array(p.count * 3);
+    const c = new THREE.Color();
+    for (let k = 0; k < p.count; k++) waterColor(bankDist(p.getX(k), p.getZ(k), banks), c).toArray(col, k * 3);
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const mesh = new THREE.Mesh(worldUV(geo), riverMat);
     mesh.receiveShadow = true;
     g.add(mesh);
   };
   const plane = (w: number, d: number, x: number, z: number) =>
-    new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).translate(x - SIZE / 2, RIVER_Y, z - SIZE / 2);
+    new THREE.PlaneGeometry(w, d, Math.round(w * 2), Math.round(d * 2)).rotateX(-Math.PI / 2).translate(x - SIZE / 2, RIVER_Y, z - SIZE / 2);
   const s = SEA_ROWS;
   water(plane(2, len - s, a + 1, (len + s) / 2));
   water(plane(len - 2, 2, (len - 2) / 2, a + 1));
@@ -278,10 +373,15 @@ function river() {
   ];
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const cx = a + 1 - SIZE / 2, z0 = s - SIZE / 2;
+  const edge = waterColor(0), mid = waterColor(1);
   rows.forEach(([d, y, h, alpha], k) => {
-    pos.push(cx - h, y, z0 - d, cx + h, y, z0 - d);
-    col.push(1, 1, 1, alpha, 1, 1, 1, alpha);
-    if (k) idx.push(k * 2 - 2, k * 2 - 1, k * 2, k * 2, k * 2 - 1, k * 2 + 1);
+    // Her sırada üç köşe: kenarlar sığ, ortası koyu
+    pos.push(cx - h, y, z0 - d, cx, y, z0 - d, cx + h, y, z0 - d);
+    col.push(edge.r, edge.g, edge.b, alpha, mid.r, mid.g, mid.b, alpha, edge.r, edge.g, edge.b, alpha);
+    if (k) {
+      const o = (k - 1) * 3;
+      for (const c of [0, 1]) idx.push(o + c, o + c + 1, o + c + 3, o + c + 3, o + c + 1, o + c + 4);
+    }
   });
   const mouth = new THREE.BufferGeometry();
   mouth.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -585,14 +685,16 @@ export class CityView {
     const r = makeModel(nearJunction ? 'kaykit/road_straight_crossing' : p.model);
     r.rotation.y = (p.k * Math.PI) / 2;
     g.add(r);
+    const grade = this.city.get(x, z)?.grade ?? 0;
+    if (straight && grade) g.add(roadExtras(grade, alongX, alongX ? x : z, nearJunction, Math.floor(hash(x, z, 5) * 1000)));
     if (straight) {
       const along = alongX ? x : z;
       const side = hash(x, z) < 0.5 ? 1 : -1;
-      // Lambanın kolu yola doğru uzansın
-      if (along % 3 === 0) {
+      // Lambanın kolu yola doğru uzansın (bulvarda lambalar refüjde)
+      if (grade < 2 && along % 3 === 0) {
         if (alongX) g.add(streetLight(0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
         else g.add(streetLight(side * 0.46, 0, side > 0 ? 0 : Math.PI));
-      } else if (along % 5 === 1 && hash(x, z, 2) < 0.6) {
+      } else if (grade < 2 && along % 5 === 1 && hash(x, z, 2) < 0.6) {
         if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
         else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
       }

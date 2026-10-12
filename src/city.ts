@@ -4,7 +4,7 @@ import {
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
-  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SEA_ROWS, SAND_ROWS,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SEA_ROWS, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -20,6 +20,7 @@ export interface Tile {
   fire?: number; // kaç gündür yanıyor
   damaged?: boolean; // depremde hasar gördü
   fp?: number; // büyük binalarda kenar uzunluğu (2 = 2x2 kare)
+  grade?: number; // yollarda: 1 = cadde, 2 = bulvar
 }
 
 // Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
@@ -97,8 +98,10 @@ export function block(x: number, z: number, n: number): number[] | null {
 const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Record<MatId, number>;
 
-// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?]
-type TileRow = [number, Kind, number, number, number, number?, number?, number?];
+// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?]
+type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?];
+// Yol aracının yaptığı yol çeşidi (cadde 1, bulvar 2); yol değilse -1
+export const gradeOf = (tool: BuildTool) => ROAD_TOOLS.indexOf(tool);
 export interface SaveData {
   v: 5;
   sz: number; // harita boyutu
@@ -245,6 +248,46 @@ export class City {
     return inBounds(x, z) ? this.tiles[idx(x, z)] : null;
   }
 
+  // Bir karenin yanındaki en iyi yolun çeşidi (0 yol, 1 cadde, 2 bulvar)
+  bestRoad(i: number) {
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    let g = 0;
+    for (const [dx, dz] of DIRS) {
+      const t = this.get(x + dx, z + dz);
+      if (t?.kind === 'road') g = Math.max(g, t.grade ?? 0);
+    }
+    return g;
+  }
+
+  // Bir yolun düz devamı: aynı doğrultudaki komşu yol kareleri (kavşak ve dönemeçlerde durur)
+  streetOf(i: number): number[] {
+    const x0 = i % SIZE, z0 = Math.floor(i / SIZE);
+    const m = this.roadMask(x0, z0);
+    const alongX = (m & 0b1010) !== 0 && (m & 0b0101) === 0;
+    const alongZ = (m & 0b0101) !== 0 && (m & 0b1010) === 0;
+    if (!alongX && !alongZ) return [i];
+    const out = [i];
+    for (const s of [-1, 1]) {
+      for (let k = 1; k < SIZE; k++) {
+        const x = alongX ? x0 + s * k : x0, z = alongZ ? z0 + s * k : z0;
+        if (!this.isRoad(x, z)) break;
+        const mk = this.roadMask(x, z);
+        const straight = alongX ? (mk & 0b0101) === 0 : (mk & 0b1010) === 0;
+        if (!straight) break;
+        out.push(idx(x, z));
+      }
+    }
+    return out;
+  }
+
+  // Bir sokağı (düz devamıyla) bir üst çeşide yükselt
+  upgradeStreet(i: number): { done: number[]; error: string | null } {
+    const t = this.tiles[i];
+    if (t?.kind !== 'road') return { done: [], error: 'Burada yol yok' };
+    const next = Math.min(2, (t.grade ?? 0) + 1);
+    return this.apply(ROAD_GRADES[next].tool, this.streetOf(i).filter(c => (this.tiles[c]?.grade ?? 0) < next));
+  }
+
   isRoad(x: number, z: number) {
     return this.get(x, z)?.kind === 'road';
   }
@@ -340,6 +383,7 @@ export class City {
       if (this.parkNear(i)) h += HAPPY.park;
       if (this.shopNear(i)) h += HAPPY.shop;
       if (this.polluted(i)) h += HAPPY.pollution;
+      h += ROAD_GRADES[this.bestRoad(i)].happy;
       h += Math.min(DECOR_MAX, decor[i]);
       this.decorBonus[i] = Math.min(DECOR_MAX, decor[i]);
       this.happy[i] = Math.min(1, Math.max(0, h));
@@ -826,12 +870,21 @@ export class City {
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
     if (cells.some(isSea)) return 'Denizin üstüne bir şey yapılamaz';
-    if (tool !== 'road' && tool !== 'rail' && cells.some(isWater)) return 'Suyun üstüne sadece yol ya da ray (köprü) yapılır';
+    if (!ROAD_TOOLS.includes(tool) && tool !== 'rail' && cells.some(isWater)) return 'Suyun üstüne sadece yol ya da ray (köprü) yapılır';
+    // Cadde ve bulvar: boş kareye yeni yapılır ya da var olan yol yükseltilir
+    const grade = gradeOf(tool);
+    if (grade > 0 && t) {
+      if (t.kind !== 'road') return 'Burası dolu';
+      if ((t.grade ?? 0) >= grade) return `Bu yol zaten ${ROAD_GRADES[t.grade ?? 0].label.toLocaleLowerCase('tr')}`;
+      if (t.level === 1) return 'Tren yolunun geçtiği yol yükseltilemez';
+      return null;
+    }
     if (tool === 'rail') {
       // Ray boş kareye ya da düz bir yolun üstüne (hemzemin geçit) döşenir
       if (!t) return null;
       if (t.kind === 'road' && t.level === 0) {
         const m = this.roadMask(x, z);
+        if (t.grade) return 'Raylar cadde ve bulvarı kesemez';
         return m === 0b0101 || m === 0b1010 ? null : 'Raylar yalnızca düz yolu kesebilir';
       }
       return 'Burası dolu';
@@ -860,7 +913,12 @@ export class City {
 
   // Toplam fiyat: su üstündeki yol ve raylar köprü olduğu için pahalı
   costOf(tool: BuildTool, cells: number[]) {
-    return cells.reduce((s, i) => s + COST[tool] * ((tool === 'road' || tool === 'rail') && isWater(i) ? BRIDGE_COST : 1), 0);
+    return cells.reduce((s, i) => {
+      // Yükseltmede sadece aradaki fark ödenir
+      const t = this.tiles[i];
+      const price = gradeOf(tool) > 0 && t?.kind === 'road' ? COST[tool] - COST[ROAD_GRADES[t.grade ?? 0].tool] : COST[tool];
+      return s + price * ((ROAD_TOOLS.includes(tool) || tool === 'rail') && isWater(i) ? BRIDGE_COST : 1);
+    }, 0);
   }
 
   // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin. n = binanın kenar uzunluğu
@@ -901,6 +959,14 @@ export class City {
         }
         continue;
       }
+      // Cadde ve bulvar: yol yükseltilir ya da yeni yapılır
+      if (gradeOf(tool) > 0) {
+        const old = this.tiles[i];
+        if (old) old.grade = gradeOf(tool);
+        else this.tiles[i] = { kind: 'road', level: 0, facing: 0, variant: Math.floor(Math.random() * 1000), grade: gradeOf(tool) };
+        done.push(i);
+        continue;
+      }
       // Ray düz yolun üstüne: hemzemin geçit
       if (tool === 'rail' && this.tiles[i]?.kind === 'road') {
         this.tiles[i]!.level = 1;
@@ -910,7 +976,7 @@ export class City {
       const variant = Math.floor(Math.random() * 1000);
       const area = block(i % SIZE, Math.floor(i / SIZE), n)!;
       const side = tool === 'station' ? 'rail' : NEEDS_WATER.includes(tool) ? 'water' : 'road';
-      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n, side), variant };
+      this.tiles[i] = { kind: tool as Kind, level: 0, facing: this.facingFor(i, n, side), variant };
       if (n > 1) this.tiles[i]!.fp = n;
       if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
       for (const c of area) if (c !== i) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: i };
@@ -1014,9 +1080,10 @@ export class City {
   serialize(): SaveData {
     const t: TileRow[] = [];
     this.tiles.forEach((tile, i) => {
-      if (!tile || (tile.locked && tile.kind === 'road')) return;
+      if (!tile || (tile.locked && tile.kind === 'road' && !tile.grade)) return;
       const row: TileRow = [i, tile.kind, tile.level, tile.facing, tile.variant];
-      if (tile.fire || tile.damaged || tile.fp) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
+      if (tile.fire || tile.damaged || tile.fp || tile.grade) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
+      if (tile.grade) row.push(tile.grade);
       t.push(row);
     });
     const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => [job.mat, job.end] as [MatId, number])]);
@@ -1050,7 +1117,7 @@ export class City {
       c.owned.fill(0);
       for (const p of data.own) if (p >= 0 && p < c.owned.length) c.owned[p] = 1;
     }
-    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp] of data.t as TileRow[]) {
+    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, grade] of data.t as TileRow[]) {
       const i = move(oldI);
       // Büyük binanın parçaları ana karenin numarasını tutar; o da taşınmalı
       const variant = rawKind === 'part' ? move(rawVariant) : rawVariant;
@@ -1061,8 +1128,11 @@ export class City {
         level = Math.min(rawLevel, RES_LEVELS.length);
       }
       if (!KINDS.includes(kind)) continue;
+      // Şehir girişi yükseltilmişse çeşidi korunur
+      if (kind === 'road' && grade && c.tiles[i]?.locked) c.tiles[i]!.grade = grade;
       if (i >= 0 && i < c.tiles.length && !c.tiles[i]) {
         c.tiles[i] = { kind, level, facing, variant };
+        if (kind === 'road' && grade) c.tiles[i]!.grade = grade;
         if (kind === 'hall') c.tiles[i]!.locked = true;
         if (fire) c.tiles[i]!.fire = fire;
         if (damaged) c.tiles[i]!.damaged = true;

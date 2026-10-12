@@ -54,6 +54,8 @@ function effectOf(t: BuildTool): string {
   }
   switch (t) {
     case 'road': return 'Her şeyi birbirine bağlar';
+    case 'avenue': return '🌳 Kenar evler +%5 mutlu';
+    case 'boulevard': return '🌷 Kenar evler +%10 mutlu';
     case 'rail': return 'Trenler için ray';
     case 'res': return '👥 Ev ve apartmanlar';
     case 'com': return '💼 Dükkan ve ofisler';
@@ -67,7 +69,7 @@ function effectOf(t: BuildTool): string {
   }
   return '';
 }
-const PER_TILE: BuildTool[] = ['road', 'rail', 'res', 'com', 'park'];
+const PER_TILE: BuildTool[] = ['road', 'avenue', 'boulevard', 'rail', 'res', 'com', 'park'];
 
 export interface Catalog {
   open(group?: string): void;

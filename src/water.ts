@@ -40,14 +40,24 @@ function waveNormals(size = 128) {
 
 const normals = waveNormals();
 
-// Nehir: opak; deniz: hafif saydam (kıyıda kumun rengi görünsün), rengi kıyıdan açığa koyulaşır (terrain.ts)
-export const riverMat = new THREE.MeshStandardMaterial({
-  color: '#2b9be0', roughness: 0.3, metalness: 0.05, normalMap: normals, normalScale: new THREE.Vector2(0.18, 0.18),
-});
+// Suyun renkleri: kıyıda köpük ve turkuaz sığ su, açıldıkça mavi, açık denizde lacivert
+export const WATER = {
+  foam: new THREE.Color('#dff7f2'),
+  shallow: new THREE.Color('#38c0d0'),
+  mid: new THREE.Color('#1f95d4'),
+  deep: new THREE.Color('#1a66b5'),
+};
+// Kıyıya uzaklığa göre su rengi (nehirlerde ve kıyıya yakın denizde)
+export function waterColor(dist: number, out = new THREE.Color()) {
+  return out.lerpColors(WATER.shallow, WATER.mid, THREE.MathUtils.smoothstep(dist, 0.05, 1.1));
+}
+
+// Deniz ve nehir aynı su: hafif saydam (dipteki kum görünsün), rengi köşelerden gelir
 export const seaMat = new THREE.MeshStandardMaterial({
   vertexColors: true, roughness: 0.28, metalness: 0.05, normalMap: normals, normalScale: new THREE.Vector2(0.22, 0.22),
   transparent: true, opacity: 0.88,
 });
+export const riverMat = seaMat;
 
 // Geometrinin doku koordinatlarını dünya konumundan ver (geometri dünya yerinde olmalı)
 export function worldUV(geo: THREE.BufferGeometry) {

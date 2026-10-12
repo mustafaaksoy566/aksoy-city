@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
   MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, type MatId, type BuildTool,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, COST, UNLOCK, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -34,6 +34,7 @@ export interface CardActions {
   buy(mat: MatId): void;
   openCatalog(group: string): void;
   ship(n: number): void;
+  upgradeRoad(i: number): void;
   renewOrders(): void;
 }
 
@@ -93,6 +94,44 @@ export function describeLand(city: City, plot: number, act: CardActions): InfoCa
     lines,
     actions: [{ label: `Satın al  💰${fmt(city.landPrice)}`, enabled: err === null, primary: true, run: () => act.buyLand(plot) }],
   };
+}
+
+// Yol kartı: çeşidi, etkisi ve bir üst çeşide yükseltme (sokağın düz devamıyla birlikte)
+export function describeRoad(city: City, i: number, act: CardActions): InfoCard {
+  const t = city.tiles[i]!;
+  const grade = t.grade ?? 0;
+  const info = ROAD_GRADES[grade];
+  const thumb = grade === 0 ? 'road' : info.tool;
+  const card: InfoCard = {
+    title: info.label,
+    subtitle: t.level === 1 ? 'Hemzemin geçit' : 'Şehrin yolları',
+    thumb,
+    tone: '#546e7a',
+    stats: [
+      { icon: '😊', value: `+%${Math.round(info.happy * 100)}`, label: 'Kenar evler', good: info.happy > 0 },
+      { icon: '🚗', value: `x${info.speed}`, label: 'Araç hızı' },
+    ],
+    lines: [{ text: 'Yolları yükselterek kenarındaki evleri daha mutlu edebilirsin.' }],
+  };
+  if (grade >= 2) {
+    card.lines!.push({ ok: true, text: 'Bu en güzel yol çeşidi.' });
+    return card;
+  }
+  const next = ROAD_GRADES[grade + 1];
+  const street = city.streetOf(i).filter(c => (city.tiles[c]?.grade ?? 0) <= grade && city.tiles[c]?.level !== 1);
+  const cost = city.costOf(next.tool, street);
+  const lock = UNLOCK[next.tool] ?? 0;
+  const locked = city.level < lock;
+  const blocked = t.level === 1 ? 'Tren yolunun geçtiği yol yükseltilemez' : locked ? `${next.label} şehir seviyesi ${lock}'te açılır` : null;
+  card.lines!.push({ text: `${next.label}: +%${Math.round(next.happy * 100)} mutluluk, araçlar x${next.speed} hızlı. ${street.length} kare yükseltilir (kare başı 💰${fmt(COST[next.tool] - COST[info.tool])}).` });
+  if (blocked) card.lines!.push({ ok: false, text: blocked });
+  card.actions = [{
+    label: `${next.label === 'Cadde' ? 'Caddeye' : 'Bulvara'} yükselt  💰${fmt(cost)}`,
+    enabled: !blocked && city.money >= cost && street.length > 0,
+    primary: true,
+    run: () => act.upgradeRoad(i),
+  }];
+  return card;
 }
 
 export function describeHall(city: City, act: CardActions): InfoCard {
@@ -323,7 +362,8 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   if (city.tiles[i]?.kind === 'part') return describeTile(city, city.anchorOf(i), act, now);
   const t = city.tiles[i];
   if (!city.isOwned(i) && t?.kind !== 'road') return describeLand(city, city.plotOf(i), act);
-  if (!t || t.kind === 'road' || t.kind === 'rail') return null;
+  if (t?.kind === 'road') return describeRoad(city, i, act);
+  if (!t || t.kind === 'rail') return null;
   const connected = city.isConnected(i);
   const road = { ok: connected, text: connected ? 'Şehrin yollarına bağlı' : 'Yol bağlantısı yok' };
 

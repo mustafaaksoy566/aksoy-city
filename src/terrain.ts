@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { SIZE, ENTRANCE_Z, SEA_ROWS } from './config';
 import { mergeStatic } from './batcher';
-import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV } from './water';
+import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV, WATER, waterColor } from './water';
+import { isRiverXZ } from './city';
 import { forest, type TreeSpot, type TreeType } from './trees';
 import { palm, lighthouseTower } from './landmarks';
 
@@ -131,6 +132,7 @@ const C = {
   wet: new THREE.Color('#d9c085'),
   shallow: new THREE.Color('#e2cd94'),
   deep: new THREE.Color('#6f8c86'),
+  bed: new THREE.Color('#d6c08a'), // nehrin kumlu dibi
 };
 
 // Kıyıda renk: su altında kumlu taban; karada kumsal çimene yumuşakça geçer, suya yakın kum ıslak ve koyu
@@ -142,8 +144,14 @@ function shoreColor(x: number, y: number, c: number, land: THREE.Color, out: THR
   return out.copy(land).lerp(tmpSand, sand);
 }
 
-// Şehrin içindeki zemin rengi
+// Şehrin içindeki zemin rengi (nehrin dibi kumlu)
 function cityColor(x: number, z: number, out: THREE.Color) {
+  // Sadece suyun altında kalan köşeler (iki yanı da nehir olan) kumlu; kıyıdaki köşeler çimen kalır
+  const t = (v: number) => Math.min(SIZE - 1, Math.max(0, Math.floor(v + HALF)));
+  const e = 0.001;
+  if (isRiverXZ(t(x - e), t(z - e)) && isRiverXZ(t(x + e), t(z + e)) && isRiverXZ(t(x - e), t(z + e)) && isRiverXZ(t(x + e), t(z - e))) {
+    return out.copy(C.bed);
+  }
   return shoreColor(x, shore(COAST_Z - z), COAST_Z - z, C.ground, out);
 }
 
@@ -158,6 +166,8 @@ function colorAt(x: number, z: number, y: number, out: THREE.Color) {
   else land.lerpColors(C.rock, C.snow, Math.min(1, (y - 9) / 3));
   land.multiplyScalar(0.94 + fbm(x * 3, z * 3) * 0.12); // hafif renk dalgalanması
   shoreColor(x, y, coast(x, z), land, out);
+  const r = riverAt(x, z);
+  if (r && r.d < r.half - 0.3) out.copy(C.bed);
   // Şehrin kenarında şehrin kendi rengine geçer
   const edge = 1 - smooth(d, 0.5, 5);
   if (edge > 0) out.lerp(cityColor(clampCity(x), clampCity(z), new THREE.Color()), edge);
@@ -221,12 +231,7 @@ function buildGround() {
 }
 
 // Deniz: kıyıda köpük ve turkuaz sığ su, açıkta koyu mavi
-const SEA = {
-  foam: new THREE.Color('#dff7f2'),
-  shallow: new THREE.Color('#38c0d0'),
-  mid: new THREE.Color('#1f95d4'),
-  deep: new THREE.Color('#1a66b5'),
-};
+const SEA = WATER;
 function buildSea() {
   const lines = axis(EXTENT, 1, 30, 24);
   const geo = grid(lines, lines, (x, z, pos, colors, k) => {
@@ -248,22 +253,31 @@ function buildSea() {
 
 // Nehrin şehir dışındaki kısmı: su şeridi ve iki yanında kum şeridi (şehirdeki nehirle aynı genişlikte)
 interface RiverPoint { x: number; z: number; y: number; half: number }
-function ribbon(points: RiverPoint[], material: THREE.Material) {
+// water: suyun kendisi (ortada bir sıra köşe daha; kenarlar sığ, ortası koyu)
+function ribbon(points: RiverPoint[], material: THREE.Material, water = false) {
   const pos: number[] = [];
+  const col: number[] = [];
   const idx: number[] = [];
+  const across = water ? [1, 0, -1] : [1, -1];
+  const n = across.length;
+  const edge = waterColor(0.12), center = waterColor(1);
   points.forEach((p, k) => {
     const a = points[Math.max(0, k - 1)], b = points[Math.min(points.length - 1, k + 1)];
     const tx = b.x - a.x, tz = b.z - a.z;
     const len = Math.hypot(tx, tz) || 1;
     const nx = -tz / len, nz = tx / len;
-    pos.push(p.x + nx * p.half, p.y, p.z + nz * p.half, p.x - nx * p.half, p.y, p.z - nz * p.half);
+    for (const s of across) {
+      pos.push(p.x + nx * p.half * s, p.y, p.z + nz * p.half * s);
+      (s ? edge : center).toArray(col, col.length);
+    }
     if (k) {
-      const o = (k - 1) * 2;
-      idx.push(o, o + 2, o + 1, o + 1, o + 2, o + 3);
+      const o = (k - 1) * n;
+      for (let c = 0; c < n - 1; c++) idx.push(o + c, o + c + n, o + c + 1, o + c + 1, o + c + n, o + c + n + 1);
     }
   });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  if (water) geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
   geo.setIndex(idx);
   const mesh = new THREE.Mesh(worldUV(geo), material);
@@ -277,7 +291,7 @@ function buildRiver() {
   for (let t = 0; t <= 115; t += 0.5) pts.push({ x: -HALF - t, z: westZ(t), y: westY(t), half: westHalf(t) });
   const g = new THREE.Group();
   // Şehirdeki gibi: suyun kenarında 0.12 genişliğinde kum şeridi
-  g.add(ribbon(pts.map(p => ({ ...p, half: p.half - 0.12 })), riverMat));
+  g.add(ribbon(pts.map(p => ({ ...p, half: p.half - 0.12 })), riverMat, true));
   g.add(ribbon(pts.map(p => ({ ...p, y: p.y - 0.003 })), bankMat));
   return g;
 }

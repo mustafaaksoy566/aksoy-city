@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   SIZE, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
-  LEVEL_REWARD, type Tool, type BuildTool, type MatId, type ServiceKind,
+  LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
 import {
@@ -15,7 +15,7 @@ import { updateWater } from './water';
 import { Fireworks } from './fireworks';
 import { questDone } from './quests';
 import { loadModels } from './assets';
-import { CityView, tileCenter } from './view';
+import { CityView, tileCenter, gradedRoadModel } from './view';
 import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
 import { railPiece } from './rails';
@@ -325,6 +325,19 @@ const cardActions: CardActions = {
     else play('click', 0.4);
     afterChange();
   },
+  upgradeRoad(i) {
+    const before = city.tiles[i]?.grade ?? 0;
+    const res = city.upgradeStreet(i);
+    if (res.error) {
+      toast(res.error, 'error');
+      play('error', 0.3);
+    } else {
+      view.refresh(res.done, true);
+      play('grow', 0.6);
+      toast(`⬆️ Yol ${ROAD_GRADES[before + 1].label.toLocaleLowerCase('tr')} oldu! Kenarındaki evler daha mutlu.`);
+    }
+    afterChange();
+  },
   openCatalog(group) {
     openTile(null);
     catalog.open(group);
@@ -508,7 +521,7 @@ const input = new TileInput(renderer.domElement, camera, {
     view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
     afterChange();
-    if (tool !== 'road' && tool !== 'bulldoze' && tool !== 'park' && res.done.some(i => !city.isConnected(i))) {
+    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
   },
@@ -680,7 +693,7 @@ function frame() {
   }
   adaptQuality(dt);
   traffic.update(dt);
-  walkers.update(dt);
+  walkers.update(dt, weather.amount);
   trains.update(dt);
   highway.update(dt);
   sky.update(dt);
@@ -732,6 +745,8 @@ function adaptQuality(dt: number) {
 function makeMenuPictures() {
   const items: [string, THREE.Object3D][] = [
     ['road', makeModel('kaykit/road_junction')],
+    ['avenue', gradedRoadModel(1)],
+    ['boulevard', gradedRoadModel(2)],
     ['rail', railPiece(0b0110)],
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
@@ -741,7 +756,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'trade', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
