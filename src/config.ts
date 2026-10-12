@@ -59,6 +59,14 @@ export const UTIL_LEVELS = [
   { mult: 4, cost: 5, level: 10 },
 ];
 
+// Metro istasyonu yükseltilir: daha geniş alan. Hatla başka bir istasyona bağlanınca alanı ve etkisi büyür.
+export const METRO_LEVELS = [
+  { cost: 0, level: 0, radius: 7 },
+  { cost: 3500, level: 11, radius: 9 },
+  { cost: 7000, level: 13, radius: 11 },
+];
+export const METRO_LINE = { radius: 3, happy: 0.08, transit: 0.55 };
+
 // Otopark yükseltilir: açık otopark → 2, 3, 4, 5 katlı otopark (arabalar girişten girer, çok daha fazlası sığar)
 export const PARKING_LEVELS = [
   { floors: 1, cost: 0, level: 0, cars: 3 },
@@ -237,7 +245,7 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
 export const DECOR_KINDS = Object.keys(DECOR) as DecorKind[];
 export const DECOR_MAX = 0.3; // simgelerden gelen toplam mutluluk en fazla bu kadar
 
-export type BuildTool = 'road' | 'avenue' | 'boulevard' | 'rail' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
+export type BuildTool = 'road' | 'avenue' | 'boulevard' | 'rail' | 'tunnel' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
 // Simge yapılardan 6. seviye konut için gereken en az mutluluk katkısı (otobüs durağı yetmez)
 export const LUXURY_DECOR = 0.1;
 // Su kenarına (nehre bitişik) kurulması gereken yapılar
@@ -268,7 +276,7 @@ export const TRAFFIC = {
 };
 
 export const COST: Record<BuildTool, number> = {
-  road: 10, boulevard: 50, avenue: 150, rail: 25, res: 20, com: 30, park: 60, bulldoze: 0, station: 2000,
+  road: 10, boulevard: 50, avenue: 150, rail: 25, tunnel: 60, res: 20, com: 30, park: 60, bulldoze: 0, station: 2000,
   wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150, parking: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
@@ -286,7 +294,7 @@ export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
 export const UNLOCK: Partial<Record<BuildTool, number>> = {
   com: 2, depot: 2, police: 2, busstop: 2,
   store: 3, fire: 3, solar: 3, trade: 3,
-  rail: 4, station: 4,
+  rail: 4, station: 4, tunnel: 10,
   health: 4, plant: 4,
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
@@ -303,6 +311,7 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   avenue: { icon: '🛣️', label: 'Cadde', hint: 'Cadde: çift şeritli geniş yol, çok araba taşır. Tıkanan yolların üstüne sürükleyerek caddeye yükselt.' },
   rail: { icon: '🛤️', label: 'Tren yolu', hint: 'Ray çizmek için sürükle. Düz bir yolu keserse hemzemin geçit olur.' },
   station: { icon: '🚉', label: 'İstasyon', hint: 'İstasyonu tren yolunun yanına kur; trenler buradan sefer yapar.' },
+  tunnel: { icon: '🚇', label: 'Metro hattı', hint: 'Metro hattı: yeraltından tünel çiz (binaların altından geçer). İki metro istasyonunu bağlayınca trenler çalışır, çevre daha mutlu olur, trafik azalır.' },
   parking: { icon: '🅿️', label: 'Otopark', hint: 'Otopark: arabalar burada durur. Yakındaki evlerden insanlar yürüyüp arabasına biner, dönünce park edip evine yürür.' },
   busstop: { icon: '🚏', label: 'Durak', hint: 'Otobüs durağı: her durak için şehirde bir otobüs dolaşır.' },
   trade: { icon: '🏬', label: 'Ticaret', hint: 'Ticaret merkezi: malzemelerini sat, eksiklerini satın al.' },
@@ -362,7 +371,7 @@ export interface BuildGroup { group: string; icon: string; label: string; color:
 // İnşa panelindeki sekmeler. Yıkma ayrı bir düğmede.
 export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'zones', icon: '🏘️', label: 'Konut', color: '#43a047', tools: ['res'] },
-  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'boulevard', 'avenue', 'parking', 'busstop', 'rail', 'station', 'metro', 'airport'] },
+  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'boulevard', 'avenue', 'parking', 'busstop', 'rail', 'station', 'metro', 'tunnel', 'airport'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', color: '#f59f00', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion'] },

@@ -28,6 +28,8 @@ import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
 import { makePark } from './fun';
+import { MetroView } from './metro';
+import { tunnelThumb } from './places';
 import { makeModel, loadSkins } from './assets';
 import { buildSurroundings } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
@@ -161,6 +163,20 @@ function save() {
 let city = loadCity();
 const view = new CityView(city);
 scene.add(view.root);
+// Yeraltı (metro) görünümü: metro hatları, istasyonlar ve trenler
+const metroView = new MetroView();
+scene.add(metroView.root);
+let metroButton = false; // Metro düğmesiyle açıldı mı (araç değişince kapanmasın)
+function setUnderground(on: boolean) {
+  if (on === metroView.visible) return;
+  metroView.visible = on;
+  if (on) {
+    metroView.rebuild(city);
+    mapKind = null;
+    renderServiceMap();
+  }
+  document.getElementById('metro-btn')?.classList.toggle('on', on);
+}
 view.showLandShade(false);
 const traffic = new Traffic(city);
 scene.add(traffic.root);
@@ -332,6 +348,23 @@ const cardActions: CardActions = {
       toast(`⭐ ${TOOL_INFO[city.tiles[i]!.kind as BuildTool].label} ${city.tiles[i]!.level + 1}. seviyeye yükseldi: daha hızlı üretiyor!`);
     }
     afterChange();
+  },
+  upgradeMetro(i) {
+    const err = city.upgradeMetro(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`🚇 Metro istasyonu ${city.tiles[i]!.level + 1}. seviyeye yükseldi: daha geniş alana hizmet veriyor!`);
+    }
+    afterChange();
+  },
+  showMetro() {
+    openTile(null);
+    metroButton = true;
+    setUnderground(true);
   },
   upgradeParking(i) {
     const err = city.upgradeParking(i);
@@ -537,6 +570,15 @@ function toggleCard(key: CardKey) {
   play('click', 0.3);
 }
 
+// Metro düğmesi: yeraltını aç/kapat
+document.getElementById('metro-btn')!.addEventListener('click', () => {
+  metroButton = !metroView.visible;
+  if (!metroButton && tool === 'tunnel') pickTool('pan');
+  setUnderground(metroButton);
+  toast(metroButton ? '🚇 Yeraltı: renkli hatlarda trenler çalışıyor, gri hatlar bir istasyona daha bağlanmalı' : 'Yeryüzüne dönüldü');
+  play('click', 0.4);
+});
+
 // Bir şey değişince her yeri güncelle ve kaydet
 // Trafik ilk kez sıkışınca haber ver
 let lastJams = -1;
@@ -567,6 +609,9 @@ function afterChange() {
   view.updateIcons();
   renderCard();
   if (mapKind) renderServiceMap();
+  if (metroView.visible) metroView.rebuild(city);
+  const mb = document.getElementById('metro-btn');
+  if (mb) mb.hidden = !city.isUnlocked('metro') && !city.tiles.some(t => t?.kind === 'metro');
   updateStats();
   save();
 }
@@ -649,6 +694,9 @@ function pickTool(t: Tool) {
   openCard = null;
   mapKind = null;
   renderServiceMap();
+  // Metro hattı çizerken yeraltı görünür; Metro düğmesiyle açıldıysa yıkma aracı tünel siler
+  if (t !== 'pan' && t !== 'tunnel' && t !== 'bulldoze') metroButton = false;
+  setUnderground(t === 'tunnel' || metroButton);
   input.cancelDrag();
   view.showPreview([]);
   showInfo(null);
@@ -752,6 +800,8 @@ const input = new TileInput(renderer.domElement, camera, {
     if (tool === 'pan') return;
     const build = tool as Exclude<Tool, 'pan'>;
     let items = cells.map(i => ({ i, ok: city.check(build, i % SIZE, Math.floor(i / SIZE)) === null }));
+    // Yeraltında yıkma: sadece tünel olan kareler silinir
+    if (build === 'bulldoze' && metroView.visible) items = cells.map(i => ({ i, ok: city.metro[i] === 1 }));
     // Büyük binalarda kaplayacağı bütün alanı göster
     const size = sizeOf(build);
     if (size > 1 && items.length === 1) {
@@ -780,6 +830,17 @@ const input = new TileInput(renderer.domElement, camera, {
     view.showRoadPreview([], 0);
     setChip(null);
     if (tool === 'pan') return;
+    if (tool === 'bulldoze' && metroView.visible) {
+      const n = city.removeTunnels(cells);
+      if (!n) {
+        toast('Burada metro hattı yok', 'error');
+        play('error', 0.3);
+        return;
+      }
+      play('remove');
+      afterChange();
+      return;
+    }
     const res = tool === 'res' && house ? city.placeHouse(cells, house.level, house.model) : city.apply(tool, cells);
     showCoverage();
     if (res.error) {
@@ -787,10 +848,10 @@ const input = new TileInput(renderer.domElement, camera, {
       play('error', 0.3);
       return;
     }
-    view.refresh(res.done, tool !== 'bulldoze');
+    if (tool !== 'tunnel') view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
     afterChange();
-    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && res.done.some(i => !city.isConnected(i))) {
+    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && tool !== 'tunnel' && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
   },
@@ -1024,6 +1085,7 @@ function frame() {
   }
 
   view.update(dt);
+  metroView.update(dt);
   if (view.shadowDirty) {
     view.shadowDirty = false;
     renderer.shadowMap.needsUpdate = true;
@@ -1093,6 +1155,7 @@ function makeMenuPictures() {
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
     ['park', makePark(0, 0.3)],
+    ['tunnel', tunnelThumb()],
     ['hall', makeHall()],
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);

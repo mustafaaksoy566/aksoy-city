@@ -1,6 +1,6 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
+  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
   INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
@@ -33,6 +33,8 @@ export interface CardActions {
   upgradeMaker(i: number): void;
   upgradeUtil(i: number): void;
   upgradeParking(i: number): void;
+  upgradeMetro(i: number): void;
+  showMetro(): void;
   openCatalog(group: string): void;
   ship(n: number): void;
   upgradeRoad(i: number): void;
@@ -458,6 +460,39 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       thumb: 'park',
       tone: groupColor('park'),
       lines: [{ text: `Çevresindeki ${PARK_RADIUS} kare içindeki evler 3. seviyeye çıkabilir ve daha mutlu olur.` }],
+    };
+  }
+
+  if (t.kind === 'metro') {
+    const L = city.metroLines();
+    const s = L.stationList.find(x => x.i === i);
+    const line = s ? s.line : -1;
+    const active = line >= 0 && L.active[line];
+    const next = METRO_LEVELS[t.level + 1];
+    const blocker = city.metroUpgradeBlocker(i);
+    const lines: InfoCard['lines'] = [
+      active
+        ? { ok: true, text: `🚇 M${L.colorOf[line] + 1} hattında, ${L.stations[line].length} istasyon bağlı. Trenler çalışıyor; çevresi daha mutlu, trafik daha az.` }
+        : line >= 0
+          ? { ok: false, text: '⚠️ Hat başka bir istasyona ulaşmıyor. Yeraltından bir istasyona daha bağla.' }
+          : { ok: false, text: '⚠️ Altından metro hattı geçmiyor. İnşa Et → Ulaşım → Metro hattı ile yeraltından tünel çiz.' },
+      road,
+    ];
+    if (next) lines.push({ text: `⬆️ Yükseltince istasyon büyür, ${next.radius} kare çevreye hizmet verir.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
+    const actions: NonNullable<InfoCard['actions']> = [{ label: '🚇 Metro hatlarını göster', enabled: true, run: () => act.showMetro() }];
+    if (next) actions.unshift({ label: `Yükselt ⭐${t.level + 2}  💰${fmt(next.cost)}`, enabled: blocker === null, primary: true, run: () => act.upgradeMetro(i) });
+    return {
+      title: 'Metro istasyonu',
+      subtitle: active ? `M${L.colorOf[line] + 1} hattı` : 'Hatta bağlı değil',
+      thumb: 'metro',
+      tone: groupColor('metro'),
+      stats: [
+        { icon: '😊', value: `+${pct(city.decorHappy(i))}`, label: `${city.decorRadius(i)} kare çevre` },
+        { icon: '⭐', value: `${t.level + 1}/${METRO_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
+        { icon: '🔧', value: `−${DECOR.metro.upkeep + t.level * 3}`, label: 'Günlük bakım' },
+      ],
+      lines,
+      actions,
     };
   }
 

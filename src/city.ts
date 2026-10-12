@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -131,6 +131,7 @@ export interface SaveData {
   ss: CityStats;
   q: Quest[];
   o?: Order[]; // komşu şehir siparişleri
+  m?: number[]; // metro tünellerinin kareleri
 }
 // Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu, v3'te belediye ve görev yoktu
 interface OldSaveData {
@@ -175,6 +176,8 @@ export class City {
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
+  metro = new Uint8Array(SIZE * ROWS); // yeraltındaki metro tünelleri
+  private lines: ReturnType<City['computeLines']> | null = null;
   service: Service = { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } };
   // Her kare için hangi hizmetlerin kapsadığı (bit maskesi, SERVICE_KINDS sırasıyla)
   private covered = new Uint8Array(SIZE * ROWS);
@@ -383,6 +386,7 @@ export class City {
 
   // Yollar ya da binalar değişince bağlantıyı ve elektrik/su dağıtımını yeniden hesapla
   refresh() {
+    this.lines = null;
     this.updateReach();
     this.updateService();
     this.updateCoverage();
@@ -418,9 +422,10 @@ export class City {
     const transit = this.transit;
     transit.fill(0);
     this.tiles.forEach((t, i) => {
-      const share = t ? TRAFFIC.transit[t.kind] : 0;
+      let share = t ? TRAFFIC.transit[t.kind] : 0;
       if (!share || !isDecor(t!.kind)) return;
-      for (const c of areaAround(i, DECOR[t!.kind as DecorKind].radius, t!.fp ?? 1)) transit[c] = Math.min(TRAFFIC.maxTransit, transit[c] + share);
+      if (t!.kind === 'metro' && this.metroActive(i)) share = METRO_LINE.transit;
+      for (const c of areaAround(i, this.decorRadius(i), t!.fp ?? 1)) transit[c] = Math.min(TRAFFIC.maxTransit, transit[c] + share);
     });
     this.tiles.forEach((t, i) => {
       if (t?.kind !== 'res' || t.level === 0) return;
@@ -471,12 +476,13 @@ export class City {
     // Simge yapıların mutluluk katkısı (aynı türden birden fazlası üst üste binmez)
     const decor = new Float32Array(SIZE * ROWS);
     for (const kind of DECOR_KINDS) {
-      const seen = new Uint8Array(SIZE * ROWS);
+      const best = new Float32Array(SIZE * ROWS);
       this.tiles.forEach((t, i) => {
         if (t?.kind !== kind) return;
-        for (const c of areaAround(i, DECOR[kind].radius, t.fp ?? 1)) seen[c] = 1;
+        const h = this.decorHappy(i);
+        for (const c of areaAround(i, this.decorRadius(i), t.fp ?? 1)) best[c] = Math.max(best[c], h);
       });
-      seen.forEach((v, c) => v && (decor[c] += DECOR[kind].happy));
+      best.forEach((v, c) => v && (decor[c] += v));
     }
     this.tiles.forEach((t, i) => {
       if (t?.kind !== 'res' || t.level === 0) return;
@@ -648,7 +654,7 @@ export class City {
       if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
       if (isService(t.kind)) sum += SERVICES[t.kind].upkeep;
       if (isIndustry(t.kind)) sum += INDUSTRY[t.kind].upkeep;
-      if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep + (t.kind === 'parking' ? t.level : 0);
+      if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep + (t.kind === 'parking' ? t.level : t.kind === 'metro' ? t.level * 3 : 0);
     }
     return sum;
   }
@@ -812,6 +818,115 @@ export class City {
     if (err) return err;
     this.money -= this.utilUpgradeCost(i)!;
     this.tiles[i]!.level++;
+    this.addXp(XP.build * 3);
+    this.refresh();
+    return null;
+  }
+
+  // --- Metro ---
+  // Hat = birbirine değen tünel kareleri. Altında ya da yanında tünel olan istasyon o hatta bağlıdır;
+  // en az iki istasyonu bağlayan hat çalışır.
+  metroLines() {
+    return (this.lines ??= this.computeLines());
+  }
+
+  private computeLines() {
+    const n = SIZE * ROWS;
+    const comp = new Int32Array(n).fill(-1);
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      if (!this.metro[i] || comp[i] >= 0) continue;
+      const queue = [i];
+      comp[i] = count;
+      for (let k = 0; k < queue.length; k++) {
+        const c = queue[k];
+        const x = c % SIZE, z = Math.floor(c / SIZE);
+        for (const [dx, dz] of DIRS) {
+          if (!inBounds(x + dx, z + dz)) continue;
+          const j = idx(x + dx, z + dz);
+          if (this.metro[j] && comp[j] < 0) {
+            comp[j] = count;
+            queue.push(j);
+          }
+        }
+      }
+      count++;
+    }
+    const stations: number[][] = Array.from({ length: count }, () => []);
+    const stationList: { i: number; line: number }[] = [];
+    this.tiles.forEach((t, i) => {
+      if (t?.kind !== 'metro') return;
+      let line = this.metro[i] ? comp[i] : -1;
+      const x = i % SIZE, z = Math.floor(i / SIZE);
+      for (const [dx, dz] of DIRS) if (line < 0 && inBounds(x + dx, z + dz) && this.metro[idx(x + dx, z + dz)]) line = comp[idx(x + dx, z + dz)];
+      stationList.push({ i, line });
+      if (line >= 0) stations[line].push(i);
+    });
+    const active = stations.map(s => s.length >= 2);
+    let c = 0;
+    const colorOf = active.map(a => (a ? c++ : -1));
+    return { comp, count, stations, stationList, active, colorOf };
+  }
+
+  metroActive(i: number) {
+    const L = this.metroLines();
+    const s = L.stationList.find(x => x.i === i);
+    return !!s && s.line >= 0 && L.active[s.line];
+  }
+
+  // Simge yapının etki alanı ve mutluluğu (metro: seviyesine ve hatta bağlı olmasına göre)
+  decorRadius(i: number) {
+    const t = this.tiles[i];
+    if (!t || !isDecor(t.kind)) return 0;
+    if (t.kind === 'metro') return (METRO_LEVELS[t.level]?.radius ?? DECOR.metro.radius) + (this.metroActive(i) ? METRO_LINE.radius : 0);
+    return DECOR[t.kind].radius;
+  }
+  decorHappy(i: number) {
+    const t = this.tiles[i];
+    if (!t || !isDecor(t.kind)) return 0;
+    return DECOR[t.kind].happy + (t.kind === 'metro' && this.metroActive(i) ? METRO_LINE.happy : 0);
+  }
+
+  // Değişiklik anahtarları (yeraltı çizimi gereksiz yere yenilenmesin)
+  metroKey() {
+    let k = 0;
+    this.metro.forEach((v, i) => v && (k = (k * 31 + i) | 0));
+    return k;
+  }
+  roadKey() {
+    let k = 0;
+    this.tiles.forEach((t, i) => t?.kind === 'road' && (k = (k * 31 + i) | 0));
+    return k;
+  }
+
+  // Yeraltında yıkma: tünelleri sil
+  removeTunnels(cells: number[]) {
+    let n = 0;
+    for (const c of cells) {
+      if (!this.metro[c]) continue;
+      this.metro[c] = 0;
+      n++;
+    }
+    if (n) this.refresh();
+    return n;
+  }
+
+  metroUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (t?.kind !== 'metro') return 'Burada metro istasyonu yok';
+    const next = METRO_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
+    if (this.money < next.cost) return 'Yeterli para yok';
+    return null;
+  }
+
+  upgradeMetro(i: number): string | null {
+    const err = this.metroUpgradeBlocker(i);
+    if (err) return err;
+    const t = this.tiles[i]!;
+    this.money -= METRO_LEVELS[t.level + 1].cost;
+    t.level++;
     this.addXp(XP.build * 3);
     this.refresh();
     return null;
@@ -1041,6 +1156,13 @@ export class City {
       return this.tiles[this.anchorOf(idx(x, z))]?.locked ? 'Şehir girişi yıkılamaz' : null;
     }
     if (!this.isUnlocked(tool)) return `Şehir seviyesi ${this.unlockLevel(tool)}'te açılır`;
+    if (tool === 'tunnel') {
+      if (!inBounds(x, z)) return 'Harita dışına taşıyor';
+      const i = idx(x, z);
+      if (!this.isOwned(i)) return 'Bu arazi henüz senin değil';
+      if (isSea(i)) return 'Denizin altından metro geçmez';
+      return this.metro[i] ? 'Burada zaten metro hattı var' : null;
+    }
     const n = sizeOf(tool);
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
@@ -1175,6 +1297,11 @@ export class City {
     const done: number[] = [];
     const n = sizeOf(tool);
     for (const i of ok) {
+      if (tool === 'tunnel') {
+        this.metro[i] = 1;
+        done.push(i);
+        continue;
+      }
       if (tool === 'bulldoze') {
         for (const c of this.cellsOf(i)) {
           this.jobs.delete(c);
@@ -1342,7 +1469,9 @@ export class City {
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
     const own: number[] = [];
     this.owned.forEach((v, p) => v && own.push(p));
-    return { v: 5, sz: SIZE, rows: ROWS, rg: 2, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
+    const m: number[] = [];
+    this.metro.forEach((v, i) => v && m.push(i));
+    return { v: 5, sz: SIZE, rows: ROWS, rg: 2, own, m, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
   }
 
   static readonly VERSION = 5;
@@ -1375,6 +1504,12 @@ export class City {
       }
     }
     const newGrades = data.v === 5 && data.rg === 2;
+    if (data.v === 5) {
+      for (const oldI of data.m ?? []) {
+        const i = move(oldI);
+        if (i >= 0 && i < c.metro.length) c.metro[i] = 1;
+      }
+    }
     for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade] of data.t as TileRow[]) {
       const grade = rawGrade && !newGrades ? 1 : rawGrade;
       const i = move(oldI);

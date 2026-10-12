@@ -70,7 +70,7 @@ function effectOf(t: BuildTool): string {
   }
   return '';
 }
-const PER_TILE: BuildTool[] = ['road', 'avenue', 'boulevard', 'rail', 'res', 'com', 'park'];
+const PER_TILE: BuildTool[] = ['road', 'avenue', 'boulevard', 'rail', 'tunnel', 'res', 'com', 'park'];
 
 export interface Catalog {
   open(group?: string): void;

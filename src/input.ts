@@ -56,7 +56,7 @@ export class TileInput {
     const tool = this.h.tool();
     // Hizmet ve altyapı binaları tek tek yerleşir
     if (isService(tool) || isUtility(tool) || isIndustry(tool) || isDecor(tool)) return [idx(ex, ez)];
-    if (ROAD_TOOLS.includes(tool as never) || tool === 'rail') {
+    if (ROAD_TOOLS.includes(tool as never) || tool === 'rail' || tool === 'tunnel') {
       if (Math.abs(ex - sx) >= Math.abs(ez - sz)) {
         const step = ex >= sx ? 1 : -1;
         for (let x = sx; x !== ex + step; x += step) out.push(idx(x, sz));
@@ -152,7 +152,7 @@ export class TileInput {
       const t = this.tileAt(e, true);
       if (!t) return;
       const tool = this.h.tool();
-      this.drag.cells = ROAD_TOOLS.includes(tool as never) || tool === 'rail' ? this.follow(t[0], t[1]) : this.cellsBetween(this.drag.sx, this.drag.sz, t[0], t[1]);
+      this.drag.cells = ROAD_TOOLS.includes(tool as never) || tool === 'rail' || tool === 'tunnel' ? this.follow(t[0], t[1]) : this.cellsBetween(this.drag.sx, this.drag.sz, t[0], t[1]);
       this.h.preview(this.drag.cells);
     } else if (!this.drag && e.pointerType === 'mouse') {
       const t = this.tileAt(e, false);

@@ -177,7 +177,7 @@ export function busStop() {
 // ======================= Metro girişi (1x1) =======================
 // Meydanda yerden çıkan kavisli cam tünel (merdiven ve yürüyen merdiven altında), "METRO" totemi,
 // havalandırma ızgarası, banklar, ağaçlar ve lambalar.
-export function metro() {
+export function metro(level = 0) {
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, M.paving, 0, 0, 0);
   for (const sx of [-1, 1]) box(st, 0.16, 0.012, 0.96, M.lawn, sx * 0.41, 0.03, 0);
@@ -211,6 +211,51 @@ export function metro() {
   tree(st, PROPS.treeLarge, 0.41, 0.0, 0.5, 2);
   tree(st, PROPS.treeSmall, -0.41, 0.36, 0.55, 3);
   tree(st, PROPS.bush, 0.41, -0.4, 0.8, 4);
+  // 2. seviye: camlı asansör köşkü ve bisiklet park yeri
+  if (level >= 1) {
+    box(st, 0.1, 0.17, 0.1, PYRAMID, 0.25, 0.03, -0.12);
+    for (const [x, z] of [[0.2, -0.17], [0.3, -0.17], [0.2, -0.07], [0.3, -0.07]] as [number, number][]) box(st, 0.008, 0.17, 0.008, M.iron, x, 0.03, z);
+    box(st, 0.11, 0.014, 0.11, M.iron, 0.25, 0.2, -0.12);
+    box(st, 0.1, 0.025, 0.004, signMat('METRO', '#d32f2f'), 0.25, 0.15, -0.066);
+    for (let k = 0; k < 4; k++) {
+      const x = -0.3 + k * 0.05;
+      add(st, new THREE.TorusGeometry(0.018, 0.003, 4, 10), PAINT[k], x, 0.055, 0.1).rotation.y = Math.PI / 2;
+      add(st, new THREE.TorusGeometry(0.018, 0.003, 4, 10), PAINT[k], x, 0.055, 0.15).rotation.y = Math.PI / 2;
+    }
+    rod(st, [-0.33, 0.04, 0.125], [-0.12, 0.04, 0.125], 0.003, M.steel, 4);
+  }
+  // 3. seviye: meydanı örten büyük cam saçak ve yeşil çatılı kenar
+  if (level >= 2) {
+    for (const [x, z] of [[-0.3, -0.26], [0.3, -0.26], [-0.3, 0.2], [0.3, 0.2]] as [number, number][]) cyl(st, 0.008, 0.01, 0.3, M.steel, x, 0.03, z, 8);
+    box(st, 0.66, 0.008, 0.52, PYRAMID, 0, 0.33, -0.03);
+    box(st, 0.68, 0.016, 0.03, M.steel, 0, 0.325, -0.29);
+    box(st, 0.68, 0.016, 0.03, M.steel, 0, 0.325, 0.23);
+    for (let k = 0; k < 5; k++) box(st, 0.008, 0.012, 0.52, M.steel, -0.3 + k * 0.15, 0.326, -0.03);
+    for (let k = 0; k < 6; k++) add(st, BULB_GEO, BULB, -0.25 + k * 0.1, 0.32, -0.03);
+  }
+  return mergeStatic([st]);
+}
+
+// Metro hattı (menü resmi): yeşil tepenin altındaki tünel ağzından çıkan metro treni
+export function tunnelThumb() {
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, M.paving, 0, 0, 0);
+  // Tepe ve tünel ağzı
+  box(st, 0.98, 0.3, 0.4, pm('#7a5a3c', 1), 0, 0.03, -0.29);
+  box(st, 0.98, 0.04, 0.4, M.lawn, 0, 0.33, -0.29);
+  box(st, 0.5, 0.32, 0.04, M.granite, 0, 0.03, -0.08);
+  box(st, 0.26, 0.16, 0.05, M.iron, 0, 0.03, -0.08);
+  add(st, new THREE.CylinderGeometry(0.13, 0.13, 0.05, 20, 1, false, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2), M.iron, 0, 0.19, -0.08);
+  // Raylar ve metro vagonu
+  for (const x of [-0.07, 0.07]) box(st, 0.012, 0.012, 0.6, M.gray, x, 0.03, 0.18);
+  for (let k = 0; k < 8; k++) box(st, 0.2, 0.008, 0.02, M.darkWood, 0, 0.03, -0.08 + k * 0.075);
+  const car = item(st, 0, 0.12, 0, 1, 0.05);
+  add(car, new THREE.CapsuleGeometry(0.1, 0.34, 4, 12).rotateX(Math.PI / 2), M.white, 0, 0.1, 0);
+  box(car, 0.205, 0.03, 0.4, M.red, 0, 0.08, 0);
+  box(car, 0.205, 0.05, 0.36, windowMat, 0, 0.12, 0);
+  add(car, new THREE.SphereGeometry(0.02, 8, 6), BULB, -0.05, 0.08, 0.26);
+  add(car, new THREE.SphereGeometry(0.02, 8, 6), BULB, 0.05, 0.08, 0.26);
+  box(st, 0.16, 0.05, 0.006, signMat('METRO', '#d32f2f'), 0, 0.31, -0.055);
   return mergeStatic([st]);
 }
 
