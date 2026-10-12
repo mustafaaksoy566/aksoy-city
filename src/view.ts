@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from './config';
-import { City, DIRS, idx, inBounds } from './city';
+import { City, DIRS, idx, inBounds, isUtility, isZone } from './city';
 import { makeModel } from './assets';
+import { makeUtility, animateUtility } from './utilities';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
@@ -42,32 +43,63 @@ const FACING_TURNS = [2, 1, 0, 3];
 
 export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - SIZE / 2 + 0.5);
 
-function warningTexture() {
+type IconType = 'road' | 'power' | 'water';
+
+// Binaların üstünde çıkan uyarı simgeleri: yol yok (!), elektrik yok (şimşek), su yok (damla)
+function iconTexture(type: IconType) {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#e53935';
+  g.fillStyle = type === 'road' ? '#e53935' : type === 'power' ? '#ffb300' : '#1e88e5';
   g.beginPath();
   g.arc(32, 32, 28, 0, Math.PI * 2);
   g.fill();
+  g.strokeStyle = '#fff';
+  g.lineWidth = 4;
+  g.stroke();
   g.fillStyle = '#fff';
-  g.font = 'bold 44px sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('!', 32, 34);
+  g.beginPath();
+  if (type === 'road') {
+    g.fillRect(28, 14, 8, 24);
+    g.arc(32, 46, 5, 0, Math.PI * 2);
+  } else if (type === 'power') {
+    // Şimşek
+    g.moveTo(36, 10);
+    g.lineTo(18, 36);
+    g.lineTo(30, 36);
+    g.lineTo(26, 54);
+    g.lineTo(46, 26);
+    g.lineTo(34, 26);
+    g.lineTo(40, 10);
+  } else {
+    // Su damlası
+    g.moveTo(32, 12);
+    g.bezierCurveTo(32, 12, 16, 32, 16, 40);
+    g.arc(32, 40, 16, Math.PI, 0, true);
+    g.bezierCurveTo(48, 32, 32, 12, 32, 12);
+  }
+  g.fill();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
+const ICON_MATS: Record<IconType, THREE.SpriteMaterial> = {
+  road: new THREE.SpriteMaterial({ map: iconTexture('road'), depthTest: false }),
+  power: new THREE.SpriteMaterial({ map: iconTexture('power'), depthTest: false }),
+  water: new THREE.SpriteMaterial({ map: iconTexture('water'), depthTest: false }),
+};
+const ICON_Y = 2.2;
+
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
-  private warns = new Map<number, THREE.Sprite>();
+  private icons = new Map<string, THREE.Sprite>();
+  private utilities = new Set<THREE.Object3D>();
   private pops: { obj: THREE.Object3D; t: number }[] = [];
-  private warnMat = new THREE.SpriteMaterial({ map: warningTexture(), depthTest: false });
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
+  private time = 0;
 
   constructor(private city: City) {
     const geo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
@@ -84,10 +116,9 @@ export class CityView {
   }
 
   rebuildAll() {
-    for (const o of this.objs.values()) this.root.remove(o);
-    this.objs.clear();
+    for (const i of [...this.objs.keys()]) this.remove(i);
     for (let i = 0; i < SIZE * SIZE; i++) this.build(i, false);
-    this.updateWarnings();
+    this.updateIcons();
   }
 
   // Değişen kareleri ve yanlarındaki yolları yeniden çiz
@@ -99,14 +130,19 @@ export class CityView {
       for (const [dx, dz] of DIRS) if (inBounds(x + dx, z + dz)) all.add(idx(x + dx, z + dz));
     }
     for (const i of all) this.build(i, animate && cells.includes(i));
-    this.updateWarnings();
+    this.updateIcons();
+  }
+
+  private remove(i: number) {
+    const old = this.objs.get(i);
+    if (!old) return;
+    this.root.remove(old);
+    this.utilities.delete(old);
+    this.objs.delete(i);
   }
 
   private build(i: number, animate: boolean) {
-    const old = this.objs.get(i);
-    if (old) this.root.remove(old);
-    this.objs.delete(i);
-
+    this.remove(i);
     const t = this.city.tiles[i];
     if (!t) return;
     const x = i % SIZE, z = Math.floor(i / SIZE);
@@ -119,6 +155,10 @@ export class CityView {
       o.rotation.y = (p.k * Math.PI) / 2;
     } else if (t.kind === 'park') {
       o = makeModel(PARK_MODELS[t.variant % PARK_MODELS.length]);
+    } else if (isUtility(t.kind)) {
+      o = makeUtility(t.kind);
+      o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
+      this.utilities.add(o);
     } else if (t.level === 0) {
       o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
       o.position.y = 0.015;
@@ -153,26 +193,35 @@ export class CityView {
     return group;
   }
 
-  // Yola bağlı olmayan binaların üstünde kırmızı ünlem göster
-  private updateWarnings() {
-    const want = new Set<number>();
+  // Yolu, elektriği ya da suyu olmayan binaların üstünde simge göster
+  updateIcons() {
+    const want = new Map<string, { i: number; type: IconType; slot: number }>();
     this.city.tiles.forEach((t, i) => {
-      if ((t?.kind === 'res' || t?.kind === 'com') && t.level > 0 && !this.city.isConnected(i)) want.add(i);
+      if (!t || !isZone(t.kind) || t.level === 0) return;
+      if (!this.city.isConnected(i)) {
+        want.set(`${i}|road`, { i, type: 'road', slot: 0 });
+        return;
+      }
+      const lack = this.city.lacking.get(i);
+      if (lack?.power) want.set(`${i}|power`, { i, type: 'power', slot: 0 });
+      if (lack?.water) want.set(`${i}|water`, { i, type: 'water', slot: lack.power ? 1 : 0 });
     });
-    for (const [i, s] of this.warns) {
-      if (!want.has(i)) {
+    for (const [key, s] of this.icons) {
+      if (!want.has(key)) {
         this.root.remove(s);
-        this.warns.delete(i);
+        this.icons.delete(key);
       }
     }
-    for (const i of want) {
-      if (this.warns.has(i)) continue;
-      const s = new THREE.Sprite(this.warnMat);
-      s.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(2.2);
+    for (const [key, { i, type, slot }] of want) {
+      if (this.icons.has(key)) continue;
+      const s = new THREE.Sprite(ICON_MATS[type]);
+      s.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE)));
+      s.userData.y = ICON_Y + slot * 0.55;
+      s.userData.phase = (i * 0.37) % (Math.PI * 2);
       s.scale.setScalar(0.5);
       s.renderOrder = 2;
       this.root.add(s);
-      this.warns.set(i, s);
+      this.icons.set(key, s);
     }
   }
 
@@ -190,13 +239,19 @@ export class CityView {
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
   }
 
-  // Yeni binalar "zıplayarak" ortaya çıksın
   update(dt: number) {
+    this.time += dt;
+    // Yeni binalar "zıplayarak" ortaya çıksın
     this.pops = this.pops.filter(p => {
       p.t = Math.min(1, p.t + dt / 0.35);
       const s = 1 + 2.7 * Math.pow(p.t - 1, 3) + 1.7 * Math.pow(p.t - 1, 2);
       p.obj.scale.setScalar(Math.max(0.01, s));
       return p.t < 1;
     });
+    // Uyarı simgeleri hafifçe zıplasın
+    for (const s of this.icons.values()) {
+      s.position.y = s.userData.y + Math.sin(this.time * 3 + s.userData.phase) * 0.06;
+    }
+    for (const u of this.utilities) animateUtility(u, this.time, dt);
   }
 }

@@ -1,10 +1,10 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
-  TAX_PER_JOB, type BuildTool,
+  TAX_PER_JOB, UTILITIES, type BuildTool, type UtilKind,
 } from './config';
 
-export type Kind = 'road' | 'res' | 'com' | 'park';
+export type Kind = 'road' | 'res' | 'com' | 'park' | UtilKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
@@ -18,7 +18,11 @@ export const DIRS: readonly [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 
 
 export const idx = (x: number, z: number) => z * SIZE + x;
 export const inBounds = (x: number, z: number) => x >= 0 && z >= 0 && x < SIZE && z < SIZE;
-const isZone = (k: Kind | undefined) => k === 'res' || k === 'com';
+export const isZone = (k: Kind | undefined): k is 'res' | 'com' => k === 'res' || k === 'com';
+export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k && k in UTILITIES;
+const KINDS: string[] = ['road', 'res', 'com', 'park', ...Object.keys(UTILITIES)];
+
+const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 
 export interface SaveData {
   v: 2;
@@ -35,17 +39,25 @@ interface SaveDataV1 {
   t: [number, string, number, number, number][];
 }
 
+export interface Service {
+  power: { supply: number; demand: number };
+  water: { supply: number; demand: number };
+}
+
 export class City {
   tiles: (Tile | null)[] = new Array(SIZE * SIZE).fill(null);
   money = START_MONEY;
   day = 1;
   private reach = new Set<number>(); // girişe bağlı yol kareleri
+  // Elektrik ya da suyu eksik binalar ve eksik olan şey
+  lacking = new Map<number, { power: boolean; water: boolean }>();
+  service: Service = { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } };
 
   constructor() {
     for (let x = 0; x < ENTRANCE_LEN; x++) {
       this.tiles[idx(x, ENTRANCE_Z)] = { kind: 'road', level: 0, facing: 0, variant: 0, locked: true };
     }
-    this.updateReach();
+    this.refresh();
   }
 
   get(x: number, z: number) {
@@ -65,8 +77,14 @@ export class City {
     return m;
   }
 
+  // Yollar ya da binalar değişince bağlantıyı ve elektrik/su dağıtımını yeniden hesapla
+  refresh() {
+    this.updateReach();
+    this.updateService();
+  }
+
   // Girişten başlayıp birbirine değen bütün yolları bul
-  updateReach() {
+  private updateReach() {
     this.reach.clear();
     const queue: number[] = [];
     for (let x = 0; x < ENTRANCE_LEN; x++) queue.push(idx(x, ENTRANCE_Z));
@@ -84,16 +102,50 @@ export class City {
     }
   }
 
+  // Yola bağlı santral ve su yapılarının ürettiğini binalara sırayla dağıt
+  private updateService() {
+    let power = 0, water = 0, powerDemand = 0, waterDemand = 0;
+    this.tiles.forEach((t, i) => {
+      if (t && isUtility(t.kind) && this.isConnected(i)) {
+        power += UTILITIES[t.kind].power;
+        water += UTILITIES[t.kind].water;
+      }
+    });
+    this.service.power.supply = power;
+    this.service.water.supply = water;
+    this.lacking.clear();
+    this.tiles.forEach((t, i) => {
+      if (!t || !isZone(t.kind) || t.level === 0 || !this.isConnected(i)) return;
+      const need = levelInfo(t).need;
+      powerDemand += need;
+      waterDemand += need;
+      const hasPower = power >= need, hasWater = water >= need;
+      if (hasPower && hasWater) {
+        power -= need;
+        water -= need;
+      } else {
+        this.lacking.set(i, { power: !hasPower, water: !hasWater });
+      }
+    });
+    this.service.power.demand = powerDemand;
+    this.service.water.demand = waterDemand;
+  }
+
   // Bu karenin yanında girişe bağlı bir yol var mı?
   isConnected(i: number) {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && this.reach.has(idx(x + dx, z + dz)));
   }
 
-  private sumOf(kind: Kind, value: (level: number) => number) {
+  // Bina yola bağlı ve elektriği, suyu var mı?
+  isServed(i: number) {
+    return this.isConnected(i) && !this.lacking.has(i);
+  }
+
+  private sumOf(kind: 'res' | 'com', value: (level: number) => number) {
     let sum = 0;
     this.tiles.forEach((t, i) => {
-      if (t?.kind === kind && t.level > 0 && this.isConnected(i)) sum += value(t.level);
+      if (t?.kind === kind && t.level > 0 && this.isServed(i)) sum += value(t.level);
     });
     return sum;
   }
@@ -106,8 +158,19 @@ export class City {
     return this.sumOf('com', l => COM_LEVELS[l - 1].jobs);
   }
 
+  get upkeep() {
+    let sum = 0;
+    for (const t of this.tiles) if (t && isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep;
+    return sum;
+  }
+
   get dailyIncome() {
-    return Math.round(this.population * TAX_PER_PERSON + this.jobs * TAX_PER_JOB);
+    return Math.round(this.population * TAX_PER_PERSON + this.jobs * TAX_PER_JOB - this.upkeep);
+  }
+
+  // Hiç bölge çizilmiş mi? (oyuncuya elektrik/su ipucu vermek için)
+  get hasZones() {
+    return this.tiles.some(t => t && isZone(t.kind));
   }
 
   private near(x: number, z: number, r: number, test: (t: Tile) => boolean) {
@@ -140,7 +203,11 @@ export class City {
       return t.locked ? 'Şehir girişi yıkılamaz' : null;
     }
     if (t) return 'Burası dolu';
-    if ((tool === 'res' || tool === 'com') && this.roadMask(x, z) === 0) return 'Bölgeler yol kenarına çizilmeli';
+    if (tool === 'res' || tool === 'com') {
+      if (this.roadMask(x, z) === 0) return 'Bölgeler yol kenarına çizilmeli';
+    } else if (isUtility(tool) && this.roadMask(x, z) === 0) {
+      return 'Bu yapı yol kenarına kurulmalı';
+    }
     return null;
   }
 
@@ -166,12 +233,12 @@ export class City {
       if (tool === 'bulldoze') this.tiles[i] = null;
       else {
         const variant = Math.floor(Math.random() * 1000);
-        this.tiles[i] = { kind: tool, level: 0, facing: 0, variant };
+        this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i), variant };
         if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
       }
     }
     this.money -= cost;
-    this.updateReach();
+    this.refresh();
     return { done: ok, error: null };
   }
 
@@ -183,21 +250,31 @@ export class City {
 
     const changed: number[] = [];
     let jobRoom = this.population * JOBS_PER_PERSON - this.jobs;
+    let spare = Math.min(
+      this.service.power.supply - this.service.power.demand,
+      this.service.water.supply - this.service.water.demand,
+    );
     this.tiles.forEach((t, i) => {
-      if (!t || !isZone(t.kind) || !this.isConnected(i)) return;
+      if (!t || !isZone(t.kind) || !this.isConnected(i) || this.lacking.has(i)) return;
       if (t.level >= this.maxLevel(i)) return;
       if (Math.random() >= (t.level === 0 ? BUILD_CHANCE : GROW_CHANCE)) return;
+      const levels = t.kind === 'res' ? RES_LEVELS : COM_LEVELS;
+      // Yeni seviye için yeterli elektrik ve su kalmış mı?
+      const extraNeed = levels[t.level].need - (t.level ? levels[t.level - 1].need : 0);
+      if (extraNeed > spare) return;
       if (t.kind === 'com') {
         // Dükkanlar ancak çalışacak insan varsa açılır
         const extra = COM_LEVELS[t.level].jobs - (t.level ? COM_LEVELS[t.level - 1].jobs : 0);
         if (extra > jobRoom) return;
         jobRoom -= extra;
       }
+      spare -= extraNeed;
       t.level++;
       t.facing = this.facingFor(i);
       t.variant = Math.floor(Math.random() * 1000);
       changed.push(i);
     });
+    if (changed.length) this.updateService();
     return { income, changed };
   }
 
@@ -220,10 +297,10 @@ export class City {
         kind = 'res';
         level = Math.min(rawLevel, RES_LEVELS.length);
       }
-      if (!['road', 'res', 'com', 'park'].includes(kind)) continue;
+      if (!KINDS.includes(kind)) continue;
       if (i >= 0 && i < c.tiles.length && !c.tiles[i]) c.tiles[i] = { kind, level, facing, variant };
     }
-    c.updateReach();
+    c.refresh();
     return c;
   }
 }

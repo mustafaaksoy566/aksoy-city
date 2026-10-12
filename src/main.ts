@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
-import { SIZE, DAY_SECONDS, COST, TOOLS, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
-import { City } from './city';
+import { SIZE, DAY_SECONDS, COST, TOOL_INFO, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
+import { City, isUtility } from './city';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic } from './traffic';
@@ -24,7 +24,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd8f0');
 scene.fog = new THREE.Fog('#9fd8f0', 70, 150);
 
-const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 400);
 const start = tileCenter(8, ENTRANCE_Z);
 camera.position.set(start.x + 12, 18, start.z + 12);
 
@@ -45,15 +45,17 @@ Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: 
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
-// Şehrin çimen zemini
+// Şehrin çimen zemini. Yolların asfaltı y=0'da olduğu için zemin biraz aşağıda,
+// yoksa çimen yolun içinden titreyerek görünüyor.
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshStandardMaterial({ color: '#7cc05c' }));
 ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.02;
 ground.receiveShadow = true;
 scene.add(ground);
 const grid = new THREE.GridHelper(SIZE, SIZE, '#ffffff', '#ffffff');
 (grid.material as THREE.Material).transparent = true;
 (grid.material as THREE.Material).opacity = 0.18;
-grid.position.y = 0.005;
+grid.position.y = -0.01;
 scene.add(grid);
 
 // --- Şehir ---
@@ -84,7 +86,26 @@ scene.add(view.root);
 const traffic = new Traffic(city);
 scene.add(traffic.root);
 
-const updateStats = () => setStats(city.money, city.population, city.day, city.dailyIncome);
+const updateStats = () => setStats(city.money, city.population, city.day, city.dailyIncome, city.service);
+
+// Elektrik ya da su eksikse ara sıra hatırlat
+const lastWarned = { power: -99, water: -99 };
+function warnShortages() {
+  if (!city.hasZones) return;
+  const texts = {
+    power: ['⚡ Elektrik yok! Altyapı menüsünden rüzgar türbini kur.', '⚡ Elektrik yetmiyor! Yeni türbin ya da santral kur.'],
+    water: ['💧 Su yok! Altyapı menüsünden su kulesi kur.', '💧 Su yetmiyor! Yeni su kulesi ya da pompa kur.'],
+  };
+  for (const k of ['power', 'water'] as const) {
+    const { supply, demand } = city.service[k];
+    const none = supply === 0;
+    if ((none || demand > supply) && city.day - lastWarned[k] >= 15) {
+      lastWarned[k] = city.day;
+      toast(texts[k][none ? 0 : 1], 'error');
+      return;
+    }
+  }
+}
 
 // --- Araçlar ---
 let tool: Tool = 'pan';
@@ -108,7 +129,7 @@ function pickTool(t: Tool) {
   play('click', 0.4);
   if (!hinted.has(t)) {
     hinted.add(t);
-    toast(TOOLS.find(x => x.id === t)!.hint);
+    toast(TOOL_INFO[t].hint);
   }
 }
 
@@ -119,7 +140,7 @@ const input = new TileInput(renderer.domElement, camera, {
     const items = cells.map(i => ({ i, ok: city.check(tool as Exclude<Tool, 'pan'>, i % SIZE, Math.floor(i / SIZE)) === null }));
     view.showPreview(items);
     const n = items.filter(c => c.ok).length;
-    if (cells.length > 1) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
+    if (cells.length > 1 || isUtility(tool)) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
   },
   commit(cells) {
     view.showPreview([]);
@@ -133,7 +154,7 @@ const input = new TileInput(renderer.domElement, camera, {
     }
     view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
-    if ((tool === 'res' || tool === 'com') && res.done.some(i => !city.isConnected(i))) {
+    if (tool !== 'road' && tool !== 'bulldoze' && tool !== 'park' && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
     updateStats();
@@ -167,6 +188,33 @@ document.getElementById('reset')!.addEventListener('click', () => {
   toast('Yeni şehir kuruldu!');
 });
 
+// --- Kamera döndürme (90 derece, yumuşak geçişle) ---
+const UP = new THREE.Vector3(0, 1, 0);
+let turn: { total: number; t: number; applied: number } | null = null;
+function rotateCamera(dir: 1 | -1) {
+  if (turn) return;
+  turn = { total: (dir * Math.PI) / 2, t: 0, applied: 0 };
+  play('click', 0.3);
+}
+document.getElementById('rot-left')!.addEventListener('click', () => rotateCamera(-1));
+document.getElementById('rot-right')!.addEventListener('click', () => rotateCamera(1));
+window.addEventListener('keydown', e => {
+  if (e.key === 'q' || e.key === 'Q') rotateCamera(-1);
+  if (e.key === 'e' || e.key === 'E') rotateCamera(1);
+});
+
+function stepTurn(dt: number) {
+  if (!turn) return;
+  turn.t = Math.min(1, turn.t + dt / 0.45);
+  const k = turn.t < 0.5 ? 2 * turn.t * turn.t : 1 - Math.pow(-2 * turn.t + 2, 2) / 2;
+  const step = turn.total * k - turn.applied;
+  turn.applied += step;
+  const offset = camera.position.clone().sub(controls.target).applyAxisAngle(UP, step);
+  camera.position.copy(controls.target).add(offset);
+  camera.lookAt(controls.target);
+  if (turn.t >= 1) turn = null;
+}
+
 // --- Ekran boyutu ve oyun döngüsü ---
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -182,6 +230,7 @@ const limit = SIZE / 2;
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.25);
+  stepTurn(dt);
   controls.update();
   // Kamera haritanın dışına kaçmasın
   const t = controls.target;
@@ -202,8 +251,10 @@ function frame() {
       view.refresh(changed, true);
       play('grow', 0.35);
     }
+    view.updateIcons();
     floatIncome(income);
     updateStats();
+    warnShortages();
     save();
   }
 

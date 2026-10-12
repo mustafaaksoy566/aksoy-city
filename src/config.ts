@@ -9,37 +9,65 @@ export const TAX_PER_JOB = 0.3; // iş yeri başına günlük vergi
 export const ENTRANCE_Z = SIZE / 2;
 export const ENTRANCE_LEN = 3;
 
-export type BuildTool = 'road' | 'res' | 'com' | 'park' | 'bulldoze';
+// Elektrik ve su yapıları
+export type UtilKind = 'wind' | 'plant' | 'tower' | 'pump';
+export const UTILITIES: Record<UtilKind, { power: number; water: number; upkeep: number }> = {
+  wind: { power: 12, water: 0, upkeep: 2 },
+  plant: { power: 80, water: 0, upkeep: 10 },
+  tower: { power: 0, water: 12, upkeep: 2 },
+  pump: { power: 0, water: 80, upkeep: 8 },
+};
+export const UTIL_KINDS = Object.keys(UTILITIES) as UtilKind[];
+
+export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
-export const COST: Record<BuildTool, number> = { road: 10, res: 20, com: 30, park: 60, bulldoze: 0 };
+export const COST: Record<BuildTool, number> = {
+  road: 10, res: 20, com: 30, park: 60, bulldoze: 0,
+  wind: 300, plant: 1500, tower: 250, pump: 1200,
+};
 
-export const TOOLS: { id: Tool; icon: string; label: string; hint: string }[] = [
-  { id: 'pan', icon: '✋', label: 'Gez', hint: 'Haritayı parmağınla kaydır, iki parmakla yakınlaştır.' },
-  { id: 'road', icon: '🛣️', label: 'Yol', hint: 'Yol çizmek için parmağını sürükle. Kaydırmak için iki parmak kullan.' },
-  { id: 'res', icon: '🏠', label: 'Konut', hint: 'Yol kenarına konut bölgesi çiz, evler kendiliğinden yapılır.' },
-  { id: 'com', icon: '🏪', label: 'Ticaret', hint: 'Dükkanlar ve ofisler nüfus arttıkça gelişir.' },
-  { id: 'park', icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
-  { id: 'bulldoze', icon: '🚜', label: 'Yık', hint: 'Yıkmak istediğin alanı sürükle.' },
+export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
+  pan: { icon: '✋', label: 'Gez', hint: 'Haritayı parmağınla kaydır, iki parmakla yakınlaştır.' },
+  road: { icon: '🛣️', label: 'Yol', hint: 'Yol çizmek için parmağını sürükle. Kaydırmak için iki parmak kullan.' },
+  res: { icon: '🏠', label: 'Konut', hint: 'Yol kenarına konut bölgesi çiz, evler kendiliğinden yapılır.' },
+  com: { icon: '🏪', label: 'Ticaret', hint: 'Dükkanlar ve ofisler nüfus arttıkça gelişir.' },
+  park: { icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
+  bulldoze: { icon: '🚜', label: 'Yık', hint: 'Yıkmak istediğin alanı sürükle.' },
+  wind: { icon: '🌬️', label: 'Türbin', hint: 'Rüzgar türbini: az elektrik, ucuz. Yol kenarına kur.' },
+  plant: { icon: '🏭', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
+  tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: az su, ucuz. Yol kenarına kur.' },
+  pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası: çok su verir ama pahalı.' },
+};
+
+// Alt çubuk: tek araçlar ve açılır gruplar
+export type ToolbarItem = Tool | { group: string; icon: string; label: string; tools: Tool[] };
+export const TOOLBAR: ToolbarItem[] = [
+  'pan',
+  'road',
+  { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
+  { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'plant', 'tower', 'pump'] },
+  'park',
+  'bulldoze',
 ];
 
 // Kenney başlangıç paketi (k/) ve Poly Pizza'dan gelen ticari binalar (c/)
 const k = (n: string) => `kenney/models/${n}`;
 const c = (n: string) => `polypizza/city/${n}`;
 
-// Konut seviyeleri: her seviyede bina büyür, nüfus artar
+// Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
 export const RES_LEVELS = [
-  { pop: 6, models: [k('building-small-a'), k('building-small-d'), c('small-building-3')] },
-  { pop: 14, models: [k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6')] },
-  { pop: 30, models: [c('large-building-1'), c('large-building-3'), c('large-building-5'), c('low-wide-1'), c('low-wide-2')] },
-  { pop: 60, models: [c('skyscraper-3'), c('skyscraper-6'), c('large-building-4')] },
+  { pop: 6, need: 1, models: [k('building-small-a'), k('building-small-d'), c('small-building-3')] },
+  { pop: 14, need: 2, models: [k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6')] },
+  { pop: 30, need: 4, models: [c('large-building-1'), c('large-building-3'), c('large-building-5'), c('low-wide-1'), c('low-wide-2')] },
+  { pop: 60, need: 7, models: [c('skyscraper-3'), c('skyscraper-6'), c('large-building-4')] },
 ];
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
 export const COM_LEVELS = [
-  { jobs: 5, models: [c('low-wide-1'), c('low-wide-2'), k('building-garage')] },
-  { jobs: 15, models: [c('low-building-1'), c('low-building-2'), c('low-building-3'), c('low-building-4'), c('low-building-5')] },
-  { jobs: 40, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5'), c('low-building-6'), c('low-building-7')] },
+  { jobs: 5, need: 1, models: [c('low-wide-1'), c('low-wide-2'), k('building-garage')] },
+  { jobs: 15, need: 3, models: [c('low-building-1'), c('low-building-2'), c('low-building-3'), c('low-building-4'), c('low-building-5')] },
+  { jobs: 40, need: 6, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5'), c('low-building-6'), c('low-building-7')] },
 ];
 
 export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviyeye çıkar

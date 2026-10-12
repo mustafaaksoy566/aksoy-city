@@ -30,7 +30,7 @@ const coast = (x: number, z: number) => -z - HALF - 5 + x * 0.3 + (fbm(x + 50, z
 export function heightAt(x: number, z: number) {
   const dx = Math.max(Math.abs(x) - HALF, 0), dz = Math.max(Math.abs(z) - HALF, 0);
   const dist = Math.hypot(dx, dz);
-  if (dist <= 0.01) return -0.03; // şehir alanı (çimen zemin bunun üstünde)
+  if (dist <= 0.01) return -0.06; // şehir alanı (çimen zemin bunun üstünde)
   const c = coast(x, z);
   if (c > 0) return Math.max(-3, -c * 0.45) - 0.03; // deniz tabanı
   // Tepeler şehirden uzaklaştıkça yükselir, kıyıya yaklaştıkça alçalır
@@ -39,7 +39,7 @@ export function heightAt(x: number, z: number) {
   h *= THREE.MathUtils.smoothstep(-c, 0, 10);
   // Otoyol koridoru düz kalsın
   if (x < -HALF) h *= THREE.MathUtils.smoothstep(Math.abs(z - ROAD_Z), 1.2, 4);
-  return Math.min(h, 14) - 0.03;
+  return Math.min(h, 14) - 0.06;
 }
 
 const COLORS = {

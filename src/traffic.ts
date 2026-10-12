@@ -101,7 +101,7 @@ export class Traffic {
 
   // Kare içinde girişten çıkışa yumuşak bir eğri (ikinci derece Bezier) üzerinde ilerle
   private place(car: Car) {
-    const center = tileCenter(car.tile % SIZE, Math.floor(car.tile / SIZE)).setY(0.06);
+    const center = tileCenter(car.tile % SIZE, Math.floor(car.tile / SIZE)).setY(0.02);
     const { dIn, dOut, t } = car;
     this.a.copy(center).addScaledVector(fwd(dIn), -0.5).addScaledVector(right(dIn), LANE);
     this.b.copy(center).addScaledVector(fwd(dOut), 0.5).addScaledVector(right(dOut), LANE);
