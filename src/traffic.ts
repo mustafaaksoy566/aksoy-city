@@ -260,12 +260,14 @@ export interface Box {
   len: number; // yarı boy
   wid: number; // yarı en
   id: number;
+  ped?: boolean; // araba önündeki yayaya yol veriyor (yaya da onu beklerse ikisi kilitlenir)
 }
 let nextId = 1;
 
 interface Vehicle extends Mover {
   id?: number;
   stuck?: number; // önü kapalı bekleme süresi
+  ped?: boolean; // önündeki yayayı bekliyor
   next?: number; // bir sonraki karede çıkacağı yön (kavşağa girmeden önce seçilir)
   lastJ?: { tile: number; dIn: number; dOut: number }; // en son geçtiği kavşak (arkası hâlâ içindeyken yer tutar)
   vanish?: boolean; // çok uzun sıkıştı: başkasının içinden geçmek yerine yavaşça kaybolur
@@ -305,6 +307,7 @@ export class Traffic {
   private roadKey = '';
   private waiting: { lot: Lot; bay: number }[] = []; // sahibi geldi, yola çıkmayı bekliyor
   private pending = 0; // sahibi arabasına yürüyor
+  private wanted = 0; // şehirde gezmesi gereken araba sayısı
   private walkers: Walkers | null = null;
   // Otoban: şehirden çıkan arabalar ona devredilir
   highway: { leaveCity(type: number, paint: THREE.Color, wide: number): void; canLeave(wide: number): boolean; sendBus(): void; busesComing(): number } | null = null;
@@ -362,8 +365,8 @@ export class Traffic {
 
   // Önünde (gideceği yerde) başka bir araç ya da yaya var mı? Kutular bir önceki karedeki yerler.
   // İki araç birbirini bekliyorsa kimliği küçük olan geçer (kilitlenmesin).
-  // Dönüş: 'queue' önde aynı yöne giden (sırada bekliyor), 'cross' yolunu kesen araç, null boş
-  private blocked(me: Box | undefined, people: Box[]): 'queue' | 'cross' | null {
+  // Dönüş: 'queue' önde aynı yöne giden (sırada bekliyor), 'cross' yolunu kesen araç, 'ped' önünde yaya, null boş
+  private blocked(me: Box | undefined, people: Box[]): 'queue' | 'cross' | 'ped' | null {
     if (!me) return null;
     const fx = Math.sin(me.h), fz = Math.cos(me.h);
     // Biraz ileriye kaydırılmış kendi kutusu, öndeki (dönük de olsa) kutuya değiyor mu? (ayırıcı eksen testi)
@@ -380,7 +383,7 @@ export class Traffic {
       if (back && me.id < o.id) continue;
       return Math.cos(o.h - me.h) > 0.8 ? 'queue' : 'cross';
     }
-    for (const p of people) if (hit(p, 0.05)) return 'queue';
+    for (const p of people) if (hit(p, 0.05)) return 'ped';
     return null;
   }
 
@@ -690,6 +693,13 @@ export class Traffic {
     return this.city.tiles[idx(0, ENTRANCE_Z)]?.grade === 2 ? [WIDE_LANES[0], WIDE_LANES[1]] : [CAR_LANE, CAR_LANE];
   }
 
+  // Şehre otobandan yeni araba gelsin mi? Şehirdeki araba sayısı yeterliyse otobandakiler tünelde bekler
+  // (yoksa otoban durmadan araba gönderir, şehir dolar ve girişte kuyruk olur)
+  wantsCars() {
+    const moving = this.cars.filter(c => !c.out && !c.home).length;
+    return moving + this.pending + this.waiting.length < this.wanted;
+  }
+
   // Şehrin girişi (o şeritte) dolu mu? (otobandan gelen araba sınırın dışında bekler, kuyruktakilerin içine girmez)
   entranceBusy(wide = 1) {
     const entrance = idx(0, ENTRANCE_Z);
@@ -758,6 +768,7 @@ export class Traffic {
       this.scan();
       const roads = this.city.tiles.filter(t => t?.kind === 'road').length;
       const wanted = Math.min(MAX_CARS, Math.floor(roads / 2.5), 3 + Math.floor(this.city.population / 12));
+      this.wanted = wanted;
       const moving = this.cars.filter(c => !c.out && !c.home);
       if (moving.length + this.pending + this.waiting.length < wanted) this.spawnCar();
       else if (moving.length > wanted) {
@@ -813,7 +824,8 @@ export class Traffic {
     for (const v of all) {
       if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
       // Kavşaktan yeni çıktı: arkası hâlâ kavşağın içindeyse yer tutar
-      if (v.lastJ && v.lastJ.tile !== v.tile && v.t < this.lengthOf(v) / 2 + 0.02) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
+      // (sadece kavşağın hemen yanındaki karede; birkaç kare uzaklaşınca, ör. durakta bekleyen otobüs, kavşağı tutmaz)
+      if (v.lastJ && v.lastJ.tile !== v.tile && neighbor(v.lastJ.tile, v.lastJ.dOut) === v.tile && v.t < this.lengthOf(v) / 2 + 0.02) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
       // Durma çizgisini geçmiş, kavşağa girmek üzere: kavşağı şimdiden tutar
       if (v.next !== undefined && v.t > STOP + 0.02) {
         const j = neighbor(v.tile, v.dOut);
@@ -892,13 +904,15 @@ export class Traffic {
           if ((v.jwait ?? 0) > 15 && !v.home) v.vanish = true;
         } else {
           v.jwait = 0;
-          // Girmeye karar verdi: aynı karede gelen başkası da girmesin
-          occupy(next, v, v.dOut, out);
+          // Yeşilde girmeye karar verdi: aynı karede gelen başkası da girmesin.
+          // Kırmızıda bekleyen kavşağı tutmaz (yoksa yeşil yanan yöndekiler onu bekler, ışık işe yaramaz)
+          if (green) occupy(next, v, v.dOut, out);
         }
       } else if (v.jwait) v.jwait = 0;
       // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et)
       let go = step;
       const bk = this.blocked(prev.get(v.id), people);
+      v.ped = bk === 'ped';
       if (bk) {
         go = 0;
         // Sırada beklemek normal (kırmızı ışık, kuyruk); sayaç sadece yolunu kesen araçla kilitlenince işler.
@@ -953,7 +967,7 @@ export class Traffic {
     this.boxes = [];
     const remember = (v: Vehicle) => {
       if (v.fade < 0.3) return;
-      this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0 });
+      this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0, ped: v.ped });
     };
     for (const car of this.cars) {
       put(car.type, this.place(car, CAR_Y), car.paint);
@@ -1069,6 +1083,7 @@ interface Person extends Mover {
   look: [number, number, number, number, number, number, number]; // gömlek, pantolon, ten, saç, şemsiye, ayakkabı, biçim (1 uzun saç, 2 etek)
   walk?: Walk;
   away?: number; // eve dönmek için kaç saniyedir yer arıyor
+  wait?: number; // kendisine yol veren arabanın önünde kaç saniyedir bekliyor
 }
 
 // Parçalar: [geometri, renk listesi seçici]
@@ -1275,9 +1290,12 @@ export class Walkers {
     }
     const cars = this.cars();
     const pos = new THREE.Vector3();
-    // Önünde araba varsa bekle
-    const carAhead = (x: number, z: number, h: number) => {
+    // Önünde araba varsa bekle.
+    // Kendisine yol veren (yayayı bekleyen) araba engel sayılmaz; yaya ancak gerçekten arabanın içinden geçecekse durur,
+    // o da en fazla 3 saniye (yoksa araba yayayı, yaya arabayı bekler, kavşak kilitlenir ve arkada kuyruk büyür)
+    const carAhead = (p: Person, x: number, z: number, h: number) => {
       const fx = Math.sin(h), fz = Math.cos(h);
+      let yielding = false;
       for (const c of cars) {
         const rx = c.x - x, rz = c.z - z;
         const ahead = rx * fx + rz * fz;
@@ -1286,8 +1304,15 @@ export class Walkers {
         const dh = c.h - h;
         const along = Math.abs(Math.cos(dh)) * c.len + Math.abs(Math.sin(dh)) * c.wid;
         const side = Math.abs(Math.sin(dh)) * c.len + Math.abs(Math.cos(dh)) * c.wid;
-        if (ahead < along + 0.06 && lat < side + 0.03) return true;
+        if (c.ped) {
+          if (ahead < along + 0.02 && lat < side) yielding = true;
+        } else if (ahead < along + 0.06 && lat < side + 0.03) return true;
       }
+      if (yielding && (p.wait ?? 0) < 3) {
+        p.wait = (p.wait ?? 0) + dt;
+        return true;
+      }
+      p.wait = 0;
       return false;
     };
     this.people = this.people.filter(p => {
@@ -1295,7 +1320,7 @@ export class Walkers {
         const w = p.walk;
         const a = w.pts[w.k], b = w.pts[w.k + 1];
         pos.lerpVectors(a, b, Math.min(1, w.u));
-        if (carAhead(pos.x, pos.z, Math.atan2(b.x - a.x, b.z - a.z))) return true;
+        if (carAhead(p, pos.x, pos.z, Math.atan2(b.x - a.x, b.z - a.z))) return true;
         return this.stepWalk(p, dt);
       }
       if (p.out) {
@@ -1310,7 +1335,7 @@ export class Walkers {
       let limit = lightLimit(this.city, p, 0.7);
       for (const t of lanes.get(`${p.tile}|${p.dIn}`) ?? []) if (t > p.t + 1e-4) limit = Math.min(limit, t - 0.08);
       const h = lanePos(this.city, p, this.lane, 0.05, pos);
-      if (carAhead(pos.x, pos.z, h)) limit = p.t;
+      if (carAhead(p, pos.x, pos.z, h)) limit = p.t;
       return advance(this.city, p, dt * p.speed, false, Math.max(p.t, limit));
     });
     if (this.people.length !== before) this.colorsDirty = true;

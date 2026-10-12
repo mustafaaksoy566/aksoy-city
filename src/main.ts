@@ -199,6 +199,7 @@ scene.add(highway.root);
 traffic.highway = highway;
 highway.enterCity = (type, paint, wide) => traffic.enterFromHighway(type, paint, wide);
 highway.cityBusy = wide => traffic.entranceBusy(wide);
+highway.cityWants = () => traffic.wantsCars();
 const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);

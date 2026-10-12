@@ -674,6 +674,8 @@ export class HighwayTraffic {
   enterCity: ((type: number, paint: THREE.Color, wide: number) => boolean) | null = null;
   // Şehrin girişi (o şeritte) dolu mu? Doluysa şehre giden araba bir araba boyu geride bekler
   cityBusy: ((wide: number) => boolean) | null = null;
+  // Şehir yeni araba istiyor mu? İstemiyorsa şehre gidecek arabalar tünelin içinde bekler (görünmez)
+  cityWants: (() => boolean) | null = null;
 
   // Şehirden çıkan araba aynı renk ve modelle otobana devam eder
   leaveCity(type: number, paint: THREE.Color, wide: number) {
@@ -862,6 +864,8 @@ export class HighwayTraffic {
         // Arada iki aracın boylarının yarısı ve küçük bir boşluk kalsın (otobüs ve kamyon daha uzun)
         v = Math.min(v, Math.max(0, (ahead - (this.lengthOf(car) + this.lengthOf(o)) / 2 - 0.09) * 3));
       }
+      // Şehre giden (otobüs değil): şehir yeterince kalabalıksa tünelden çıkmadan bekle
+      if (route.gate === 'toCity' && car.type >= 0 && car.s < 4 && this.cityWants && !this.cityWants()) v = 0;
       // Şehre giden: giriş doluysa sınırın dışında bekle (şehirdeki kuyruğun içine girmesin)
       if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.(route.wide ?? 1)) v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
       car.v += (v - car.v) * Math.min(1, dt * 3);
