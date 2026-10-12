@@ -1,0 +1,219 @@
+import * as THREE from 'three';
+
+// Kamera kontrolü (harita uygulamaları gibi):
+// - Tek parmak: haritayı tutup sürükle (tutulan yer parmağın altında kalır)
+// - İki parmak: sıkıştırıp aç = yakınlaştır, çevir = döndür, birlikte kaydır = kaydır
+// - Fare: sol tuş sürükle (gez modunda), tekerlek yakınlaştır, sağ tuş ile döndür
+const ZOOM_POWER = 1.35; // sıkıştırma ne kadar hızlı yakınlaştırsın (1 = parmaklarla birebir)
+
+export class CameraRig {
+  readonly target = new THREE.Vector3();
+  distance = 16;
+  yaw = Math.PI / 4; // kameranın şehre baktığı yatay açı
+  minDistance = 6;
+  maxDistance = 60;
+  // Tek parmakla kaydırma açık mı? (inşa modunda tek parmak çizim yapar)
+  singlePan: () => boolean = () => true;
+
+  private pointers = new Map<number, { x: number; y: number }>();
+  private grab: THREE.Vector3 | null = null; // tek parmakla tutulan zemin noktası
+  private two: { x: number; y: number; dist: number; angle: number } | null = null;
+  private rotating: { x: number } | null = null; // farenin sağ tuşuyla döndürme
+  private velocity = new THREE.Vector2(); // bırakınca kayma hızı (x, z)
+  private lastMove = 0;
+  private turn: { from: number; to: number; t: number } | null = null;
+  private ray = new THREE.Raycaster();
+  private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private ndc = new THREE.Vector2();
+
+  constructor(private camera: THREE.PerspectiveCamera, private el: HTMLElement, private limit: number) {
+    el.addEventListener('pointerdown', e => this.down(e));
+    el.addEventListener('pointermove', e => this.move(e));
+    el.addEventListener('pointerup', e => this.up(e));
+    el.addEventListener('pointercancel', e => this.up(e));
+    el.addEventListener('wheel', e => this.wheel(e), { passive: false });
+    el.addEventListener('contextmenu', e => e.preventDefault());
+    // Safari'nin kendi sayfa yakınlaştırmasını engelle
+    document.addEventListener('gesturestart', e => e.preventDefault());
+  }
+
+  // Yakınlaştıkça kamera biraz yatar (yakında şehir daha görkemli, uzakta harita gibi)
+  private get pitch() {
+    const k = (this.distance - this.minDistance) / (this.maxDistance - this.minDistance);
+    return THREE.MathUtils.lerp(0.62, 0.98, THREE.MathUtils.clamp(k, 0, 1));
+  }
+
+  apply() {
+    const p = this.pitch;
+    const h = Math.cos(p) * this.distance;
+    this.camera.position.set(this.target.x + Math.sin(this.yaw) * h, this.target.y + Math.sin(p) * this.distance, this.target.z + Math.cos(this.yaw) * h);
+    this.camera.lookAt(this.target);
+    this.camera.updateMatrixWorld();
+  }
+
+  private clamp() {
+    this.target.x = THREE.MathUtils.clamp(this.target.x, -this.limit, this.limit);
+    this.target.z = THREE.MathUtils.clamp(this.target.z, -this.limit, this.limit);
+    this.distance = THREE.MathUtils.clamp(this.distance, this.minDistance, this.maxDistance);
+  }
+
+  // Ekrandaki bir noktanın altındaki zemin noktası
+  private groundAt(x: number, y: number): THREE.Vector3 | null {
+    const r = this.el.getBoundingClientRect();
+    this.ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, this.camera);
+    return this.ray.ray.intersectPlane(this.ground, new THREE.Vector3());
+  }
+
+  // Bir değişiklikten sonra, ekrandaki (x, y) noktasının altında yine aynı zemin noktası olsun
+  private keepUnder(before: THREE.Vector3 | null, x: number, y: number) {
+    this.clamp();
+    this.apply();
+    if (!before) return;
+    const after = this.groundAt(x, y);
+    if (!after) return;
+    this.target.x += before.x - after.x;
+    this.target.z += before.z - after.z;
+    this.clamp();
+    this.apply();
+  }
+
+  private down(e: PointerEvent) {
+    this.turn = null;
+    this.velocity.set(0, 0);
+    if (e.pointerType === 'mouse') {
+      this.el.setPointerCapture(e.pointerId);
+      if (e.button === 2) {
+        this.rotating = { x: e.clientX };
+        return;
+      }
+      if (e.button === 1 || (e.button === 0 && this.singlePan())) {
+        this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        this.grab = this.groundAt(e.clientX, e.clientY);
+      }
+      return;
+    }
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size === 1) this.grab = this.singlePan() ? this.groundAt(e.clientX, e.clientY) : null;
+    else this.startTwo();
+  }
+
+  private startTwo() {
+    this.grab = null;
+    const [a, b] = [...this.pointers.values()];
+    this.two = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, dist: Math.hypot(b.x - a.x, b.y - a.y), angle: Math.atan2(b.y - a.y, b.x - a.x) };
+  }
+
+  private move(e: PointerEvent) {
+    if (this.rotating) {
+      this.yaw -= (e.clientX - this.rotating.x) * 0.008;
+      this.rotating.x = e.clientX;
+      this.apply();
+      return;
+    }
+    const p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (this.pointers.size >= 2) return this.moveTwo();
+    if (!this.grab) return;
+    const now = this.groundAt(p.x, p.y);
+    if (!now) return;
+    const dx = this.grab.x - now.x, dz = this.grab.z - now.z;
+    this.target.x += dx;
+    this.target.z += dz;
+    this.clamp();
+    this.apply();
+    // Bırakınca biraz kaysın diye hızı hatırla
+    const t = performance.now();
+    const dt = Math.max(8, t - this.lastMove) / 1000;
+    this.lastMove = t;
+    this.velocity.lerp(new THREE.Vector2(dx / dt, dz / dt), 0.5);
+  }
+
+  private moveTwo() {
+    const [a, b] = [...this.pointers.values()];
+    const prev = this.two;
+    if (!prev) return this.startTwo();
+    const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const angle = Math.atan2(b.y - a.y, b.x - a.x);
+    const before = this.groundAt(prev.x, prev.y);
+    // Yakınlaştır (parmaklar açılırsa yaklaş)
+    if (prev.dist > 20 && dist > 20) this.distance *= Math.pow(prev.dist / dist, ZOOM_POWER);
+    // Döndür (parmaklar çevrilince harita da döner)
+    let da = angle - prev.angle;
+    if (da > Math.PI) da -= Math.PI * 2;
+    if (da < -Math.PI) da += Math.PI * 2;
+    this.yaw += da;
+    this.two = { x, y, dist, angle };
+    // Parmakların ortasındaki yer parmakların altında kalsın (kaydırma da bununla olur)
+    this.keepUnder(before, x, y);
+  }
+
+  private up(e: PointerEvent) {
+    if (this.rotating) {
+      this.rotating = null;
+      return;
+    }
+    if (!this.pointers.delete(e.pointerId)) return;
+    if (this.pointers.size === 1) {
+      // İki parmaktan biri kalktı: kalan parmakla kaydırmaya devam
+      const [p] = [...this.pointers.values()];
+      this.two = null;
+      this.grab = this.singlePan() ? this.groundAt(p.x, p.y) : null;
+      this.velocity.set(0, 0);
+    } else if (this.pointers.size === 0) {
+      this.grab = null;
+      this.two = null;
+      // Son hareket eskiyse kayma olmasın
+      if (performance.now() - this.lastMove > 90) this.velocity.set(0, 0);
+    }
+  }
+
+  private wheel(e: WheelEvent) {
+    e.preventDefault();
+    const before = this.groundAt(e.clientX, e.clientY);
+    this.distance *= Math.pow(1.0018, e.deltaY);
+    this.keepUnder(before, e.clientX, e.clientY);
+  }
+
+  // Haritayı bırakılan yerde biraz kaydır, döndürme animasyonunu ilerlet
+  update(dt: number) {
+    if (this.turn) {
+      this.turn.t = Math.min(1, this.turn.t + dt / 0.5);
+      const k = 1 - Math.pow(1 - this.turn.t, 3);
+      this.yaw = this.turn.from + (this.turn.to - this.turn.from) * k;
+      if (this.turn.t >= 1) this.turn = null;
+      this.apply();
+    }
+    if (this.pointers.size === 0 && this.velocity.lengthSq() > 0.0004) {
+      this.target.x += this.velocity.x * dt;
+      this.target.z += this.velocity.y * dt;
+      this.velocity.multiplyScalar(Math.exp(-dt * 6));
+      this.clamp();
+      this.apply();
+    }
+  }
+
+  // Yumuşakça döndür (klavye ve pusula için)
+  rotateBy(angle: number) {
+    const from = this.turn ? this.turn.to : this.yaw;
+    this.turn = { from: this.yaw, to: from + angle, t: 0 };
+  }
+
+  // Başlangıç açısına dön (en kısa yoldan)
+  resetRotation() {
+    const home = Math.PI / 4;
+    let d = (home - this.yaw) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    this.turn = { from: this.yaw, to: this.yaw + d, t: 0 };
+  }
+
+  // Tek parmak hareketi iptal (araç değişince)
+  stop() {
+    this.grab = null;
+    this.velocity.set(0, 0);
+  }
+}

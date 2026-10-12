@@ -2,7 +2,7 @@ import { MATERIALS, MAT_IDS, SERVICES, SERVICE_KINDS, TOOL_INFO, type MatId, typ
 import type { City } from './city';
 
 // Görevler: aynı anda 3 tane. Bitince ödül alınır ve yerine yenisi gelir.
-export type QuestType = 'pop' | 'produce' | 'upgrade' | 'build' | 'houses' | 'service' | 'stock' | 'tax';
+export type QuestType = 'pop' | 'produce' | 'upgrade' | 'build' | 'houses' | 'service' | 'stock' | 'tax' | 'ship';
 export interface Quest {
   type: QuestType;
   target: number;
@@ -20,14 +20,16 @@ export interface CityStats {
   upgrades: number;
   builds: number;
   taxes: number;
+  ships: number; // komşu şehirlere gönderilen siparişler
 }
-export const emptyStats = (): CityStats => ({ produced: {}, upgrades: 0, builds: 0, taxes: 0 });
+export const emptyStats = (): CityStats => ({ produced: {}, upgrades: 0, builds: 0, taxes: 0, ships: 0 });
 
 const counter = (city: City, q: Quest) => {
   if (q.type === 'produce') return city.stats.produced[q.mat!] ?? 0;
   if (q.type === 'upgrade') return city.stats.upgrades;
   if (q.type === 'build') return city.stats.builds;
   if (q.type === 'tax') return city.stats.taxes;
+  if (q.type === 'ship') return city.stats.ships ?? 0;
   return 0;
 };
 
@@ -67,6 +69,8 @@ export function questText(q: Quest): string {
       return `📦 Depoda ${q.target} ${MATERIALS[q.mat!].name.toLocaleLowerCase('tr-TR')} biriktir`;
     case 'tax':
       return `🏛️ Belediyeden ${fmt(q.target)} vergi topla`;
+    case 'ship':
+      return `🚢 Komşu şehirlere ${q.target} sipariş gönder`;
   }
 }
 
@@ -106,6 +110,7 @@ export function newQuest(city: City, existing: Quest[]): Quest {
       const mat = pick(mats);
       return { type: 'stock', mat, target: 3 + Math.floor(lvl / 2), base: 0, ...reward(0.8) };
     },
+    () => (city.tiles.some(t => t?.kind === 'port') ? { type: 'ship', target: 1 + Math.floor(lvl / 5), base: city.stats.ships ?? 0, ...reward(1.4) } : null),
     () => ({ type: 'tax', target: Math.max(100, Math.round((city.dailyIncome * 12 + 100) / 50) * 50), base: city.stats.taxes, ...reward(1) }),
   ];
   for (let tries = 0; tries < 30; tries++) {

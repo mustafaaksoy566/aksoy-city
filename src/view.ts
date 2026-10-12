@@ -8,11 +8,11 @@ import { railPiece } from './rails';
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
-  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.getObjectByName('flames'));
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.getObjectByName('flames'));
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
-import { makeIndustry, setWorking } from './industry';
+import { makeIndustry, setWorking, animatePort } from './industry';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
@@ -726,6 +726,7 @@ export class CityView {
       animateUtility(o, this.time, dt);
       animateService(o, this.time);
       animateDecor(o, dt);
+      animatePort(o, this.time, (Date.now() - this.city.lastShipped) / 1000);
       const fl = o.getObjectByName('flames');
       if (fl) {
         fl.children.forEach((c, n) => {

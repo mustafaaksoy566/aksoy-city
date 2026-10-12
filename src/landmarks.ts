@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { DECOR_MODELS, PROPS, type DecorKind } from './config';
-import { part, mat, pad, windowMat } from './utilities';
+import { part, mat, pad, windowMat, showcaseMat } from './utilities';
 import { makeModel } from './assets';
 import { makeAirliner } from './planes';
 
@@ -267,7 +267,107 @@ function airport() {
   return g;
 }
 
+// Palmiye: eğik gövde ve sarkan yapraklar (yerel ölçüde, s = boy)
+function palm(x: number, z: number, s: number, lean = 0.15) {
+  const g = new THREE.Group();
+  const trunk = part(new THREE.CylinderGeometry(0.03 * s, 0.045 * s, s, 6), mat('#8d6e4c'), 0, s / 2, 0);
+  g.add(trunk);
+  const leaf = mat('#3f9b3f');
+  for (let k = 0; k < 7; k++) {
+    const arm = new THREE.Group();
+    arm.position.y = s;
+    arm.rotation.y = (k / 7) * Math.PI * 2;
+    const l = part(new THREE.BoxGeometry(0.42 * s, 0.015 * s, 0.1 * s), leaf, 0.2 * s, -0.06 * s, 0);
+    l.rotation.z = -0.45;
+    arm.add(l);
+    g.add(arm);
+  }
+  g.rotation.z = lean;
+  g.position.set(x, 0.02, z);
+  return g;
+}
+
+// Plaj (2x2): kum, şemsiyeler, havlular, cankurtaran kulesi, palmiyeler, büfe. Ön yüz (+z) nehre bakar.
+function beach() {
+  const g = new THREE.Group();
+  const sand = mat('#f3dfa6');
+  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), sand, 0, 0.01, 0));
+  g.add(part(new THREE.BoxGeometry(0.98, 0.021, 0.12), mat('#e2c27f'), 0, 0.011, 0.43));
+  const colors = ['#e53935', '#1e88e5', '#fdd835', '#43a047', '#fb8c00'];
+  const spots: [number, number][] = [[-0.3, 0.18], [0.0, 0.24], [0.28, 0.14], [-0.14, -0.06], [0.16, -0.1]];
+  spots.forEach(([x, z], k) => {
+    const c = mat(colors[k % colors.length]);
+    g.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.13, 5), mat('#eeeeee'), x, 0.085, z));
+    g.add(part(new THREE.ConeGeometry(0.075, 0.035, 10), c, x, 0.16, z));
+    g.add(part(new THREE.SphereGeometry(0.008, 6, 4), mat('#ffffff'), x, 0.18, z));
+    const towel = part(new THREE.BoxGeometry(0.05, 0.003, 0.09), mat(colors[(k + 2) % colors.length]), x + 0.06, 0.022, z + 0.02);
+    towel.rotation.y = 0.3 * (k % 2 ? 1 : -1);
+    g.add(towel);
+  });
+  // Cankurtaran kulesi
+  const wood = mat('#c8955a');
+  for (const dx of [-0.03, 0.03]) for (const dz of [-0.03, 0.03]) g.add(part(new THREE.BoxGeometry(0.008, 0.14, 0.008), wood, 0.4 + dx, 0.09, -0.08 + dz));
+  g.add(part(new THREE.BoxGeometry(0.09, 0.012, 0.09), wood, 0.4, 0.16, -0.08));
+  g.add(part(new THREE.BoxGeometry(0.07, 0.05, 0.07), mat('#ffffff'), 0.4, 0.19, -0.08));
+  g.add(part(new THREE.BoxGeometry(0.09, 0.012, 0.09), mat('#e53935'), 0.4, 0.222, -0.08));
+  g.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.1, 4), mat('#eeeeee'), 0.44, 0.27, -0.08));
+  g.add(part(new THREE.BoxGeometry(0.004, 0.025, 0.04), mat('#e53935'), 0.44, 0.305, -0.06));
+  // Büfe
+  g.add(part(new THREE.BoxGeometry(0.16, 0.08, 0.1), mat('#ffffff'), -0.02, 0.06, -0.36));
+  for (let k = 0; k < 4; k++) {
+    const s = part(new THREE.BoxGeometry(0.045, 0.006, 0.07), mat(k % 2 ? '#ffffff' : '#00acc1'), -0.088 + k * 0.045, 0.11, -0.3);
+    s.rotation.x = 0.3;
+    g.add(s);
+  }
+  // Voleybol filesi
+  for (const dx of [-0.12, 0.12]) g.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 5), mat('#eeeeee'), -0.3 + dx, 0.07, -0.3));
+  g.add(part(new THREE.BoxGeometry(0.24, 0.035, 0.003), mat('#37474f'), -0.3, 0.1, -0.3));
+  // Palmiyeler (arka köşelerde)
+  g.add(palm(-0.42, -0.4, 0.22, 0.12));
+  g.add(palm(0.4, -0.38, 0.25, -0.15));
+  g.add(palm(-0.44, 0.02, 0.19, 0.2));
+  return g;
+}
+
+// Metro istasyonu: merdiven girişi, camlı sundurma, kırmızı "M" tabelası
+function metro() {
+  const g = new THREE.Group();
+  g.add(part(new THREE.BoxGeometry(0.92, 0.04, 0.92), mat('#d6d2c9'), 0, 0.02, 0));
+  const steel = mat('#8d99a6');
+  // Aşağı inen merdiven (koyu açıklık ve basamak çizgileri)
+  g.add(part(new THREE.BoxGeometry(0.26, 0.004, 0.36), mat('#2b2f36'), 0, 0.042, 0.04));
+  for (let k = 0; k < 6; k++) g.add(part(new THREE.BoxGeometry(0.24, 0.005, 0.012), mat('#6b7078'), 0, 0.045, 0.19 - k * 0.055));
+  for (const x of [-0.145, 0.145]) g.add(part(new THREE.BoxGeometry(0.025, 0.07, 0.38), mat('#9aa3ad'), x, 0.075, 0.04));
+  // Camlı sundurma
+  for (const x of [-0.15, 0.15]) for (const z of [-0.13, 0.2]) g.add(part(new THREE.CylinderGeometry(0.007, 0.007, 0.18, 6), steel, x, 0.19, z));
+  g.add(part(new THREE.BoxGeometry(0.34, 0.012, 0.4), showcaseMat, 0, 0.285, 0.035));
+  g.add(part(new THREE.BoxGeometry(0.36, 0.016, 0.016), steel, 0, 0.285, 0.235));
+  g.add(part(new THREE.BoxGeometry(0.36, 0.016, 0.016), steel, 0, 0.285, -0.165));
+  // "M" tabelası
+  g.add(part(new THREE.CylinderGeometry(0.01, 0.01, 0.4, 6), steel, 0.32, 0.22, 0.3));
+  g.add(part(new THREE.BoxGeometry(0.13, 0.13, 0.02), mat('#d32f2f'), 0.32, 0.46, 0.3));
+  const white = mat('#ffffff');
+  for (const dx of [-0.035, 0.035]) g.add(part(new THREE.BoxGeometry(0.014, 0.08, 0.006), white, 0.32 + dx, 0.46, 0.312));
+  for (const side of [-1, 1]) {
+    const d = part(new THREE.BoxGeometry(0.012, 0.05, 0.006), white, 0.32 + side * 0.017, 0.475, 0.312);
+    d.rotation.z = side * 0.6;
+    g.add(d);
+  }
+  // Arkada bank ve çalılar
+  const bench = makeModel(PROPS.bench);
+  bench.position.set(-0.3, 0.04, -0.32);
+  g.add(bench);
+  for (const x of [0.22, 0.36]) {
+    const b = makeModel(PROPS.bush);
+    b.position.set(x, 0.04, -0.34);
+    g.add(b);
+  }
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'beach') return beach();
+  if (kind === 'metro') return metro();
   if (kind === 'uni') return university();
   if (kind === 'airport') return airport();
   if (kind === 'busstop') return busStop();

@@ -45,6 +45,7 @@ export const ICONS = {
   soundOn: svg(`${SPEAKER}<path d="M20.8 11.5a6 6 0 0 1 0 9M24.4 8a11 11 0 0 1 0 16" fill="none" stroke="#1f2d3d" stroke-width="2.3" stroke-linecap="round"/>`),
   soundOff: svg(`${SPEAKER}<path d="M21 12l7 8M28 12l-7 8" stroke="#e53935" stroke-width="2.8" stroke-linecap="round"/>`),
   rotateRight: svg(ROTATE),
+  compass: svg(`<circle cx="16" cy="16" r="13" fill="#eef4fa" ${S}/><path d="M16 4.5l4 11.5h-8z" fill="#e53935" ${S}/><path d="M16 27.5l-4-11.5h8z" fill="#9fb0c2" ${S}/><circle cx="16" cy="16" r="2" fill="#1f2d3d"/>`),
   rotateLeft: svg(`<g transform="translate(32 0) scale(-1 1)">${ROTATE}</g>`),
   build: svg(`<g transform="rotate(-38 16 16)">
 <rect x="13.8" y="11" width="4.4" height="19" rx="2" fill="#b77a40" ${S}/>

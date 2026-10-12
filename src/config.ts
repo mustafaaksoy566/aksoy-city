@@ -44,18 +44,21 @@ export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; col
 export const SERVICE_KINDS = Object.keys(SERVICES) as ServiceKind[];
 
 // Sanayi: fabrika ham madde üretir; hırdavatçı, pazar ve mobilyacı onlardan ürün yapar; depo yer açar
-export type IndustryKind = 'factory' | 'store' | 'market' | 'furniture' | 'depot' | 'trade';
+export type IndustryKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion' | 'depot' | 'trade' | 'port';
 export const INDUSTRY: Record<IndustryKind, { upkeep: number }> = {
   trade: { upkeep: 3 }, // ticaret merkezi: malzeme alıp satılır
   factory: { upkeep: 2 },
   store: { upkeep: 2 },
   market: { upkeep: 3 }, // çiftçi pazarı: tohumdan sebze ve un
   furniture: { upkeep: 4 }, // mobilyacı: sandalye ve koltuk
+  bakery: { upkeep: 4 }, // fırın: simit ve pasta
+  fashion: { upkeep: 5 }, // giyim mağazası: tişört ve ayakkabı
   depot: { upkeep: 1 },
+  port: { upkeep: 12 }, // liman: komşu şehirlere sipariş gönderilir
 };
 // Ürün yapan dükkanlar (fabrika dışındakiler sırayla üretir)
-export type MakerKind = 'factory' | 'store' | 'market' | 'furniture';
-export const MAKERS: MakerKind[] = ['factory', 'store', 'market', 'furniture'];
+export type MakerKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion';
+export const MAKERS: MakerKind[] = ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion'];
 export const INDUSTRY_KINDS = Object.keys(INDUSTRY) as IndustryKind[];
 export const FACTORY_SLOTS = 2; // bir fabrika aynı anda kaç şey üretir
 export const STORE_QUEUE = 3; // hırdavatçıda sıraya kaç ürün konabilir
@@ -65,7 +68,8 @@ export const DEPOT_STORAGE = 40; // her depo bu kadar yer ekler
 // Malzemeler: fabrikada ham madde, hırdavatçıda ürün. Süreler gerçek saniye (oyun kapalıyken de işler).
 export type MatId =
   | 'metal' | 'wood' | 'plastic' | 'mineral' | 'seeds' | 'textile'
-  | 'nails' | 'hammer' | 'paint' | 'brick' | 'veggies' | 'flour' | 'chair' | 'sofa';
+  | 'nails' | 'hammer' | 'paint' | 'brick' | 'veggies' | 'flour' | 'chair' | 'sofa'
+  | 'simit' | 'cake' | 'shirt' | 'shoes';
 export interface Material {
   name: string;
   icon: string;
@@ -90,8 +94,20 @@ export const MATERIALS: Record<MatId, Material> = {
   flour: { name: 'Un', icon: '🌾', seconds: 60, price: 230, maker: 'market', needs: { seeds: 2, textile: 1 }, unlock: 6 },
   chair: { name: 'Sandalye', icon: '🪑', seconds: 70, price: 300, maker: 'furniture', needs: { wood: 2, nails: 1, hammer: 1 }, unlock: 6 },
   sofa: { name: 'Koltuk', icon: '🛋️', seconds: 100, price: 450, maker: 'furniture', needs: { textile: 3, wood: 2, nails: 1 }, unlock: 7 },
+  simit: { name: 'Simit', icon: '🥯', seconds: 45, price: 320, maker: 'bakery', needs: { flour: 1, seeds: 1 }, unlock: 7 },
+  cake: { name: 'Pasta', icon: '🎂', seconds: 90, price: 560, maker: 'bakery', needs: { flour: 2, veggies: 1 }, unlock: 8 },
+  shirt: { name: 'Tişört', icon: '👕', seconds: 60, price: 400, maker: 'fashion', needs: { textile: 2, plastic: 1 }, unlock: 8 },
+  shoes: { name: 'Ayakkabı', icon: '👟', seconds: 90, price: 600, maker: 'fashion', needs: { textile: 1, plastic: 2, wood: 1 }, unlock: 9 },
 };
 export const MAT_IDS = Object.keys(MATERIALS) as MatId[];
+
+// Komşu şehirlerden gelen siparişler (limandan gemiyle gönderilir)
+export const ORDERS = {
+  slots: 3, // aynı anda kaç sipariş
+  travel: [45, 90] as [number, number], // gemi kaç saniyede dönüp yeni sipariş getirir
+  bonus: 1.6, // sipariş ödülü, malların ticaret merkezi fiyatının bu kadar katı
+  neighbors: ['Mavikent', 'Yeşilköy', 'Kuzeyşehir', 'Gölbaşı', 'Sahilkent', 'Dağyaka', 'Altınova', 'Çamlıca'],
+};
 
 // Konutu bir üst seviyeye çıkarmak için gereken malzemeler (indeks = hedef seviye)
 export const UPGRADE_COST: Partial<Record<MatId, number>>[] = [
@@ -132,11 +148,13 @@ export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 
 
 // Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
 // covers: bu hizmetin alanını da kapsar (üniversite = okul), income: günlük turist geliri, road: yol kenarına kurulur
-export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'uni' | 'airport';
+export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'uni' | 'airport' | 'beach' | 'metro';
 export interface DecorInfo { radius: number; happy: number; upkeep: number; covers?: ServiceKind; income?: number; road?: boolean }
 export const DECOR: Record<DecorKind, DecorInfo> = {
   uni: { radius: 11, happy: 0.1, upkeep: 20, covers: 'school', road: true }, // üniversite: geniş okul alanı
   airport: { radius: 8, happy: 0.06, upkeep: 30, income: 450, road: true }, // havalimanı: turist getirir
+  beach: { radius: 7, happy: 0.16, upkeep: 4, income: 150, road: true }, // plaj: nehir kıyısına, turist getirir
+  metro: { radius: 7, happy: 0.14, upkeep: 10, road: true }, // metro istasyonu: çevresi rahat ulaşır
   busstop: { radius: 4, happy: 0.05, upkeep: 1 }, // otobüs durağı: otobüsler dolaşır
   station: { radius: 8, happy: 0.12, upkeep: 8 }, // tren istasyonu: ulaşım çevreyi mutlu eder
   fountain: { radius: 4, happy: 0.1, upkeep: 1 },
@@ -150,6 +168,8 @@ export const DECOR_MAX = 0.3; // simgelerden gelen toplam mutluluk en fazla bu k
 export type BuildTool = 'road' | 'rail' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
 // Simge yapılardan 6. seviye konut için gereken en az mutluluk katkısı (otobüs durağı yetmez)
 export const LUXURY_DECOR = 0.1;
+// Su kenarına (nehre bitişik) kurulması gereken yapılar
+export const NEEDS_WATER: BuildTool[] = ['beach', 'port'];
 export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
@@ -157,12 +177,13 @@ export const COST: Record<BuildTool, number> = {
   wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
+  bakery: 1500, fashion: 2000, port: 8000, beach: 3000, metro: 4000,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000,
 };
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -174,6 +195,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
   market: 4, furniture: 6, uni: 7, airport: 9,
+  beach: 6, bakery: 7, port: 8, fashion: 8, metro: 10,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -203,6 +225,11 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   furniture: { icon: '🪑', label: 'Mobilyacı', hint: 'Mobilyacı: sandalye ve koltuk yapar. Lüks evler bunları ister.' },
   uni: { icon: '🎓', label: 'Üniversite', hint: 'Üniversite: çok geniş bir alanda okul hizmeti verir, çevreyi mutlu eder.' },
   airport: { icon: '✈️', label: 'Havalimanı', hint: 'Havalimanı: uçaklar kalkıp iner, turistler her gün para getirir.' },
+  bakery: { icon: '🥯', label: 'Fırın', hint: 'Fırın: undan simit ve pasta yapar.' },
+  fashion: { icon: '👕', label: 'Giyim', hint: 'Giyim mağazası: kumaştan tişört ve ayakkabı yapar.' },
+  port: { icon: '🚢', label: 'Liman', hint: 'Liman nehir kıyısına kurulur. Komşu şehirlerin siparişlerini gemiyle gönder.' },
+  beach: { icon: '🏖️', label: 'Plaj', hint: 'Plaj nehir kıyısına kurulur. Turist getirir, çevreyi çok mutlu eder.' },
+  metro: { icon: 'Ⓜ️', label: 'Metro', hint: 'Metro istasyonu: çevresindeki evleri mutlu eder.' },
   fountain: { icon: '⛲', label: 'Çeşme', hint: 'Meydan çeşmesi: çevresindeki evleri mutlu eder.' },
   statue: { icon: '🗿', label: 'Heykel', hint: 'Atlı heykel: çevresindeki evleri mutlu eder.' },
   wheel: { icon: '🎡', label: 'Dönme dolap', hint: 'Dönme dolap: geniş bir alanı çok mutlu eder.' },
@@ -215,11 +242,11 @@ export interface BuildGroup { group: string; icon: string; label: string; color:
 // İnşa panelindeki sekmeler. Yıkma ayrı bir düğmede.
 export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'zones', icon: '🏘️', label: 'Bölgeler', color: '#43a047', tools: ['res', 'com'] },
-  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'rail', 'station', 'busstop', 'airport'] },
+  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'rail', 'station', 'busstop', 'metro', 'airport'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', color: '#f59f00', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
-  { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'trade'] },
-  { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'wheel', 'stadium'] },
+  { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion', 'trade', 'port'] },
+  { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'beach', 'wheel', 'stadium'] },
 ];
 
 // Modeller: KayKit City Builder Bits (kk/), Kenney City Kit 2.1 gökdelenleri (k2/), Kenney başlangıç paketi (k/)

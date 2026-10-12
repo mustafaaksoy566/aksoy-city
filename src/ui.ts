@@ -45,6 +45,7 @@ function effectOf(t: BuildTool): string {
     const d = DECOR[t];
     if (t === 'station') return '🚆 Tren seferleri';
     if (t === 'busstop') return '🚌 Otobüs hattı';
+    if (t === 'beach') return `🏖️ +${fmt(d.income ?? 0)}/gün, nehir kıyısı`;
     if (d.income) return `✈️ +${fmt(d.income)}/gün turist`;
     if (d.covers) return `🎓 ${d.radius} kare okul alanı`;
     return `😊 Mutluluk +%${Math.round(d.happy * 100)}`;
@@ -58,7 +59,8 @@ function effectOf(t: BuildTool): string {
     case 'factory': return '🔩 Ham madde üretir';
     case 'depot': return `📦 +${DEPOT_STORAGE} depo yeri`;
     case 'trade': return '💱 Malzeme al ve sat';
-    case 'store': case 'market': case 'furniture':
+    case 'port': return '🚢 Komşu şehirlere sat';
+    case 'store': case 'market': case 'furniture': case 'bakery': case 'fashion':
       return MAT_IDS.filter(m => MATERIALS[m].maker === t).map(m => MATERIALS[m].icon).join(' ');
   }
   return '';
@@ -327,7 +329,7 @@ function update(el: HTMLElement, card: InfoCard) {
     d.querySelector('.qn')!.textContent = q.count;
     const b = d.querySelector<HTMLButtonElement>('.claim')!;
     b.disabled = !q.done;
-    b.innerHTML = q.done ? `Ödülü al<br>${esc(q.reward.replace('\n', ' '))}` : esc(q.reward).replace('\n', '<br>');
+    b.innerHTML = q.done ? `${esc(q.button ?? 'Ödülü al')}<br>${esc(q.reward.replace('\n', ' '))}` : esc(q.reward).replace('\n', '<br>');
   });
   el.querySelectorAll<HTMLElement>('.cc').forEach((d, n) => {
     const c = card.cost![n];

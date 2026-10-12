@@ -189,7 +189,8 @@ img { -webkit-user-drag: none; }
 }
 @keyframes bob { 50% { transform: translateY(-3px); } }
 
-#cam { position: fixed; z-index: 5; left: 10px; bottom: calc(var(--bottom) + 16px); display: flex; gap: 10px; }
+#cam { position: fixed; z-index: 5; left: 10px; bottom: calc(var(--bottom) + 20px); display: flex; gap: 10px; }
+#compass .needle { width: 34px; height: 34px; transition: transform 0.05s linear; }
 
 /* Ana düğmeler */
 #actions {

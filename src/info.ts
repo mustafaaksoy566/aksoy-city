@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
   MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, type MatId, type BuildTool,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -18,7 +18,7 @@ export interface InfoCard {
   cost?: { text: string; ok: boolean }[]; // yükseltme malzemeleri (eldeki/gereken)
   jobs?: { text: string; progress: number }[]; // üretimdeki malzemeler
   tiles?: { icon: string; name: string; sub: string; note?: string; section?: string; enabled: boolean; run: () => void }[];
-  quests?: { text: string; progress: number; count: string; reward: string; done: boolean; run: () => void }[];
+  quests?: { text: string; progress: number; count: string; reward: string; done: boolean; button?: string; run: () => void }[];
   actions?: { label: string; enabled: boolean; primary?: boolean; run: () => void }[];
 }
 
@@ -33,6 +33,8 @@ export interface CardActions {
   sell(mat: MatId): void;
   buy(mat: MatId): void;
   openCatalog(group: string): void;
+  ship(n: number): void;
+  renewOrders(): void;
 }
 
 const fmt = (n: number) => n.toLocaleString('tr-TR');
@@ -127,7 +129,7 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
     { text: `👥 Konut vergisi: +${fmt(Math.round(city.residentTax))}` },
     { text: `💼 İş yeri vergisi: +${fmt(Math.round(city.jobsTotal * TAX_PER_JOB))}` },
   ];
-  if (city.tourism) lines.push({ text: `✈️ Turizm: +${fmt(city.tourism)}` });
+  if (city.tourism) lines.push({ text: `🏖️ Turizm: +${fmt(city.tourism)}` });
   lines.push({ text: `⚡ Altyapı bakımı: −${fmt(upkeep.util)}` });
   lines.push({ text: `🚒 Hizmet bakımı: −${fmt(upkeep.service)}` });
   if (upkeep.industry) lines.push({ text: `🏭 Sanayi bakımı: −${fmt(upkeep.industry)}` });
@@ -230,7 +232,7 @@ function jobsOf(city: City, i: number, now: number): NonNullable<InfoCard['jobs'
 
 function production(city: City, i: number, act: CardActions, now: number): InfoCard {
   const t = city.tiles[i]!;
-  const kind = t.kind as 'factory' | 'store' | 'market' | 'furniture';
+  const kind = t.kind as (typeof MAKERS)[number];
   const isFactory = kind === 'factory';
   const list = city.jobs.get(i) ?? [];
   const lines: InfoCard['lines'] = [];
@@ -263,6 +265,44 @@ function production(city: City, i: number, act: CardActions, now: number): InfoC
   };
 }
 
+// Liman: komşu şehirlerin siparişleri. Gönderince para ve XP gelir, gemi dönünce yeni sipariş gelir.
+export function describePort(city: City, act: CardActions, now = Date.now()): InfoCard {
+  const lines: InfoCard['lines'] = [];
+  if (!city.hasPort) lines.push({ ok: false, text: 'Liman yola bağlı değil' });
+  lines.push({ text: 'Komşu şehirler mal istiyor. Depondaki mallarla siparişi gönder, ödülü hemen al.' });
+  const waiting = city.orders.filter(o => !o.until).length;
+  return {
+    title: 'Liman',
+    subtitle: 'Şehirler arası ticaret',
+    thumb: 'port',
+    tone: '#0277bd',
+    stats: [
+      { icon: '📦', value: `${fmt(city.storageUsed)}/${fmt(city.storageCap)}`, label: 'Depo' },
+      { icon: '🚢', value: fmt(city.stats.ships ?? 0), label: 'Gönderilen' },
+    ],
+    lines,
+    quests: city.orders.map((o, n) => {
+      if (o.until > now) {
+        const left = Math.ceil((o.until - now) / 1000);
+        return { text: `🚢 ${o.from} yolunda`, progress: 0, count: `Gemi ${left} sn sonra yeni siparişle döner`, reward: 'Yolda', done: false, run: () => {} };
+      }
+      const items = (Object.entries(o.items) as [MatId, number][]);
+      const have = items.reduce((s, [m, k]) => s + Math.min(city.storage[m], k), 0);
+      const need = items.reduce((s, [, k]) => s + k, 0);
+      return {
+        text: `${o.from}: ${items.map(([m, k]) => `${MATERIALS[m].icon}${k}`).join('  ')}`,
+        progress: have / need,
+        count: `Elinde: ${items.map(([m, k]) => `${MATERIALS[m].icon}${Math.min(city.storage[m], k)}/${k}`).join('  ')}`,
+        reward: `💰${fmt(o.money)}\n⭐${o.xp}`,
+        done: city.orderBlocker(n, now) === null,
+        button: 'Gönder',
+        run: () => act.ship(n),
+      };
+    }),
+    actions: [{ label: `🔄 Bekleyen siparişleri değiştir  💰${fmt(city.renewCost)}`, enabled: waiting > 0 && city.money >= city.renewCost, run: () => act.renewOrders() }],
+  };
+}
+
 export function describeStorage(city: City): InfoCard {
   const have = MAT_IDS.filter(m => city.storage[m] > 0);
   const lines: InfoCard['lines'] = [];
@@ -288,7 +328,8 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
 
   if (t.kind === 'hall') return describeHall(city, act);
   if (t.kind === 'trade') return describeTrade(city, act);
-  if (t.kind === 'factory' || t.kind === 'store' || t.kind === 'market' || t.kind === 'furniture') return production(city, i, act, now);
+  if (t.kind === 'port') return describePort(city, act, now);
+  if ((MAKERS as string[]).includes(t.kind)) return production(city, i, act, now);
   if (t.kind === 'depot') return { ...describeStorage(city), thumb: 'depot', icon: undefined };
 
   if (t.kind === 'res' || t.kind === 'com') {

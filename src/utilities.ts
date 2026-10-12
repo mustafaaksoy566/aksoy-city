@@ -9,6 +9,8 @@ export const mat = (color: string) => new THREE.MeshStandardMaterial({ color, ro
 // Gece ışığı yanan cam (DayNight 'window' adlı malzemeleri yakar)
 export const windowMat = new THREE.MeshStandardMaterial({ color: '#9fd3ea', roughness: 0.3, metalness: 0.1 });
 windowMat.name = 'window';
+// Dükkan vitrinleri için saydam cam (arkasındaki eşyalar görünsün)
+export const showcaseMat = new THREE.MeshStandardMaterial({ color: '#d6f1ff', transparent: true, opacity: 0.32, roughness: 0.1, depthWrite: false });
 const M = {
   pad: mat('#b9bec4'),
   white: mat('#f4f4f2'),

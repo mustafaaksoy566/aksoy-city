@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   SIZE, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
@@ -7,9 +6,10 @@ import {
 } from './config';
 import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
 import {
-  describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, type CardActions,
+  describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, type CardActions,
 } from './info';
 import { Sky } from './sky';
+import { CameraRig } from './camera';
 import { Weather } from './weather';
 import { questDone } from './quests';
 import { loadModels } from './assets';
@@ -78,12 +78,11 @@ const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 400);
 const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
 camera.position.set(start.x + 8, 11, start.z + 8);
 
-const controls = new MapControls(camera, renderer.domElement);
-controls.target.copy(start);
-controls.enableDamping = true;
-controls.enableRotate = false;
-controls.minDistance = 8;
-controls.maxDistance = 60;
+// Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
+const rig = new CameraRig(camera, renderer.domElement, SIZE / 2);
+rig.target.copy(start);
+rig.distance = 15;
+rig.apply();
 
 const hemi = new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.0);
 scene.add(hemi);
@@ -286,6 +285,23 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  ship(n) {
+    const err = city.ship(n, Date.now());
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      play('grow', 0.6);
+      toast('🚢 Gemi yola çıktı! Ödül kasaya eklendi.');
+    }
+    afterChange();
+  },
+  renewOrders() {
+    const err = city.renewOrders();
+    if (err) toast(err, 'error');
+    else play('click', 0.4);
+    afterChange();
+  },
   openCatalog(group) {
     openTile(null);
     catalog.open(group);
@@ -382,12 +398,10 @@ function warnShortages() {
 // --- Araçlar ---
 let tool: Tool = 'pan';
 
+// İnşa modunda tek parmak çizer, gez modunda kaydırır
+rig.singlePan = () => tool === 'pan';
 function applyControls() {
-  const build = tool !== 'pan';
-  controls.touches.ONE = build ? null : THREE.TOUCH.PAN;
-  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
-  controls.mouseButtons.LEFT = build ? null : THREE.MOUSE.PAN;
-  controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+  rig.stop();
 }
 
 // Bu araç hangi hizmetin alanını kaplıyor? (üniversite = okul)
@@ -557,19 +571,21 @@ document.getElementById('settings')!.addEventListener('click', () => {
   );
 });
 
-// --- Kamera döndürme (90 derece, yumuşak geçişle) ---
-const UP = new THREE.Vector3(0, 1, 0);
-let turn: { total: number; t: number; applied: number } | null = null;
-function rotateCamera(dir: 1 | -1) {
-  if (turn) return;
-  turn = { total: (dir * Math.PI) / 2, t: 0, applied: 0 };
-  play('click', 0.3);
+// --- Kamera döndürme: iki parmakla serbestçe; pusulaya dokununca ilk açıya döner ---
+const needle = document.querySelector<HTMLElement>('#compass .needle')!;
+let shownYaw = NaN;
+function updateCompass() {
+  if (Math.abs(rig.yaw - shownYaw) < 0.002) return;
+  shownYaw = rig.yaw;
+  needle.style.transform = `rotate(${(rig.yaw * 180) / Math.PI}deg)`;
 }
-document.getElementById('rot-left')!.addEventListener('click', () => rotateCamera(-1));
-document.getElementById('rot-right')!.addEventListener('click', () => rotateCamera(1));
+document.getElementById('compass')!.addEventListener('click', () => {
+  rig.resetRotation();
+  play('click', 0.3);
+});
 window.addEventListener('keydown', e => {
-  if (e.key === 'q' || e.key === 'Q') rotateCamera(-1);
-  if (e.key === 'e' || e.key === 'E') rotateCamera(1);
+  if (e.key === 'q' || e.key === 'Q') rig.rotateBy(-Math.PI / 4);
+  if (e.key === 'e' || e.key === 'E') rig.rotateBy(Math.PI / 4);
   if (e.key === 'Escape') {
     pickTool('pan');
     catalog.close();
@@ -577,23 +593,12 @@ window.addEventListener('keydown', e => {
   }
 });
 
-function stepTurn(dt: number) {
-  if (!turn) return;
-  turn.t = Math.min(1, turn.t + dt / 0.45);
-  const k = turn.t < 0.5 ? 2 * turn.t * turn.t : 1 - Math.pow(-2 * turn.t + 2, 2) / 2;
-  const step = turn.total * k - turn.applied;
-  turn.applied += step;
-  const offset = camera.position.clone().sub(controls.target).applyAxisAngle(UP, step);
-  camera.position.copy(controls.target).add(offset);
-  camera.lookAt(controls.target);
-  if (turn.t >= 1) turn = null;
-}
-
 // --- Ekran boyutu ve oyun döngüsü ---
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  rig.apply();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -601,22 +606,11 @@ resize();
 const clock = new THREE.Clock();
 let dayTimer = 0;
 let prodTimer = 0;
-const limit = SIZE / 2;
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.25);
-  stepTurn(dt);
-  controls.update();
-  // Kamera haritanın dışına kaçmasın
-  const t = controls.target;
-  const cx = THREE.MathUtils.clamp(t.x, -limit, limit) - t.x;
-  const cz = THREE.MathUtils.clamp(t.z, -limit, limit) - t.z;
-  if (cx || cz) {
-    t.x += cx;
-    t.z += cz;
-    camera.position.x += cx;
-    camera.position.z += cz;
-  }
+  rig.update(dt);
+  updateCompass();
 
   dayTimer += dt;
   if (dayTimer >= DAY_SECONDS) {
@@ -643,6 +637,8 @@ function frame() {
       view.updateIcons();
       if (openCard !== null) renderCard();
     }
+    // Gemisi dönen limana yeni sipariş gelsin
+    if (city.updateOrders(Date.now())) afterChange();
   }
 
   view.update(dt);
@@ -655,7 +651,7 @@ function frame() {
   walkers.update(dt);
   trains.update(dt);
   sky.update(dt);
-  weather.update(dt, controls.target);
+  weather.update(dt, rig.target);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
@@ -693,8 +689,8 @@ function makeMenuPictures() {
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
-  for (const k of ['factory', 'store', 'market', 'furniture', 'depot', 'trade'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'trade', 'port'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -718,7 +714,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, controls, city: () => city, weather, view, sky, open: openTile, pick: pickTool, refresh: afterChange } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, open: openTile, pick: pickTool, refresh: afterChange } });
   })
   .catch(err => {
     console.error(err);

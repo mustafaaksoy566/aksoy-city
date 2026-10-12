@@ -4,7 +4,7 @@ import {
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
-  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -32,6 +32,15 @@ export type CityEvent =
 export interface Job {
   mat: MatId;
   end: number;
+}
+
+// Komşu şehrin siparişi: until = 0 ise gönderilebilir, değilse gemi yolda (o zamana kadar)
+export interface Order {
+  from: string;
+  items: Partial<Record<MatId, number>>;
+  money: number;
+  xp: number;
+  until: number;
 }
 
 // Yönler: 0 kuzey (-z), 1 doğu (+x), 2 güney (+z), 3 batı (-x)
@@ -98,6 +107,7 @@ export interface SaveData {
   tr: number; // belediyede bekleyen vergi
   ss: CityStats;
   q: Quest[];
+  o?: Order[]; // komşu şehir siparişleri
 }
 // Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu, v3'te belediye ve görev yoktu
 interface OldSaveData {
@@ -133,6 +143,8 @@ export class City {
   happy = new Float32Array(SIZE * SIZE); // her evin mutluluğu (0..1)
   decorBonus = new Float32Array(SIZE * SIZE); // simge yapılardan gelen mutluluk
   owned = new Uint8Array(PLOTS * PLOTS); // hangi arazi parçaları bizim
+  orders: Order[] = []; // limandaki komşu şehir siparişleri
+  lastShipped = 0; // son geminin kalkış zamanı (sadece görüntü için)
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
@@ -618,6 +630,80 @@ export class City {
     return null;
   }
 
+  // --- Komşu şehir siparişleri (liman) ---
+
+  get hasPort() {
+    return this.tiles.some((t, i) => t?.kind === 'port' && this.isConnected(i));
+  }
+
+  // Boş yerleri ve gemisi dönen siparişleri yenile. Değişiklik olduysa true.
+  updateOrders(now: number) {
+    if (!this.tiles.some(t => t?.kind === 'port')) return false;
+    let changed = false;
+    for (let n = 0; n < ORDERS.slots; n++) {
+      const o = this.orders[n];
+      if (!o || (o.until && o.until <= now)) {
+        this.orders[n] = this.newOrder();
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private newOrder(): Order {
+    const lvl = this.level;
+    const mats = MAT_IDS.filter(m => this.isUnlocked(m));
+    const crafted = mats.filter(m => MATERIALS[m].maker !== 'factory');
+    const pool = crafted.length >= 2 ? crafted : mats;
+    const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, Math.min(pool.length, lvl >= 10 ? 3 : 2));
+    const items: Partial<Record<MatId, number>> = {};
+    let value = 0, xp = 0;
+    for (const m of chosen) {
+      const n = 1 + Math.floor(Math.random() * (lvl >= 8 ? 3 : 2));
+      items[m] = n;
+      value += MATERIALS[m].price * n;
+      xp += n * (MATERIALS[m].maker === 'factory' ? 2 : 5);
+    }
+    const from = ORDERS.neighbors[Math.floor(Math.random() * ORDERS.neighbors.length)];
+    return { from, items, money: Math.round((value * ORDERS.bonus) / 10) * 10, xp, until: 0 };
+  }
+
+  orderBlocker(n: number, now: number): string | null {
+    const o = this.orders[n];
+    if (!o) return 'Sipariş yok';
+    if (o.until > now) return 'Gemi yolda';
+    if (!this.hasPort) return 'Liman yola bağlı değil';
+    if (!this.hasMaterials(o.items)) return 'Depoda yeterli mal yok';
+    return null;
+  }
+
+  // Siparişi gemiyle gönder: mallar gider, para ve XP gelir; gemi dönünce yeni sipariş gelir
+  ship(n: number, now: number): string | null {
+    const err = this.orderBlocker(n, now);
+    if (err) return err;
+    const o = this.orders[n];
+    this.take(o.items);
+    this.money += o.money;
+    this.addXp(o.xp);
+    this.stats.ships = (this.stats.ships ?? 0) + 1;
+    const [a, b] = ORDERS.travel;
+    o.until = now + (a + Math.random() * (b - a)) * 1000;
+    this.lastShipped = now;
+    return null;
+  }
+
+  // Beğenilmeyen (bekleyen) siparişleri küçük bir ücretle değiştir
+  get renewCost() {
+    return 50 * this.level;
+  }
+
+  renewOrders(): string | null {
+    if (this.money < this.renewCost) return 'Yeterli para yok';
+    this.money -= this.renewCost;
+    this.orders = this.orders.map(o => (o.until ? o : this.newOrder()));
+    return null;
+  }
+
   // --- Konut yükseltme (malzemeyle) ---
 
   // Bir sonraki seviyenin malzeme listesi (yükseltilemiyorsa null)
@@ -746,6 +832,7 @@ export class City {
     if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
     const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
     if (tool === 'busstop' && !nearRoad) return 'Durak yol kenarına kurulmalı';
+    if (NEEDS_WATER.includes(tool) && !cells.some(c => this.nextToWater(c))) return 'Bu yapı nehir kıyısına kurulmalı';
     if (isDecor(tool) && DECOR[tool].road && !nearRoad) return 'Bu yapı yol kenarına kurulmalı';
     if (tool === 'station' && !cells.some(c => this.railMask(c % SIZE, Math.floor(c / SIZE)) !== 0)) {
       return 'İstasyon tren yolunun yanına kurulmalı';
@@ -758,18 +845,23 @@ export class City {
     return null;
   }
 
+  private nextToWater(c: number) {
+    const x = c % SIZE, z = Math.floor(c / SIZE);
+    return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && isWaterXZ(x + dx, z + dz));
+  }
+
   // Toplam fiyat: su üstündeki yol ve raylar köprü olduğu için pahalı
   costOf(tool: BuildTool, cells: number[]) {
     return cells.reduce((s, i) => s + COST[tool] * ((tool === 'road' || tool === 'rail') && isWater(i) ? BRIDGE_COST : 1), 0);
   }
 
   // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin. n = binanın kenar uzunluğu
-  private facingFor(i: number, n = 1, rail = false) {
+  private facingFor(i: number, n = 1, to: 'road' | 'rail' | 'water' = 'road') {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     const side = (d: number) => {
       for (let k = 0; k < n; k++) {
         const [cx, cz] = d === 0 ? [x + k, z - 1] : d === 1 ? [x + n, z + k] : d === 2 ? [x + k, z + n] : [x - 1, z + k];
-        if (rail ? this.isRail(cx, cz) : this.isRoad(cx, cz)) return true;
+        if (to === 'rail' ? this.isRail(cx, cz) : to === 'water' ? inBounds(cx, cz) && isWaterXZ(cx, cz) : this.isRoad(cx, cz)) return true;
       }
       return false;
     };
@@ -809,7 +901,8 @@ export class City {
       }
       const variant = Math.floor(Math.random() * 1000);
       const area = block(i % SIZE, Math.floor(i / SIZE), n)!;
-      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n, tool === 'station'), variant };
+      const side = tool === 'station' ? 'rail' : NEEDS_WATER.includes(tool) ? 'water' : 'road';
+      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n, side), variant };
       if (n > 1) this.tiles[i]!.fp = n;
       if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
       for (const c of area) if (c !== i) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: i };
@@ -923,7 +1016,7 @@ export class City {
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
     const own: number[] = [];
     this.owned.forEach((v, p) => v && own.push(p));
-    return { v: 5, sz: SIZE, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests };
+    return { v: 5, sz: SIZE, own, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
   }
 
   static readonly VERSION = 5;
@@ -979,6 +1072,7 @@ export class City {
         c.treasury = data.tr ?? 0;
         c.stats = { ...emptyStats(), ...data.ss };
         c.quests = (data.q ?? []).filter(q => q && q.type);
+        c.orders = ((data as SaveData).o ?? []).filter(o => o && o.items && Object.keys(o.items).every(m => m in MATERIALS));
       }
     } else {
       // Eski şehirler: mevcut binalar için XP verilsin ki seviye baştan başlamasın
