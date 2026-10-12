@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import type { IndustryKind } from './config';
+import { INDUSTRY_MODELS, PROPS, BASE, type IndustryKind } from './config';
 import { part, mat, pad } from './utilities';
+import { makeModel } from './assets';
 
-// Fabrika, hırdavatçı ve depo: basit şekillerden yapılmış modeller.
+// Fabrika ve depo: Kenney City Kit Industrial binaları (CC0) ve çevrelerinde baca, tank, konteyner.
+// Hırdavatçı: basit şekillerden yapılmış dükkan.
 // Ön yüz +z (güney) tarafında; yola bakacak şekilde döndürülüyorlar.
 
 const M = {
@@ -23,23 +25,29 @@ const M = {
 
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
 
-function factory() {
+// Bir eşyayı kare içinde (x, z) konumuna koy
+function item(path: string, x: number, z: number, rot = 0) {
+  const o = makeModel(path);
+  o.position.set(x, 0.05, z);
+  o.rotation.y = rot;
+  return o;
+}
+
+function factory(variant: number) {
   const g = new THREE.Group();
-  g.add(pad());
-  g.add(part(box(0.7, 0.3, 0.5), M.wall, -0.04, 0.19, -0.1));
-  // Testere dişi çatı
-  const tooth = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(0.175, 0), new THREE.Vector2(0, 0.14)]);
-  const toothGeo = new THREE.ExtrudeGeometry(tooth, { depth: 0.5, bevelEnabled: false }).translate(0, 0, -0.25);
-  for (let k = 0; k < 4; k++) g.add(part(toothGeo, M.roof, -0.39 + k * 0.175, 0.34, -0.1));
-  g.add(part(box(0.7, 0.07, 0.01), M.glass, -0.04, 0.24, 0.155));
-  g.add(part(box(0.22, 0.17, 0.01), M.dark, 0.14, 0.125, 0.156));
-  // Tuğla baca
-  g.add(part(new THREE.CylinderGeometry(0.05, 0.065, 0.75, 10), M.brick, -0.32, 0.42, -0.26));
-  // Önde kasalar
-  g.add(part(box(0.1, 0.08, 0.1), M.crate, -0.3, 0.08, 0.3));
-  g.add(part(box(0.08, 0.06, 0.08), M.crate, -0.18, 0.07, 0.32));
-  g.add(part(box(0.08, 0.06, 0.08), M.crate, -0.3, 0.15, 0.3));
-  // Çalışırken bacadan duman çıksın
+  g.add(makeModel(BASE));
+  const models = INDUSTRY_MODELS.factory;
+  const b = makeModel(models[variant % models.length], Math.floor(variant / 7) % 4);
+  b.scale.multiplyScalar(0.92);
+  b.position.set(-0.04, 0.05, -0.04);
+  g.add(b);
+  // Köşede baca, yanında tank
+  const chimney = item(variant % 2 ? PROPS.chimneyLarge : PROPS.chimney, 0.34, -0.34);
+  g.add(chimney);
+  if (variant % 3 !== 0) g.add(item(PROPS.tank, -0.34, 0.33));
+  // Bacadan duman (fabrika çalışırken görünür)
+  chimney.updateMatrixWorld(true);
+  const top = new THREE.Box3().setFromObject(chimney).max.y;
   const puffs: THREE.Mesh[] = [];
   for (let p = 0; p < 3; p++) {
     const m = new THREE.Mesh(
@@ -51,7 +59,7 @@ function factory() {
     puffs.push(m);
     g.add(m);
   }
-  g.userData.smoke = { puffs, base: new THREE.Vector3(-0.32, 0.82, -0.26) };
+  g.userData.smoke = { puffs, base: new THREE.Vector3(0.34, top + 0.02, -0.34) };
   return g;
 }
 
@@ -77,27 +85,25 @@ function store() {
   return g;
 }
 
-function depot() {
+function depot(variant: number) {
   const g = new THREE.Group();
-  g.add(pad());
-  g.add(part(box(0.72, 0.2, 0.56), M.wallDark, 0, 0.14, -0.08));
-  // Yarım silindir çatı
-  const roof = part(new THREE.CylinderGeometry(0.28, 0.28, 0.72, 16, 1, false, 0, Math.PI), M.green, 0, 0.24, -0.08);
-  roof.rotation.z = Math.PI / 2;
-  g.add(roof);
-  g.add(part(box(0.3, 0.17, 0.01), M.steel, 0, 0.125, 0.205));
-  for (let k = 0; k < 4; k++) g.add(part(box(0.3, 0.006, 0.012), M.dark, 0, 0.06 + k * 0.04, 0.212));
-  // Paletler
-  g.add(part(box(0.14, 0.03, 0.14), M.wood, -0.27, 0.055, 0.32));
-  g.add(part(box(0.1, 0.1, 0.1), M.crate, -0.27, 0.12, 0.32));
-  g.add(part(box(0.14, 0.03, 0.14), M.wood, 0.27, 0.055, 0.32));
+  g.add(makeModel(BASE));
+  const models = INDUSTRY_MODELS.depot;
+  const b = makeModel(models[variant % models.length], Math.floor(variant / 7) % 4);
+  b.scale.multiplyScalar(0.85);
+  b.position.set(0, 0.05, -0.08);
+  g.add(b);
+  // Önde konteynerler
+  const boxes = [PROPS.containerA, PROPS.containerB, PROPS.containerC];
+  g.add(item(boxes[variant % 3], -0.24, 0.33, Math.PI / 2));
+  if (variant % 2) g.add(item(boxes[(variant + 1) % 3], 0.2, 0.34, Math.PI / 2));
   return g;
 }
 
-export function makeIndustry(kind: IndustryKind): THREE.Object3D {
-  if (kind === 'factory') return factory();
+export function makeIndustry(kind: IndustryKind, variant = 0): THREE.Object3D {
+  if (kind === 'factory') return factory(variant);
   if (kind === 'store') return store();
-  return depot();
+  return depot(variant);
 }
 
 // Fabrika çalışıyorsa duman göster

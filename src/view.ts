@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
 import { makeDecor, animateDecor } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
@@ -180,6 +180,57 @@ function flames() {
   return g;
 }
 
+// Park: çim zemin, yürüyüş yolu, banklar, ağaçlar; çeşide göre çeşme ya da gölet
+const parkMats = {
+  lawn: new THREE.MeshStandardMaterial({ color: '#6cc35a' }),
+  path: new THREE.MeshStandardMaterial({ color: '#e6d8b8' }),
+  water: new THREE.MeshStandardMaterial({ color: '#4fb3e8', roughness: 0.2 }),
+};
+const parkGeo = {
+  lawn: new THREE.BoxGeometry(0.98, 0.03, 0.98),
+  pathX: new THREE.BoxGeometry(0.98, 0.012, 0.16),
+  pathZ: new THREE.BoxGeometry(0.16, 0.012, 0.98),
+  pond: new THREE.CylinderGeometry(0.2, 0.2, 0.012, 20),
+};
+function park(variant: number, x: number, z: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number, px = 0, pz = 0) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(px, y, pz);
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  add(parkGeo.lawn, parkMats.lawn, 0.015);
+  const type = variant % 3;
+  if (type === 0) {
+    // Çapraz yollar, köşelerde ağaç
+    add(parkGeo.pathX, parkMats.path, 0.035);
+    add(parkGeo.pathZ, parkMats.path, 0.035);
+    for (const [dx, dz] of [[-0.3, -0.3], [0.3, 0.3]]) g.add(prop(PROPS.treeLarge, dx, dz, hash(x, z, dx)));
+    for (const [dx, dz] of [[0.3, -0.3], [-0.3, 0.3]]) g.add(prop(PROPS.treeSmall, dx, dz, hash(x, z, dz)));
+    g.add(prop(PROPS.bench, 0.2, 0.13, Math.PI));
+    g.add(prop(PROPS.bench, -0.2, -0.13));
+  } else if (type === 1) {
+    // Gölet ve etrafında banklar
+    add(parkGeo.pathX, parkMats.path, 0.035, 0, 0.36);
+    add(parkGeo.pond, parkMats.water, 0.035, 0, -0.05);
+    g.add(prop(PROPS.bench, -0.2, 0.26));
+    g.add(prop(PROPS.bench, 0.2, 0.26));
+    g.add(prop(PROPS.treeLarge, -0.36, -0.34, 1));
+    g.add(prop(PROPS.treeSmall, 0.36, -0.36, 2));
+    g.add(prop(PROPS.bush, 0.38, 0.05));
+    g.add(prop(PROPS.bush, -0.38, 0.05));
+  } else {
+    // Ortada çeşme
+    g.add(makeModel(PARK_MODELS[2]));
+    g.add(prop(PROPS.treeSmall, -0.36, -0.36, 1, 0.9));
+    g.add(prop(PROPS.treeSmall, 0.36, 0.36, 2, 0.9));
+    g.add(prop(PROPS.bush, 0.36, -0.36));
+    g.add(prop(PROPS.bush, -0.36, 0.36));
+  }
+  return g;
+}
+
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
@@ -322,7 +373,7 @@ export class CityView {
     if (t.kind === 'road') {
       o = this.road(x, z);
     } else if (t.kind === 'park') {
-      o = makeModel(PARK_MODELS[t.variant % PARK_MODELS.length]);
+      o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {
       o = makeUtility(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
@@ -336,7 +387,7 @@ export class CityView {
       o = makeDecor(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isIndustry(t.kind)) {
-      o = makeIndustry(t.kind);
+      o = makeIndustry(t.kind, t.variant);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (t.level === 0) {
       // Boş arsa: bölge renginde zemin ve birkaç inşaat kasası
@@ -345,7 +396,14 @@ export class CityView {
       plate.position.y = 0.015;
       plate.receiveShadow = true;
       o.add(plate);
-      if (hash(x, z, 3) < 0.6) o.add(prop(hash(x, z, 4) < 0.5 ? PROPS.boxA : PROPS.boxB, (hash(x, z, 5) - 0.5) * 0.5, (hash(x, z, 6) - 0.5) * 0.5, hash(x, z, 7) * 6));
+      const kind = hash(x, z, 3);
+      if (kind < 0.4) o.add(prop(hash(x, z, 4) < 0.5 ? PROPS.boxA : PROPS.boxB, (hash(x, z, 5) - 0.5) * 0.5, (hash(x, z, 6) - 0.5) * 0.5, hash(x, z, 7) * 6));
+      else if (kind < 0.75) {
+        // İnşaat alanı: bariyer ve koniler
+        o.add(prop(PROPS.barrier, 0, 0.3));
+        for (const dx of [-0.3, 0.3]) o.add(prop(PROPS.cone, dx, -0.25));
+        if (kind < 0.55) o.add(prop(PROPS.workLight, -0.3, 0.05, 1));
+      }
     } else {
       o = this.building(t.kind, t.level, t.variant, t.facing);
       if (t.fire) {
@@ -411,12 +469,22 @@ export class CityView {
     const models = (kind === 'res' ? RES_LEVELS : COM_LEVELS)[level - 1].models;
     const path = models[variant % models.length];
     const group = new THREE.Group();
-    const b = makeModel(path);
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const skins = (SKINS[folder]?.length ?? 0) + 1;
+    const b = makeModel(path, Math.floor(variant / 5) % skins);
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
     if (Math.floor(variant / 11) % 2) b.scale.x *= -1;
     group.add(b);
-    // KayKit dışındaki binaların (gökdelenler) altına kaldırım koy
-    if (!path.startsWith('kaykit/')) {
+    if (folder === 'kenney-sub') {
+      // Banliyö evi: arka bahçede çalı ve ağaç (yönü binayla aynı dönsün)
+      const yard = new THREE.Group();
+      yard.rotation.y = b.rotation.y;
+      yard.add(prop(PROPS.bush, -0.38, -0.38, variant));
+      if (variant % 3) yard.add(prop(PROPS.treeSmall, 0.36, -0.36, variant * 2, 0.8));
+      if (variant % 4 === 1) yard.add(prop(PROPS.planter, 0.34, 0.38));
+      group.add(yard);
+    } else if (!path.startsWith('kaykit/')) {
+      // Diğer binaların altına kaldırım
       group.add(makeModel(BASE));
       b.position.y = 0.05;
     }

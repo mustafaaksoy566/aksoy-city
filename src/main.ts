@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
+  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
   type Tool, type BuildTool, type MatId,
 } from './config';
 import { City, isUtility, isService, isIndustry, serviceArea } from './city';
@@ -17,7 +17,7 @@ import { makeUtility } from './utilities';
 import { makeService } from './services';
 import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
-import { makeModel } from './assets';
+import { makeModel, loadSkins } from './assets';
 import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
@@ -559,7 +559,7 @@ function makeMenuPictures() {
     ['com', makeModel('kaykit/building_E')],
     ['park', makeModel('kenney/models/grass-trees-tall')],
   ];
-  for (const k of ['wind', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
+  for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'depot'] as const) items.push([k, makeIndustry(k)]);
   for (const k of ['fountain', 'statue', 'wheel', 'stadium'] as const) items.push([k, makeDecor(k)]);
@@ -570,7 +570,11 @@ function makeMenuPictures() {
   }
 }
 
-loadModels(ALL_MODELS)
+const loadingEl = document.getElementById('loading')!;
+Promise.all([
+  loadModels(ALL_MODELS, (done, total) => (loadingEl.textContent = `Aksoy City yükleniyor… %${Math.round((done / total) * 100)}`)),
+  loadSkins(SKINS),
+])
   .then(() => {
     scene.add(buildSurroundings());
     traffic.init();

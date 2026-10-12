@@ -18,9 +18,10 @@ export const ENTRANCE_Z = SIZE / 2;
 export const ENTRANCE_LEN = PLOT * START_PLOT_MIN + 3;
 
 // Elektrik ve su yapıları
-export type UtilKind = 'wind' | 'plant' | 'tower' | 'pump';
+export type UtilKind = 'wind' | 'solar' | 'plant' | 'tower' | 'pump';
 export const UTILITIES: Record<UtilKind, { power: number; water: number; upkeep: number }> = {
   wind: { power: 12, water: 0, upkeep: 2 },
+  solar: { power: 25, water: 0, upkeep: 1 },
   plant: { power: 80, water: 0, upkeep: 10 },
   tower: { power: 0, water: 12, upkeep: 2 },
   pump: { power: 0, water: 80, upkeep: 8 },
@@ -124,7 +125,7 @@ export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
   road: 10, res: 20, com: 30, park: 60, bulldoze: 0,
-  wind: 300, plant: 1500, tower: 250, pump: 1200,
+  wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000,
@@ -133,7 +134,7 @@ export const COST: Record<BuildTool, number> = {
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
 export const UNLOCK: Partial<Record<BuildTool, number>> = {
   com: 2, depot: 2, police: 2,
-  store: 3, fire: 3,
+  store: 3, fire: 3, solar: 3,
   health: 4, plant: 4,
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
@@ -147,6 +148,7 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   park: { icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
   bulldoze: { icon: '🚜', label: 'Yık', hint: 'Yıkmak istediğin alanı sürükle.' },
   wind: { icon: '🌬️', label: 'Türbin', hint: 'Rüzgar türbini: az elektrik, ucuz. Yol kenarına kur.' },
+  solar: { icon: '☀️', label: 'Güneş', hint: 'Güneş paneli: temiz elektrik, kirlilik yapmaz.' },
   plant: { icon: '🔌', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
   tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: az su, ucuz. Yol kenarına kur.' },
   pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası: çok su verir ama pahalı.' },
@@ -171,7 +173,7 @@ export const TOOLBAR: ToolbarItem[] = [
   'road',
   { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', tools: ['factory', 'store', 'depot'] },
-  { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'plant', 'tower', 'pump'] },
+  { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🏛️', label: 'Hizmet', tools: ['police', 'fire', 'health', 'school'] },
   { group: 'decor', icon: '🎡', label: 'Simge', tools: ['park', 'fountain', 'statue', 'wheel', 'stadium'] },
   'bulldoze',
@@ -181,22 +183,28 @@ export const TOOLBAR: ToolbarItem[] = [
 const k = (n: string) => `kenney/models/${n}`;
 const kk = (n: string) => `kaykit/${n}`;
 const k2 = (n: string) => `kenney2/${n}`;
+const ks = (n: string) => `kenney-sub/${n}`;
+const ki = (n: string) => `kenney-ind/${n}`;
+const kc = (n: string) => `kenney-cars/${n}`;
+const kr = (n: string) => `kenney-roads/${n}`;
+const houses = (letters: string) => [...letters].map(l => ks(`building-type-${l}`));
 const x = (n: string) => `polypizza/extra/${n}`;
 
 // Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
 export const RES_LEVELS = [
-  { pop: 6, need: 1, models: [kk('building_A'), kk('building_B')] },
-  { pop: 14, need: 2, models: [kk('building_E'), kk('building_F')] },
-  { pop: 30, need: 4, models: [kk('building_C'), kk('building_D'), kk('building_G'), kk('building_H')] },
+  // 1-2. seviye: bahçeli banliyö evleri ve küçük KayKit binaları
+  { pop: 6, need: 1, models: [kk('building_A'), kk('building_B'), ...houses('acehiklmpg')] },
+  { pop: 14, need: 2, models: [kk('building_E'), kk('building_F'), ...houses('bdfjnoqrstu')] },
+  { pop: 30, need: 4, models: [kk('building_C'), kk('building_D'), kk('building_G'), kk('building_H'), k2('building-a'), k2('building-b'), k2('building-d'), k2('building-h')] },
   { pop: 60, need: 7, models: [k2('building-skyscraper-a'), k2('building-skyscraper-b')] },
   { pop: 100, need: 12, models: [k2('building-skyscraper-c'), k2('building-skyscraper-d'), k2('building-skyscraper-e')] },
 ];
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
 export const COM_LEVELS = [
-  { jobs: 5, need: 1, models: [kk('building_A'), kk('building_B'), kk('building_E')] },
-  { jobs: 15, need: 3, models: [kk('building_F'), kk('building_C'), kk('building_G')] },
-  { jobs: 40, need: 6, models: [k2('building-skyscraper-a'), k2('building-skyscraper-c'), k2('building-skyscraper-e')] },
+  { jobs: 5, need: 1, models: [kk('building_A'), kk('building_B'), kk('building_E'), k2('building-c'), k2('building-e'), k2('building-k')] },
+  { jobs: 15, need: 3, models: [kk('building_F'), kk('building_C'), kk('building_G'), k2('building-f'), k2('building-g'), k2('building-i'), k2('building-j'), k2('building-l')] },
+  { jobs: 40, need: 6, models: [k2('building-skyscraper-a'), k2('building-skyscraper-c'), k2('building-skyscraper-e'), k2('building-m'), k2('building-n')] },
 ];
 
 export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviyeye çıkar
@@ -213,7 +221,25 @@ export const BASE = kk('base'); // KayKit kaldırım karesi
 
 export const ROAD_MODELS = ['road_straight', 'road_straight_crossing', 'road_corner_curved', 'road_tsplit', 'road_junction'].map(kk);
 
-export const CAR_MODELS = ['car_sedan', 'car_taxi', 'car_hatchback', 'car_stationwagon', 'car_police'].map(kk);
+export const CAR_MODELS = [
+  ...['car_sedan', 'car_taxi', 'car_hatchback', 'car_stationwagon', 'car_police'].map(kk),
+  ...['van', 'delivery', 'truck', 'suv', 'suv-luxury', 'garbage-truck'].map(kc),
+];
+// Hastane ve itfaiye varsa trafikte ambulans ve itfaiye aracı da dolaşır
+export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck') };
+
+// Fabrika ve depo binaları (Kenney City Kit Industrial)
+export const INDUSTRY_MODELS = {
+  factory: ['a', 'b', 'e', 'f', 'l', 'm', 'n'].map(l => ki(`building-${l}`)),
+  depot: ['c', 'g', 'k', 'p', 'q', 'r', 's', 't'].map(l => ki(`building-${l}`)),
+};
+
+// Kenney paketlerinde farklı renk düzenleri (dokular); 0 = asıl renkler
+export const SKINS: Record<string, string[]> = {
+  'kenney-sub': ['variation-a', 'variation-b', 'variation-c'],
+  'kenney-ind': ['variation-a', 'variation-b', 'variation-c'],
+  kenney2: ['variation-a', 'variation-b'],
+};
 
 // Şehri dolduran süs eşyaları ve ağaçlar
 export const PROPS = {
@@ -226,8 +252,21 @@ export const PROPS = {
   boxA: kk('box_A'),
   boxB: kk('box_B'),
   watertower: kk('watertower'),
-  treeLarge: 'kenney-sub/tree-large',
-  treeSmall: 'kenney-sub/tree-small',
+  treeLarge: ks('tree-large'),
+  treeSmall: ks('tree-small'),
+  planter: ks('planter'),
+  chimney: ki('chimney-medium'),
+  chimneyLarge: ki('chimney-large'),
+  tank: ki('detail-tank'),
+  containerA: ki('shipping-container-a'),
+  containerB: ki('shipping-container-b'),
+  containerC: ki('shipping-container-c'),
+  solar: ki('solar-panel-landscape-group'),
+  cone: kr('construction-cone'),
+  barrier: kr('construction-barrier'),
+  workLight: kr('construction-light'),
+  ambulance: kc('ambulance'),
+  firetruck: kc('firetruck'),
 };
 
 export const DECOR_MODELS: Partial<Record<DecorKind, string>> = { fountain: x('q-town-center-1'), statue: x('q-horse-statue') };
@@ -241,6 +280,8 @@ export const ALL_MODELS = [
     BASE,
     ...CAR_MODELS,
     ...Object.values(PROPS),
+    ...INDUSTRY_MODELS.factory,
+    ...INDUSTRY_MODELS.depot,
     ...(Object.values(DECOR_MODELS) as string[]),
   ]),
 ];

@@ -5,10 +5,34 @@ const models = new Map<string, THREE.Object3D>();
 // Aynı klasördeki modeller aynı doku atlasını kullanır; tek malzemede birleştirilir ki çizim sayısı azalsın
 const atlasMats = new Map<string, THREE.Material>();
 export const KAYKIT_SCALE = 0.5; // KayKit parçaları 2x2 birim, oyunda 1 kare
-const tinted = new Map<string, THREE.Material>();
 
-const BUILDING_FIT = 0.86; // ticari binalar karenin bu kadarını kaplasın
+const BUILDING_FIT = 0.86; // binalar karenin bu kadarını kaplasın
 const BUILDING_MAX_SCALE = 1.4;
+// Model yolu başı -> kaplayacağı en geniş ölçü (ilk eşleşen kullanılır)
+const FITS: [string, number][] = [
+  ['kenney-sub/tree', 0.36],
+  ['kenney-sub/planter', 0.3],
+  ['kenney-sub/fence', 0.5],
+  ['kenney-sub/', 0.8], // banliyö evleri, bahçeye yer kalsın
+  ['kenney-ind/chimney-large', 0.2],
+  ['kenney-ind/chimney', 0.16],
+  ['kenney-ind/detail-tank', 0.3],
+  ['kenney-ind/shipping-container', 0.42],
+  ['kenney-ind/solar', 0.86],
+  ['kenney-ind/', BUILDING_FIT],
+  ['kenney-cars/ambulance', 0.56],
+  ['kenney-cars/firetruck', 0.6],
+  ['kenney-cars/garbage-truck', 0.58],
+  ['kenney-cars/delivery', 0.56],
+  ['kenney-cars/', 0.48],
+  ['kenney-roads/construction-cone', 0.07],
+  ['kenney-roads/construction-light', 0.14],
+  ['kenney-roads/', 0.32],
+  ['polypizza/extra/', BUILDING_FIT],
+  ['kenney2/', BUILDING_FIT],
+];
+const skinMats = new Map<string, THREE.Material>();
+const skinTextures = new Map<string, THREE.Texture[]>();
 
 // Modeli bir kutuya sığdırıp ortala; tabanı y=0'a otursun
 function normalize(obj: THREE.Object3D, turn: number, scaleFor: (size: THREE.Vector3) => number) {
@@ -26,8 +50,9 @@ function normalize(obj: THREE.Object3D, turn: number, scaleFor: (size: THREE.Vec
 }
 
 // Modelleri bir kere yükle, sonra kopyalarını kullan
-export async function loadModels(paths: string[]) {
+export async function loadModels(paths: string[], onProgress?: (done: number, total: number) => void) {
   const loader = new GLTFLoader();
+  let done = 0;
   await Promise.all(
     paths.map(async path => {
       const gltf = await loader.loadAsync(`${import.meta.env.BASE_URL}${path}${path.startsWith('kaykit/') ? '.gltf' : '.glb'}`);
@@ -50,34 +75,59 @@ export async function loadModels(paths: string[]) {
         obj.scale.setScalar(KAYKIT_SCALE);
         g.add(obj);
         obj = g;
-      } else if (path.startsWith('kenney-sub/')) {
-        obj = normalize(obj, 0, s => 0.36 / Math.max(s.x, s.z));
-      } else if (path.startsWith('polypizza/extra/') || path.startsWith('kenney2/')) {
-        obj = normalize(obj, 0, s => Math.min(BUILDING_MAX_SCALE, BUILDING_FIT / Math.max(s.x, s.z)));
+      } else {
+        // Diğer modeller: ne kadar yer kaplayacakları (en geniş yer, oyun karesi cinsinden)
+        const fit = FITS.find(([p]) => path.startsWith(p))?.[1];
+        if (fit) obj = normalize(obj, 0, s => Math.min(BUILDING_MAX_SCALE, fit / Math.max(s.x, s.z)));
       }
       models.set(path, obj);
+      onProgress?.(++done, paths.length);
     }),
   );
 }
 
-// Modelin bir kopyasını ver; istenirse duvarları ve çatıyı verilen renklere boya
-export function makeModel(path: string, wallColor?: string, roofColor?: string): THREE.Object3D {
+// Kenney paketlerinin renk çeşidi dokularını yükle (yüklenemezse asıl renkler kullanılır)
+export async function loadSkins(skins: Record<string, string[]>) {
+  const loader = new THREE.TextureLoader();
+  await Promise.all(
+    Object.entries(skins).map(async ([folder, names]) => {
+      const list = await Promise.all(
+        names.map(async n => {
+          try {
+            const t = await loader.loadAsync(`${import.meta.env.BASE_URL}${folder}/Textures/${n}.png`);
+            t.flipY = false; // glTF dokuları gibi
+            t.colorSpace = THREE.SRGBColorSpace;
+            t.magFilter = THREE.NearestFilter;
+            return t;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      skinTextures.set(folder, list.filter(t => t !== null) as THREE.Texture[]);
+    }),
+  );
+}
+
+// Modelin bir kopyasını ver; skin > 0 ise o paketin farklı renk düzeni kullanılır
+export function makeModel(path: string, skin = 0): THREE.Object3D {
   const m = models.get(path);
   if (!m) throw new Error(`Model yüklenmedi: ${path}`);
   const copy = m.clone(true);
-  if (wallColor || roofColor) {
+  const folder = path.slice(0, path.lastIndexOf('/'));
+  const tex = skin > 0 ? skinTextures.get(folder)?.[skin - 1] : undefined;
+  if (tex) {
     copy.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       const mat = mesh.material as THREE.MeshStandardMaterial;
-      const color = mat.name === '_defaultMat' ? wallColor : mat.name === 'roof' ? roofColor : undefined;
-      if (!color) return;
-      const key = `${mat.uuid}|${color}`;
-      let t = tinted.get(key);
+      if (!mat.map) return;
+      const key = `${mat.uuid}|${skin}`;
+      let t = skinMats.get(key);
       if (!t) {
         const c = mat.clone();
-        c.color.set(color);
-        tinted.set(key, c);
+        c.map = tex;
+        skinMats.set(key, c);
         t = c;
       }
       mesh.material = t;

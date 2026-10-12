@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, CAR_MODELS } from './config';
+import { SIZE, CAR_MODELS, EMERGENCY_CARS } from './config';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
 import { bakeTextured } from './batcher';
@@ -90,6 +90,7 @@ export class Traffic {
   readonly root = new THREE.Group();
   private cars: (Mover & { type: number })[] = [];
   private meshes: THREE.InstancedMesh[] = [];
+  private paths: string[] = [];
   private recount = 0;
   private tmp = new THREE.Object3D();
 
@@ -97,9 +98,10 @@ export class Traffic {
 
   // Modeller yüklendikten sonra çağrılır
   init() {
-    for (const path of CAR_MODELS) {
+    for (const path of [...CAR_MODELS, EMERGENCY_CARS.health, EMERGENCY_CARS.fire]) {
       const baked = bakeTextured(makeModel(path));
       if (!baked) continue;
+      this.paths.push(path);
       const mesh = new THREE.InstancedMesh(baked.geo, baked.mat, MAX_CARS);
       mesh.castShadow = false;
       mesh.count = 0;
@@ -114,6 +116,17 @@ export class Traffic {
     this.cars = [];
   }
 
+  // Hangi araç türü: çoğu normal araba; hastane/itfaiye varsa bazen ambulans/itfaiye aracı
+  private pickType() {
+    const has = (k: string) => this.city.tiles.some(t => t?.kind === k);
+    const r = Math.random();
+    const emergency = r < 0.08 && has('health') ? EMERGENCY_CARS.health : r > 0.93 && has('fire') ? EMERGENCY_CARS.fire : null;
+    const i = emergency ? this.paths.indexOf(emergency) : -1;
+    if (i >= 0) return i;
+    const normal = this.paths.filter(p => CAR_MODELS.includes(p));
+    return this.paths.indexOf(normal[Math.floor(Math.random() * normal.length)]);
+  }
+
   update(dt: number) {
     // Kaç araba olması gerektiğini saniyede bir hesapla
     this.recount -= dt;
@@ -123,7 +136,7 @@ export class Traffic {
       const wanted = Math.min(MAX_CARS, Math.floor(roads / 3), 2 + Math.floor(this.city.population / 15));
       if (this.cars.length < wanted) {
         const m = randomStart(this.city, 0.8 + Math.random() * 0.6);
-        if (m) this.cars.push({ ...m, type: Math.floor(Math.random() * CAR_MODELS.length) });
+        if (m) this.cars.push({ ...m, type: this.pickType() });
       } else if (this.cars.length > wanted) this.cars.pop();
     }
     if (!this.meshes.length) return;

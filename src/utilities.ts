@@ -103,8 +103,18 @@ function waterPump() {
   return g;
 }
 
+function solarFarm() {
+  const g = new THREE.Group();
+  g.add(makeModel('kaykit/base'));
+  const p = makeModel('kenney-ind/solar-panel-landscape-group');
+  p.position.y = 0.05;
+  g.add(p);
+  return g;
+}
+
 export function makeUtility(kind: UtilKind): THREE.Object3D {
   if (kind === 'wind') return windTurbine();
+  if (kind === 'solar') return solarFarm();
   if (kind === 'plant') return powerPlant();
   if (kind === 'tower') return waterTower();
   return waterPump();

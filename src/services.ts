@@ -57,6 +57,10 @@ function fireStation() {
     g.add(part(box(0.24, 0.25, 0.012), M.white, x, 0.165, 0.131));
     g.add(part(box(0.2, 0.22, 0.012), M.dark, x, 0.15, 0.138));
   }
+  // Garajın önünde itfaiye aracı
+  const truck = makeModel('kenney-cars/firetruck');
+  truck.position.set(-0.2, 0.06, 0.3);
+  g.add(truck);
   // Gözetleme kulesi
   g.add(part(box(0.16, 0.66, 0.16), M.red, 0.3, 0.37, -0.26));
   g.add(part(new THREE.ConeGeometry(0.14, 0.14, 4).rotateY(Math.PI / 4), M.dark, 0.3, 0.77, -0.26));
@@ -76,6 +80,11 @@ function hospital() {
   // Giriş saçağı
   g.add(part(box(0.3, 0.03, 0.16), M.cross, 0, 0.16, 0.22));
   for (const x of [-0.13, 0.13]) g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 6), M.steel, x, 0.1, 0.28));
+  // Önde park etmiş ambulans
+  const amb = makeModel('kenney-cars/ambulance');
+  amb.position.set(-0.28, 0.06, 0.32);
+  amb.rotation.y = Math.PI / 2;
+  g.add(amb);
   // Çatıda helikopter pisti
   g.add(part(new THREE.CylinderGeometry(0.16, 0.16, 0.012, 20), M.dark, 0.08, 0.605, -0.12));
   g.add(part(box(0.025, 0.004, 0.14), M.white, 0.04, 0.613, -0.12));
