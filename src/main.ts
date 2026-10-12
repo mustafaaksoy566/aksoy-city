@@ -5,7 +5,7 @@ import { City, type SaveData } from './city';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { TileInput } from './input';
-import { unlockAudio, play, isMuted, setMuted } from './audio';
+import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import { buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, fmt } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
@@ -147,7 +147,7 @@ const input = new TileInput(renderer.domElement, camera, {
 buildToolbar(pickTool);
 setActiveTool(tool);
 applyControls();
-document.addEventListener('pointerdown', unlockAudio, { capture: true });
+setupAudioUnlock();
 
 // Ses ve sıfırlama düğmeleri
 const soundBtn = document.getElementById('sound')!;

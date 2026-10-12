@@ -1,4 +1,5 @@
-// Kenney sesleri. iPhone'da ses ancak ilk dokunuştan sonra açılabiliyor.
+// Kenney sesleri (iPhone OGG çalamadığı için MP3'e çevrildi, bkz. scripts/convert-sounds.mjs).
+// iPhone'da ses ancak ilk dokunuştan sonra açılabiliyor ve sessiz moddayken çalmıyor.
 const SOUNDS = {
   place: ['placement-a', 'placement-b', 'placement-c', 'placement-d'],
   remove: ['removal-a', 'removal-b', 'removal-c', 'removal-d'],
@@ -25,16 +26,33 @@ function readMuted() {
 async function load(name: string) {
   if (!ctx) return;
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}kenney/sounds/${name}.ogg`);
+    const res = await fetch(`${import.meta.env.BASE_URL}kenney/sounds/${name}.mp3`);
     buffers.set(name, await ctx.decodeAudioData(await res.arrayBuffer()));
   } catch {
     // Bu tarayıcı bu ses dosyasını çalamıyorsa sessiz devam et
   }
 }
 
-export function unlockAudio() {
+// iPhone sesi ancak parmak kalktığında (touchend/click) açıyor, o yüzden birkaç olayı dinliyoruz
+export function setupAudioUnlock() {
+  const events = ['pointerdown', 'touchend', 'click'];
+  const handler = () => {
+    unlockAudio();
+    if (ctx?.state === 'running') events.forEach(e => document.removeEventListener(e, handler, true));
+  };
+  events.forEach(e => document.addEventListener(e, handler, true));
+}
+
+function unlockAudio() {
   if (ctx) {
-    if (ctx.state === 'suspended') void ctx.resume();
+    if (ctx.state !== 'running') {
+      void ctx.resume();
+      // Sessiz kısa bir ses çalmak iPhone'da kilidi açıyor
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start();
+    }
     return;
   }
   try {
