@@ -150,6 +150,16 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
   return Math.atan2(dx, dz);
 }
 
+// Kavşakta iki hareket (giriş yönü, çıkış yönü) birbirinin yolunu keser mi? (sağdan gidiş; sağa dönüş = d+1)
+const rightOf = (d: number) => (d + 1) % 4, leftOf = (d: number) => (d + 3) % 4;
+function conflicts(ai: number, ao: number, bi: number, bo: number) {
+  if (ai === bi) return ao !== bo; // aynı yönden gelip farklı yere giden (caddede şerit keser)
+  if (ao === bo) return true; // aynı yola çıkıyorlar
+  if (ao === rightOf(ai) || bo === rightOf(bi)) return false; // sağa dönen köşeden döner
+  if (ai === (bi + 2) % 4) return ao === leftOf(ai) || bo === leftOf(bi); // karşılıklı: düz-düz serbest, sola dönen keser
+  return true; // dik gelenler keser
+}
+
 // Kırmızı ışıkta beklenecek yer: bir sonraki kare kavşaksa ve o yöne ışık kırmızıysa durma çizgisi
 function lightLimit(city: City, m: Mover, stop: number) {
   if (m.t > stop) return Infinity; // çizgiyi geçmiş, devam etsin
@@ -219,6 +229,7 @@ interface Maneuver {
   bay?: number;
   fadeIn?: boolean;
   fadeOut?: boolean;
+  site?: number; // girip çıktığı otoparkın karesi (otoparkta aynı anda tek manevra)
 }
 
 // Çarpışmayı önlemek için bir aracın ya da yayanın kapladığı yer (bir önceki karedeki)
@@ -235,6 +246,9 @@ let nextId = 1;
 interface Vehicle extends Mover {
   id?: number;
   stuck?: number; // önü kapalı bekleme süresi
+  next?: number; // bir sonraki karede çıkacağı yön (kavşağa girmeden önce seçilir)
+  lastJ?: { tile: number; dIn: number; dOut: number }; // en son geçtiği kavşak (arkası hâlâ içindeyken yer tutar)
+  vanish?: boolean; // çok uzun sıkıştı: başkasının içinden geçmek yerine yavaşça kaybolur
   type: number; // araba modeli (otobüste -1)
   paint?: THREE.Color; // boyası
   wide: number; // caddede hangi şerit (0 iç, 1 dış)
@@ -559,7 +573,7 @@ export class Traffic {
     } else {
       segs.push(seg([b, b.clone().addScaledVector(f, 0.45), pt.clone().addScaledVector(toward, -0.4), pt]));
     }
-    v.man = { segs, k: 0, u: 0, end: 'road', dir, road: lot.road };
+    v.man = { segs, k: 0, u: 0, end: 'road', dir, road: lot.road, site: lot.tile };
     lot.bays[bay] = null;
     this.cars.push(v);
   }
@@ -569,11 +583,34 @@ export class Traffic {
     const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
     const { dir, pt } = this.exitTo(spot, v);
     const f = fwd(spot.face);
-    const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.12);
+    const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.3);
     if (this.busyAt(pt)) return false;
-    v.man = { segs: [seg([g, g.clone().addScaledVector(f, 0.35), pt.clone().addScaledVector(fwd(dir), -0.4), pt])], k: 0, u: 0, end: 'road', dir, road: spot.road, fadeIn: true };
+    v.man = { segs: [seg([g, g.clone().addScaledVector(f, 0.2), pt.clone().addScaledVector(fwd(dir), -0.4), pt])], k: 0, u: 0, end: 'road', dir, road: spot.road, fadeIn: true };
     this.cars.push(v);
     return true;
+  }
+
+  // Bu otoparkta şu an park eden ya da çıkan bir araba var mı?
+  private lotBusy(tile: number) {
+    return this.cars.some(c => c.man?.site === tile);
+  }
+
+  // Yoldan binaya dönerken geçeceği yerde (yanındaki şeritte) başka bir araç var mı?
+  private turnBusy(v: Vehicle) {
+    const me = this.boxes.find(b => b.id === v.id);
+    const spot = v.dest?.spot;
+    if (!me || !spot) return false;
+    const to = center(spot.tile);
+    for (const o of this.boxes) {
+      if (o.id === v.id) continue;
+      // Arabanın konumu ile bina arasındaki çizgiye yakın mı?
+      const ax = to.x - me.x, az = to.z - me.z;
+      const L = Math.hypot(ax, az) || 1;
+      const t = THREE.MathUtils.clamp(((o.x - me.x) * ax + (o.z - me.z) * az) / (L * L), 0, 1);
+      const d = Math.hypot(me.x + ax * t - o.x, me.z + az * t - o.z);
+      if (d < 0.22 && t > 0.05) return true;
+    }
+    return false;
   }
 
   // Hedefin önüne gelen araba otoparka ya da garaja girer
@@ -587,10 +624,10 @@ export class Traffic {
     if (dest.kind === 'lot') {
       const lot = spot as Lot;
       const b = this.bayPos(lot, dest.bay!);
-      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), b.clone().addScaledVector(f, 0.4), b])], k: 0, u: 0, end: 'lot', lot, bay: dest.bay };
+      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), b.clone().addScaledVector(f, 0.4), b])], k: 0, u: 0, end: 'lot', lot, bay: dest.bay, site: lot.tile };
     } else {
-      const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.1);
-      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.4), g])], k: 0, u: 0, end: 'garage', fadeOut: true };
+      const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.3);
+      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.25), g])], k: 0, u: 0, end: 'garage', fadeOut: true };
     }
   }
 
@@ -706,7 +743,7 @@ export class Traffic {
       const p = w.lot.bays[w.bay];
       if (!p) return false;
       const { pt } = this.exitTo(w.lot, { tile: 0, dIn: 0, dOut: 0, t: 0, speed: 0, fade: 1, type: 0, wide: 0, trip: 0 });
-      if (this.busyAt(pt)) return true;
+      if (this.busyAt(pt) || this.lotBusy(w.lot.tile)) return true;
       this.pullOut(w.lot, w.bay);
       return false;
     });
@@ -721,19 +758,45 @@ export class Traffic {
 
     const people = this.walkers?.spots ?? [];
     const prev = new Map(this.boxes.map(b => [b.id, b]));
+    // Kavşakların içindeki araçlar ve hareketleri (arkası henüz çıkmamış olanlar dahil)
+    const inside = new Map<number, { v: Vehicle; dIn: number; dOut: number }[]>();
+    const occupy = (tile: number, v: Vehicle, dIn: number, dOut: number) => (inside.get(tile) ?? inside.set(tile, []).get(tile)!).push({ v, dIn, dOut });
+    for (const v of all) {
+      if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
+      if (v.lastJ && v.t < 0.3 && v.lastJ.tile !== v.tile) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
+    }
+    // Kavşağa girmeden önce nereye döneceğini seç (yol hakkına bakabilmek için)
+    const peek = (v: Vehicle, tile: number) => {
+      if (v.next !== undefined) return v.next;
+      const save = [v.tile, v.dIn, v.dOut];
+      v.tile = tile;
+      v.dIn = save[2];
+      v.next = this.choose(v);
+      [v.tile, v.dIn, v.dOut] = save;
+      return v.next;
+    };
     const move = (v: Vehicle) => {
       v.id ??= nextId++;
       if (v.man) {
         // Otoparka girip çıkarken de önündekini bekle
-        if (this.blocked(prev.get(v.id), people) && (v.stuck = (v.stuck ?? 0) + dt) < 5) return true;
+        if (this.blocked(prev.get(v.id), [])) {
+          v.stuck = (v.stuck ?? 0) + dt;
+          if (v.stuck < 9) return true;
+          // Çok uzun kilitlendi: içinden geçmek yerine kaybolsun
+          v.fade = Math.max(0, v.fade - dt * 2.2);
+          if (v.fade > 0) return true;
+          this.release(v);
+          return false;
+        }
         v.stuck = 0;
         return this.maneuver(v, dt);
       }
-      v.fade = Math.min(1, Math.max(0, v.fade + (v.out ? -dt : dt) * 2.2));
-      if (v.out && v.fade <= 0) {
+      v.fade = Math.min(1, Math.max(0, v.fade + (v.out || v.vanish ? -dt : dt) * 2.2));
+      if ((v.out || v.vanish) && v.fade <= 0) {
         this.release(v);
         return false;
       }
+      if (v.vanish) return true;
       const jam = this.city.congestion(v.tile);
       const step = dt * v.speed * ROAD_GRADES[this.city.tiles[v.tile]?.grade ?? 0].speed * (jam > 1 ? Math.max(0.35, 1 / jam) : 1);
       let limit = lightLimit(this.city, v, STOP);
@@ -743,13 +806,34 @@ export class Traffic {
       // Bir sonraki karenin başındaki araç
       const next = neighbor(v.tile, v.dOut);
       if (next >= 0) for (const [t, l] of lanes.get(this.key(v, next, v.dOut)) ?? []) limit = Math.min(limit, 1 + t - (len + l) / 2 - GAP);
+      // Yol hakkı: kavşağın içinde yolunu kesen bir araç varsa girmeden bekle
+      if (next >= 0 && isJunction(this.city, next) && v.t > 0.3) {
+        const out = peek(v, next);
+        const busy = (inside.get(next) ?? []).some(o => o.v !== v && conflicts(v.dOut, out, o.dIn, o.dOut));
+        if (busy) limit = Math.min(limit, Math.max(v.t, STOP));
+      }
       // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et)
       let go = step;
       if (this.blocked(prev.get(v.id), people)) {
         v.stuck = (v.stuck ?? 0) + dt;
-        if (v.stuck < 6) go = 0;
+        go = 0;
+        // Çok uzun kilitlendi: başkasının içinden geçmesin, yavaşça kaybolsun
+        if (v.stuck > 9 && !v.home) v.vanish = true;
       } else v.stuck = 0;
-      const alive = advance(this.city, v, go, true, Math.max(v.t, limit), m => this.choose(m as Vehicle));
+      const before = { tile: v.tile, dIn: v.dIn, dOut: v.dOut };
+      const alive = advance(this.city, v, go, true, Math.max(v.t, limit), m => {
+        const veh = m as Vehicle;
+        if (veh.next !== undefined) {
+          const d = veh.next;
+          veh.next = undefined;
+          return d;
+        }
+        return this.choose(veh);
+      });
+      if (v.tile !== before.tile) {
+        if (isJunction(this.city, before.tile)) v.lastJ = before;
+        if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
+      }
       // Şehirden çıkan araba otobana geçer (aynı renk ve model)
       if (v.out && v.type >= 0 && !v.home && this.highway && v.paint) {
         this.highway.leaveCity(v.type, v.paint);
@@ -768,7 +852,7 @@ export class Traffic {
         if (gone) {
           this.release(v);
           v.trip = 4;
-        } else this.pullIn(v);
+        } else if (!this.turnBusy(v) && !(dest.kind === 'lot' && this.lotBusy(dest.spot!.tile))) this.pullIn(v);
       }
       return true;
     };
