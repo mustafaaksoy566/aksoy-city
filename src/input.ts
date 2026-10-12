@@ -13,7 +13,7 @@ interface Handlers {
 // Ekrana dokunma / fare ile harita karelerini seçme
 export class TileInput {
   private pointers = new Set<number>();
-  private drag: { id: number; sx: number; sz: number; cells: number[] } | null = null;
+  private drag: { id: number; sx: number; sz: number; cells: number[]; path: [number, number][] } | null = null;
   private tapStart: { id: number; x: number; y: number; t: number } | null = null;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -64,6 +64,26 @@ export class TileInput {
     return out;
   }
 
+  // Yol ve ray parmağı izler: her adımda bir kare ilerler, dönebilir; geri gelinen yerden sonrası silinir
+  private follow(tx: number, tz: number): number[] {
+    const path = this.drag!.path;
+    let [cx, cz] = path[path.length - 1];
+    let guard = 0;
+    while ((cx !== tx || cz !== tz) && guard++ < 200) {
+      const dx = tx - cx, dz = tz - cz;
+      // Aynı doğrultuda gitmeyi sürdür (köşe sayısı az olsun)
+      const n = path.length;
+      const goingX = n > 1 ? path[n - 1][0] !== path[n - 2][0] : Math.abs(dx) >= Math.abs(dz);
+      const stepX = dx !== 0 && (dz === 0 || Math.abs(dx) > Math.abs(dz) || (Math.abs(dx) === Math.abs(dz) && goingX));
+      if (stepX) cx += Math.sign(dx);
+      else cz += Math.sign(dz);
+      const k = path.findIndex(([x, z]) => x === cx && z === cz);
+      if (k >= 0) path.length = k + 1;
+      else path.push([cx, cz]);
+    }
+    return path.map(([x, z]) => idx(x, z));
+  }
+
   private down(e: PointerEvent) {
     this.pointers.add(e.pointerId);
     this.tapStart = this.pointers.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
@@ -74,7 +94,7 @@ export class TileInput {
     const t = this.tileAt(e, false);
     if (!t) return;
     const cells = [idx(t[0], t[1])];
-    this.drag = { id: e.pointerId, sx: t[0], sz: t[1], cells };
+    this.drag = { id: e.pointerId, sx: t[0], sz: t[1], cells, path: [[t[0], t[1]]] };
     this.h.preview(cells);
   }
 
@@ -83,7 +103,8 @@ export class TileInput {
     if (this.drag && e.pointerId === this.drag.id) {
       const t = this.tileAt(e, true);
       if (!t) return;
-      this.drag.cells = this.cellsBetween(this.drag.sx, this.drag.sz, t[0], t[1]);
+      const tool = this.h.tool();
+      this.drag.cells = ROAD_TOOLS.includes(tool as never) || tool === 'rail' ? this.follow(t[0], t[1]) : this.cellsBetween(this.drag.sx, this.drag.sz, t[0], t[1]);
       this.h.preview(this.drag.cells);
     } else if (!this.drag && e.pointerType === 'mouse') {
       const t = this.tileAt(e, false);

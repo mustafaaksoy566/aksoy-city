@@ -1,7 +1,7 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
-  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS,
+  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS, SHOPS,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
@@ -282,7 +282,19 @@ export class City {
     const m = this.roadMask(x0, z0);
     const alongX = (m & 0b1010) !== 0 && (m & 0b0101) === 0;
     const alongZ = (m & 0b0101) !== 0 && (m & 0b1010) === 0;
-    if (!alongX && !alongZ) return [i];
+    if (!alongX && !alongZ) {
+      // Kavşağa dokunuldu: kavşak ve ona bağlı bütün sokaklar
+      const all = new Set([i]);
+      for (const [dx, dz] of DIRS) {
+        if (!this.isRoad(x0 + dx, z0 + dz)) continue;
+        const n = idx(x0 + dx, z0 + dz);
+        const nm = this.roadMask(x0 + dx, z0 + dz);
+        // Sadece düz sokaklara bakılır (yan yana iki köşe birbirini sonsuza kadar çağırmasın)
+        const straight = ((nm & 0b1010) !== 0) !== ((nm & 0b0101) !== 0);
+        if (straight) for (const c of this.streetOf(n)) all.add(c);
+      }
+      return [...all];
+    }
     const out = [i];
     for (const s of [-1, 1]) {
       for (let k = 1; k < SIZE; k++) {
@@ -290,8 +302,9 @@ export class City {
         if (!this.isRoad(x, z)) break;
         const mk = this.roadMask(x, z);
         const straight = alongX ? (mk & 0b0101) === 0 : (mk & 0b1010) === 0;
-        if (!straight) break;
+        // Sokağın ucundaki kavşak ya da dönemeç de yükselir (köşeler sokakla aynı görünsün)
         out.push(idx(x, z));
+        if (!straight) break;
       }
     }
     return out;
@@ -615,8 +628,13 @@ export class City {
     return this.sumOf('res', l => RES_LEVELS[l - 1].pop);
   }
 
+  // İş yerleri: yola bağlı fabrika, dükkan, depo ve limanlar (yükseltilenler daha çok çalışan alır)
   get jobsTotal() {
-    return this.sumOf('com', l => COM_LEVELS[l - 1].jobs);
+    let sum = 0;
+    this.tiles.forEach((t, i) => {
+      if (t && isIndustry(t.kind) && this.isConnected(i)) sum += INDUSTRY[t.kind].jobs * (1 + t.level * 0.25);
+    });
+    return Math.round(sum);
   }
 
   get upkeep() {
@@ -708,7 +726,7 @@ export class City {
   }
 
   shopNear(i: number) {
-    return this.near(i % SIZE, Math.floor(i / SIZE), SHOP_RADIUS, n => n.kind === 'com' && n.level > 0);
+    return this.near(i % SIZE, Math.floor(i / SIZE), SHOP_RADIUS, n => SHOPS.includes(n.kind as IndustryKind));
   }
 
   maxLevel(i: number) {
@@ -869,7 +887,7 @@ export class City {
     if (!this.isServed(i)) return 'Önce yol, elektrik ve su lazım';
     if (t.level >= this.maxLevel(i)) {
       if (!this.parkNear(i)) return 'Yakında park lazım';
-      if (!this.shopNear(i)) return 'Yakında dükkan lazım';
+      if (!this.shopNear(i)) return 'Yakında dükkan lazım (Sanayi: hırdavatçı, pazar, fırın…)';
       if (!this.allCovered(i)) return 'Dört hizmetin de kapsaması lazım';
       if (this.decorBonus[i] < LUXURY_DECOR - 1e-6) return 'Yakında bir simge yapı lazım (heykel, dönme dolap, stadyum…)';
       if (this.bestRoad(i) < 1) return 'Gökdelen için yanındaki yol en az bulvar olmalı';
@@ -1275,7 +1293,7 @@ export class City {
     // Denize kalan yapıların parası geri verilir.
     c.tiles.forEach((t, i) => {
       if (!t || !isWater(i)) return;
-      if (!isSea(i) && (t.kind === 'road' || t.kind === 'rail')) return;
+      if (t.kind === 'road' || t.kind === 'rail') return; // nehir köprüleri ve asma köprüler kalır
       const anchor = c.tiles[c.anchorOf(i)];
       if (isSea(i) && anchor && anchor.kind in COST) c.seaRefund += COST[anchor.kind as BuildTool];
       for (const cell of c.cellsOf(i)) {
@@ -1291,6 +1309,12 @@ export class City {
       for (const cell of c.cellsOf(i)) c.tiles[cell] = null;
     });
     c.money += c.tradeRefund;
+    // Ticari bölgeler kaldırıldı: eski dükkan ve ofisler aynı seviyede konut olur
+    c.tiles.forEach(t => {
+      if (t?.kind !== 'com') return;
+      t.kind = 'res';
+      t.level = Math.min(t.level, RES_LEVELS.length);
+    });
     c.placeHall();
     c.refresh();
     c.fillQuests();

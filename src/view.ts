@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0 } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
+import { SIGNAL_MATS, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
 import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
@@ -9,7 +10,7 @@ import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
-  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.beam || o.userData.bob || o.getObjectByName('flames'));
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.beam || o.userData.bob || o.userData.animals || o.getObjectByName('flames'));
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -105,19 +106,122 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
     add(roadDeco.geo.asphalt, roadDeco.asphalt, 0, 0.047, 0).castShadow = false;
     for (const side of [-1, 1]) {
       add(roadDeco.geo.curbC, roadDeco.stone, side * 0.465, 0.053, 0);
-      add(roadDeco.geo.edge, roadDeco.paint, side * 0.4, 0.0515, 0);
-      for (const z of [-0.33, 0, 0.33]) add(roadDeco.geo.dash, roadDeco.paint, side * 0.2, 0.0515, z);
+      add(roadDeco.geo.edge, roadDeco.paint, side * 0.39, 0.0515, 0);
+      for (const z of [-0.33, 0, 0.33]) add(roadDeco.geo.dash, roadDeco.paint, side * 0.18, 0.0515, z);
     }
-    if (nearJunction) {
-      // Yaya geçidi
-      for (let k = 0; k < 7; k++) add(roadDeco.geo.zebra, roadDeco.paint, -0.36 + k * 0.12, 0.0516, 0);
-    } else {
+    // Kavşağa bitişik karede yaya geçidi kavşağın kenarında çizili; burada sadece şerit çizgileri
+    if (!nearJunction) {
       add(roadDeco.geo.barrier, roadDeco.curb, 0, 0.066, 0);
       for (const side of [-1, 1]) add(roadDeco.geo.edge, roadDeco.yellow, side * 0.03, 0.0515, 0);
       if (along % 3 === 0) lamp(0.36);
     }
   }
   if (alongX) g.rotation.y = Math.PI / 2;
+  return g;
+}
+
+// Trafik ışığı: kavşağın köşesinde direk, iki yöne bakan lambalar (kırmızı üstte, yeşil altta).
+// Lambaların malzemeleri her karede ışığın durumuna göre yakılır (signals.ts).
+const signalGeo = {
+  pole: new THREE.CylinderGeometry(0.009, 0.011, 0.36, 6),
+  head: new THREE.BoxGeometry(0.03, 0.07, 0.03),
+  lamp: new THREE.SphereGeometry(0.0095, 8, 6),
+};
+function signalPost(tile: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+  };
+  const cx = 0.44, cz = 0.44;
+  add(signalGeo.pole, roadDeco.pole, cx, 0.18, cz);
+  // Grup 0'da kuzey-güney başlığı 0. malzemeyi kullanır; grup 1 tam tersini
+  const ns = signalGroup(tile), ew = 1 - ns;
+  // Kuzey-güney yönüne bakan başlık (ön ve arka yüzde lamba)
+  add(signalGeo.head, roadDeco.pole, cx, 0.33, cz);
+  for (const s of [-1, 1]) {
+    add(signalGeo.lamp, SIGNAL_MATS.red[ns], cx, 0.35, cz + s * 0.017);
+    add(signalGeo.lamp, SIGNAL_MATS.green[ns], cx, 0.315, cz + s * 0.017);
+  }
+  // Doğu-batı yönüne bakan başlık
+  add(signalGeo.head, roadDeco.pole, cx, 0.25, cz);
+  for (const s of [-1, 1]) {
+    add(signalGeo.lamp, SIGNAL_MATS.red[ew], cx + s * 0.017, 0.27, cz);
+    add(signalGeo.lamp, SIGNAL_MATS.green[ew], cx + s * 0.017, 0.235, cz);
+  }
+  return g;
+}
+
+// Çıkmaz sokağın ucu: yuvarlak dönüş meydanı, ortasında çimenli adacık ve ağaç
+const culGeo = {
+  disc: new THREE.CylinderGeometry(0.47, 0.47, 0.012, 28),
+  ring: new THREE.CylinderGeometry(0.485, 0.485, 0.02, 28, 1, true),
+  island: new THREE.CylinderGeometry(0.15, 0.16, 0.03, 18),
+};
+function culDeSac(mask: number, grade: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.y = y;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  add(culGeo.disc, roadDeco.asphalt, 0.047);
+  add(culGeo.ring, roadDeco.curb, 0.05);
+  add(culGeo.island, grade === 1 ? roadDeco.lawn : roadDeco.lawn, 0.066);
+  g.add(prop(PROPS.treeStreet, 0, 0, mask, 0.45));
+  // Yolun geldiği tarafta meydan yola açılsın: yolun ağzına asfalt
+  const d = [1, 2, 4, 8].indexOf(mask);
+  const open = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.012, 0.5), roadDeco.asphalt);
+  open.position.set(DIRS[d][0] * 0.25, 0.047, DIRS[d][1] * 0.25);
+  open.rotation.y = d % 2 ? Math.PI / 2 : 0;
+  g.add(open);
+  return g;
+}
+
+// Yükseltilmiş yolların kavşak ve dönemeçleri: caddede geniş asfalt ve yaya geçitleri, bulvarda tuğla köşeler ve çiçeklikler
+function junctionExtras(grade: number, mask: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rot = 0) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.rotation.y = rot;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+  const corners: [number, number][] = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+  if (grade === 2) {
+    add(new THREE.BoxGeometry(0.96, 0.01, 0.96), roadDeco.asphalt, 0, 0.047, 0);
+    for (let d = 0; d < 4; d++) {
+      const [dx, dz] = DIRS[d];
+      const rot = d % 2 ? Math.PI / 2 : 0;
+      if (mask & (1 << d)) {
+        // Bu yönde yol var: yaya geçidi
+        for (let k = 0; k < 6; k++) {
+          const s = -0.3 + k * 0.12;
+          add(roadDeco.geo.zebra, roadDeco.paint, dx * 0.4 + (d % 2 ? 0 : s), 0.0525, dz * 0.4 + (d % 2 ? s : 0), rot);
+        }
+      } else {
+        // Yol yok: kaldırım
+        add(new THREE.BoxGeometry(0.96, 0.014, 0.07), roadDeco.stone, dx * 0.465, 0.053, dz * 0.465, rot);
+      }
+    }
+    for (const [sx, sz] of corners) add(new THREE.BoxGeometry(0.07, 0.014, 0.07), roadDeco.stone, sx * 0.465, 0.053, sz * 0.465);
+  } else {
+    for (const [sx, sz] of corners) {
+      add(new THREE.BoxGeometry(0.12, 0.004, 0.12), roadDeco.brick, sx * 0.44, 0.053, sz * 0.44);
+      // Köşede çiçeklik
+      add(new THREE.CylinderGeometry(0.035, 0.03, 0.04, 10), roadDeco.brick, sx * 0.44, 0.075, sz * 0.44);
+      for (let k = 0; k < 3; k++) add(roadDeco.geo.flower, roadDeco.flowers[k + (sx > 0 ? 1 : 0)], sx * 0.44 + (k - 1) * 0.018, 0.1, sz * 0.44 + ((k % 2) - 0.5) * 0.015);
+    }
+    for (let d = 0; d < 4; d++) {
+      if (mask & (1 << d)) continue;
+      const [dx, dz] = DIRS[d];
+      add(roadDeco.geo.walk, roadDeco.brick, dx * 0.448, 0.052, dz * 0.448, d % 2 ? 0 : Math.PI / 2);
+    }
+  }
   return g;
 }
 
@@ -555,6 +659,92 @@ function starSign(level: number, k: number) {
   return g;
 }
 
+// İnşaat alanı: çit, iskele, (büyük binalarda) dönen vinç ve toz. n: kaç kare, h: binanın boyu
+const siteMats = {
+  scaffold: new THREE.MeshStandardMaterial({ color: '#d9a441', roughness: 0.6, metalness: 0.3 }),
+  fence: new THREE.MeshStandardMaterial({ color: '#ff8f00', roughness: 0.8 }),
+  white: new THREE.MeshStandardMaterial({ color: '#f5f5f5', roughness: 0.8 }),
+  crane: new THREE.MeshStandardMaterial({ color: '#fbc02d', roughness: 0.6 }),
+  net: new THREE.MeshStandardMaterial({ color: '#2e7d32', transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }),
+  dust: new THREE.MeshStandardMaterial({ color: '#d7ccc8', transparent: true, opacity: 0.6, depthWrite: false }),
+};
+function constructionSite(n: number, h: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    g.add(mesh);
+    return mesh;
+  };
+  const half = n * 0.47, H = Math.max(0.3, h + 0.08);
+  // Çit (turuncu-beyaz)
+  for (const s of [-1, 1]) {
+    add(new THREE.BoxGeometry(half * 2, 0.06, 0.015), s > 0 ? siteMats.fence : siteMats.white, 0, 0.03, s * half);
+    add(new THREE.BoxGeometry(0.015, 0.06, half * 2), s > 0 ? siteMats.white : siteMats.fence, s * half, 0.03, 0);
+  }
+  // İskele: köşe direkleri, kat kat yatay borular, yeşil file
+  const w = half * 0.9;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(new THREE.BoxGeometry(0.014, H, 0.014), siteMats.scaffold, sx * w, H / 2, sz * w);
+  for (let y = 0.15; y < H; y += 0.18) {
+    for (const s of [-1, 1]) {
+      add(new THREE.BoxGeometry(w * 2, 0.01, 0.01), siteMats.scaffold, 0, y, s * w);
+      add(new THREE.BoxGeometry(0.01, 0.01, w * 2), siteMats.scaffold, s * w, y, 0);
+    }
+  }
+  add(new THREE.PlaneGeometry(w * 2, H), siteMats.net, 0, H / 2, w);
+  add(new THREE.PlaneGeometry(w * 2, H), siteMats.net, 0, H / 2, -w).rotation.y = Math.PI;
+  // Vinç (yüksek ya da büyük binalarda)
+  if (h > 0.7 || n > 1) {
+    const ch = H + 0.45;
+    const cx = half + 0.08, cz = -half + 0.1;
+    add(new THREE.BoxGeometry(0.05, ch, 0.05), siteMats.crane, cx, ch / 2, cz);
+    const jib = new THREE.Group();
+    jib.position.set(cx, ch, cz);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(half * 2.4, 0.035, 0.035), siteMats.crane);
+    arm.position.x = -half * 0.8;
+    jib.add(arm);
+    const weight = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.07), siteMats.scaffold);
+    weight.position.x = half * 0.35;
+    jib.add(weight);
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.4, 4), siteMats.scaffold);
+    cable.position.set(-half * 1.4, -0.2, 0);
+    jib.add(cable);
+    g.add(jib);
+    g.userData.jib = jib;
+  }
+  // Toz bulutları
+  const dust: THREE.Mesh[] = [];
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2;
+    dust.push(add(new THREE.SphereGeometry(0.08 + (k % 2) * 0.04, 8, 6), siteMats.dust, Math.cos(a) * half * 0.8, 0.06, Math.sin(a) * half * 0.8));
+  }
+  g.userData.dust = dust;
+  return g;
+}
+
+// Yol önizlemesinin yarı saydam malzemeleri (asıl malzemenin kopyası)
+const ghostMats = new Map<string, THREE.Material>();
+function ghostify(obj: THREE.Object3D) {
+  obj.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const src = mesh.material as THREE.MeshStandardMaterial;
+    let m = ghostMats.get(src.uuid);
+    if (!m) {
+      const c = src.clone();
+      c.transparent = true;
+      c.opacity = 0.82;
+      c.depthWrite = false;
+      c.emissive = new THREE.Color('#2e7d32');
+      c.emissiveIntensity = 0.25;
+      ghostMats.set(src.uuid, (m = c));
+    }
+    mesh.material = m;
+    mesh.castShadow = false;
+  });
+  return obj;
+}
+
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
@@ -566,6 +756,9 @@ export class CityView {
   shadowDirty = true; // gölgeler yeniden çizilmeli mi
   private coverage: THREE.InstancedMesh;
   private pops: { obj: THREE.Object3D; t: number; i: number }[] = [];
+  // Yapılmakta olan binalar: iskele içinde yerden yükselir
+  private sites: { obj: THREE.Object3D; site: THREE.Group; t: number; i: number; scale: THREE.Vector3 }[] = [];
+  private ghost = new THREE.Group(); // yol çizerken önizleme
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
   private time = 0;
@@ -594,6 +787,7 @@ export class CityView {
     this.root.add(this.land);
     this.root.add(river());
     this.root.add(this.spans);
+    this.root.add(this.ghost);
   }
 
   // Satın alınmamış arazi parçalarını koyulaştır, satılık olanların ortasına "+" koy
@@ -852,8 +1046,50 @@ export class CityView {
       this.live.add(i);
     }
     if (animate) {
-      o.scale.setScalar(0.01);
-      this.pops.push({ obj: o, t: 0, i });
+      const building = t.kind !== 'road' && t.kind !== 'rail' && t.kind !== 'park' && !(isZone(t.kind) && t.level === 0);
+      if (building) {
+        // İnşaat: bina iskelenin içinde yerden yükselir
+        this.sites = this.sites.filter(s => {
+          if (s.i !== i) return true;
+          this.root.remove(s.site);
+          return false;
+        });
+        const box = new THREE.Box3().setFromObject(o);
+        const site = constructionSite(n, box.max.y);
+        site.position.copy(o.position);
+        site.scale.y = 0.01;
+        this.root.add(site);
+        this.sites.push({ obj: o, site, t: 0, i, scale: o.scale.clone() });
+        o.scale.y *= 0.02;
+      } else {
+        o.scale.setScalar(0.01);
+        this.pops.push({ obj: o, t: 0, i });
+      }
+    }
+  }
+
+  // Yol çizerken: çizilecek yolun parçaları yarı saydam görünür (grade: 0 yol, 1 bulvar, 2 cadde)
+  showRoadPreview(cells: number[], grade: number) {
+    this.ghost.clear();
+    if (!cells.length) return;
+    const set = new Set(cells);
+    const isRoadAt = (x: number, z: number) => inBounds(x, z) && (this.city.isRoad(x, z) || set.has(idx(x, z)));
+    for (const i of cells) {
+      const x = i % SIZE, z = Math.floor(i / SIZE);
+      let mask = 0;
+      DIRS.forEach(([dx, dz], d) => {
+        if (isRoadAt(x + dx, z + dz)) mask |= 1 << d;
+      });
+      const p = roadPiece(mask);
+      const g = new THREE.Group();
+      const r = makeModel(p.model);
+      r.rotation.y = (p.k * Math.PI) / 2;
+      g.add(r);
+      const straight = p.model === ROAD_BASES[0][0];
+      const alongX = straight && (mask & 0b1010) !== 0 && (mask & 0b0101) === 0;
+      if (grade && straight) g.add(roadExtras(grade, alongX, alongX ? x : z, false, 3));
+      g.position.copy(tileCenter(x, z)).setY(0.012);
+      this.ghost.add(ghostify(g));
     }
   }
 
@@ -886,8 +1122,10 @@ export class CityView {
         else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
       }
     } else if (p.model === 'kaykit/road_junction' || p.model === 'kaykit/road_tsplit') {
-      g.add(prop(PROPS.traffic, 0.45, 0.45, -Math.PI / 4));
+      g.add(signalPost(idx(x, z)));
     }
+    if (!straight && grade) g.add(junctionExtras(grade, mask));
+    if ([1, 2, 4, 8].includes(mask) && !(x === 0 && z === ENTRANCE_Z)) g.add(culDeSac(mask, grade));
     return g;
   }
 
@@ -1044,7 +1282,31 @@ export class CityView {
 
   update(dt: number) {
     this.time += dt;
-    // Yeni binalar "zıplayarak" ortaya çıksın; bitince bölgesiyle birleştirilsin
+    // İnşaat: iskele kurulur, bina yükselir, iskele sökülür (toz kalkar, vinç döner)
+    if (this.sites.length) this.shadowDirty = true;
+    this.sites = this.sites.filter(s => {
+      s.t = Math.min(1, s.t + dt / 2);
+      const e = (a: number, b: number) => THREE.MathUtils.smoothstep(s.t, a, b);
+      s.site.scale.y = Math.max(0.01, e(0, 0.15) * (1 - e(0.86, 1)));
+      s.obj.scale.set(s.scale.x, s.scale.y * Math.max(0.02, e(0.12, 0.85)), s.scale.z);
+      const jib = s.site.userData.jib as THREE.Object3D | undefined;
+      if (jib) jib.rotation.y = Math.sin(this.time * 0.8 + s.i) * 1.2;
+      (s.site.userData.dust as THREE.Mesh[]).forEach((d, k) => {
+        const p = (this.time * 0.9 + k * 0.37) % 1;
+        d.scale.setScalar(0.6 + p * 0.8);
+        d.position.y = 0.05 + p * 0.25;
+      });
+      if (s.t < 1) return true;
+      this.root.remove(s.site);
+      s.obj.scale.copy(s.scale);
+      if (this.objs.get(s.i) === s.obj && !needsLive(s.obj)) {
+        this.root.remove(s.obj);
+        this.live.delete(s.i);
+        this.dirty.add(this.chunkOf(s.i));
+      }
+      return false;
+    });
+    // Yeni yollar ve parklar "zıplayarak" ortaya çıksın; bitince bölgesiyle birleştirilsin
     if (this.pops.length) this.shadowDirty = true;
     this.pops = this.pops.filter(p => {
       p.t = Math.min(1, p.t + dt / 0.35);

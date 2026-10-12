@@ -109,7 +109,11 @@ export class CameraRig {
     this.turn = null;
     this.velocity.set(0, 0);
     if (e.pointerType === 'mouse') {
-      this.el.setPointerCapture(e.pointerId);
+      try {
+        this.el.setPointerCapture(e.pointerId);
+      } catch {
+        // bazı tarayıcılarda dokunuş yakalanamayabilir; sorun değil
+      }
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         this.rotating = { x: e.clientX, y: e.clientY };
         return;

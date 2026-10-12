@@ -348,13 +348,18 @@ function clockTower() {
     g.add(part(new THREE.BoxGeometry(0.16, 0.04, 0.16), mat('#5aa53c'), x, 0.06, z));
     for (let k = 0; k < 3; k++) g.add(part(new THREE.SphereGeometry(0.022, 6, 4), mat(k % 2 ? '#e53935' : '#fdd835'), x - 0.04 + k * 0.04, 0.09, z + (k - 1) * 0.03));
   }
-  g.add(part(new THREE.BoxGeometry(0.26, 0.1, 0.26), light, 0, 0.09, 0));
-  g.add(part(new THREE.BoxGeometry(0.18, 0.62, 0.18), stone, 0, 0.45, 0));
+  // Gerçek oranına yakın boy: yapı 1.6 kat büyütülür (zemin aynı kalır)
+  const tw = new THREE.Group();
+  tw.scale.setScalar(1.6);
+  tw.position.y = -0.024;
+  g.add(tw);
+  tw.add(part(new THREE.BoxGeometry(0.26, 0.1, 0.26), light, 0, 0.09, 0));
+  tw.add(part(new THREE.BoxGeometry(0.18, 0.62, 0.18), stone, 0, 0.45, 0));
   for (const s of [-1, 1]) {
-    g.add(part(new THREE.BoxGeometry(0.02, 0.6, 0.19), light, s * 0.08, 0.45, 0));
-    g.add(part(new THREE.BoxGeometry(0.19, 0.6, 0.02), light, 0, 0.45, s * 0.08));
+    tw.add(part(new THREE.BoxGeometry(0.02, 0.6, 0.19), light, s * 0.08, 0.45, 0));
+    tw.add(part(new THREE.BoxGeometry(0.19, 0.6, 0.02), light, 0, 0.45, s * 0.08));
   }
-  g.add(part(new THREE.BoxGeometry(0.22, 0.2, 0.22), light, 0, 0.86, 0));
+  tw.add(part(new THREE.BoxGeometry(0.22, 0.2, 0.22), light, 0, 0.86, 0));
   // Dört yüzde saat kadranı ve akrep-yelkovan
   const white = mat('#ffffff');
   const dark = mat('#2b2f36');
@@ -366,11 +371,11 @@ function clockTower() {
     const hour = part(new THREE.BoxGeometry(0.008, 0.04, 0.004), dark, 0.012, 0.86, 0.119);
     hour.rotation.z = -Math.PI / 2.5;
     face.add(hour);
-    g.add(face);
+    tw.add(face);
   }
-  g.add(part(new THREE.BoxGeometry(0.25, 0.03, 0.25), stone, 0, 0.975, 0));
-  g.add(part(new THREE.ConeGeometry(0.17, 0.3, 4).rotateY(Math.PI / 4), mat('#5d6d7e'), 0, 1.14, 0));
-  g.add(part(new THREE.SphereGeometry(0.025, 8, 6), mat('#e0b84c'), 0, 1.3, 0));
+  tw.add(part(new THREE.BoxGeometry(0.25, 0.03, 0.25), stone, 0, 0.975, 0));
+  tw.add(part(new THREE.ConeGeometry(0.17, 0.3, 4).rotateY(Math.PI / 4), mat('#5d6d7e'), 0, 1.14, 0));
+  tw.add(part(new THREE.SphereGeometry(0.025, 8, 6), mat('#e0b84c'), 0, 1.3, 0));
   // Banklar
   for (const [x, z, r] of [[0, 0.3, Math.PI], [0, -0.3, 0]] as [number, number, number][]) {
     const b = makeModel(PROPS.bench);
@@ -668,9 +673,9 @@ function mosque() {
     w.rotation.y = a;
     st.add(w);
   }
-  st.add(part(halfDome(0.175), MQ.dome, 0, 0.29, cz));
-  st.add(part(new THREE.CylinderGeometry(0.004, 0.006, 0.07, 6), MQ.gold, 0, 0.5, cz));
-  st.add(part(new THREE.SphereGeometry(0.012, 8, 6), MQ.gold, 0, 0.54, cz));
+  st.add(part(halfDome(0.2), MQ.dome, 0, 0.29, cz));
+  st.add(part(new THREE.CylinderGeometry(0.004, 0.006, 0.08, 6), MQ.gold, 0, 0.53, cz));
+  st.add(part(new THREE.SphereGeometry(0.013, 8, 6), MQ.gold, 0, 0.575, cz));
   // Köşe kubbeleri
   for (const dx of [-0.18, 0.18]) {
     for (const dz of [cz - 0.15, cz + 0.15]) {
@@ -707,13 +712,15 @@ function mosque() {
   for (const x of [-0.33, 0.33]) {
     const z = cz + 0.2;
     st.add(part(new THREE.BoxGeometry(0.06, 0.08, 0.06), MQ.stone, x, 0.04, z));
-    st.add(part(new THREE.CylinderGeometry(0.021, 0.025, 0.5, 12), MQ.stone, x, 0.33, z));
-    st.add(part(new THREE.CylinderGeometry(0.036, 0.026, 0.018, 12), MQ.stone, x, 0.48, z));
-    st.add(part(new THREE.CylinderGeometry(0.034, 0.034, 0.012, 12, 1, true), MQ.lamp, x, 0.495, z));
-    st.add(part(new THREE.CylinderGeometry(0.017, 0.02, 0.12, 12), MQ.stone, x, 0.55, z));
-    st.add(part(new THREE.CylinderGeometry(0.027, 0.02, 0.012, 12), MQ.stone, x, 0.615, z));
-    st.add(part(new THREE.ConeGeometry(0.022, 0.13, 12), MQ.dome, x, 0.685, z));
-    st.add(part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.04, 5), MQ.gold, x, 0.765, z));
+    st.add(part(new THREE.CylinderGeometry(0.022, 0.027, 1.0, 12), MQ.stone, x, 0.58, z));
+    for (const [y, r] of [[0.7, 0.036], [0.98, 0.034]]) {
+      st.add(part(new THREE.CylinderGeometry(r, 0.026, 0.018, 12), MQ.stone, x, y, z));
+      st.add(part(new THREE.CylinderGeometry(r - 0.002, r - 0.002, 0.012, 12, 1, true), MQ.lamp, x, y + 0.015, z));
+    }
+    st.add(part(new THREE.CylinderGeometry(0.017, 0.02, 0.14, 12), MQ.stone, x, 1.05, z));
+    st.add(part(new THREE.CylinderGeometry(0.027, 0.02, 0.012, 12), MQ.stone, x, 1.125, z));
+    st.add(part(new THREE.ConeGeometry(0.022, 0.16, 12), MQ.dome, x, 1.21, z));
+    st.add(part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.05, 5), MQ.gold, x, 1.31, z));
   }
   // Servi ağaçları
   for (const [x, z] of [[-0.42, 0.42], [0.42, 0.42], [-0.43, -0.42], [0.43, -0.42]] as [number, number][]) st.add(tree(PROPS.treeSmall, x, z, 2, x * 5, 0.6));
@@ -721,7 +728,87 @@ function mosque() {
   return g;
 }
 
+// --- Hayvanat bahçesi (3x3): üç bölme (zürafa, fil, aslan), gölet, ağaçlar, giriş kapısı; hayvanlar dolaşır ---
+function giraffe() {
+  const g = new THREE.Group();
+  const skin = mat('#e8b04a'), spot = mat('#9a5b2a');
+  for (const [x, z] of [[-0.012, -0.018], [0.012, -0.018], [-0.012, 0.018], [0.012, 0.018]]) g.add(part(new THREE.BoxGeometry(0.008, 0.06, 0.008), skin, x, 0.03, z));
+  g.add(part(new THREE.BoxGeometry(0.03, 0.03, 0.05), skin, 0, 0.07, 0));
+  const neck = part(new THREE.BoxGeometry(0.014, 0.08, 0.014), skin, 0, 0.115, 0.022);
+  neck.rotation.x = 0.35;
+  g.add(neck);
+  g.add(part(new THREE.BoxGeometry(0.016, 0.016, 0.03), skin, 0, 0.16, 0.042));
+  for (const [x, y, z] of [[0.016, 0.075, 0.01], [-0.016, 0.07, -0.012], [0.016, 0.065, -0.015]]) g.add(part(new THREE.BoxGeometry(0.001, 0.01, 0.01), spot, x, y, z));
+  return g;
+}
+function elephant() {
+  const g = new THREE.Group();
+  const skin = mat('#8f969e');
+  for (const [x, z] of [[-0.018, -0.024], [0.018, -0.024], [-0.018, 0.024], [0.018, 0.024]]) g.add(part(new THREE.CylinderGeometry(0.008, 0.009, 0.04, 6), skin, x, 0.02, z));
+  g.add(part(new THREE.SphereGeometry(0.035, 10, 8).scale(0.9, 0.8, 1.2), skin, 0, 0.065, 0));
+  g.add(part(new THREE.SphereGeometry(0.022, 8, 6), skin, 0, 0.075, 0.045));
+  for (const s of [-1, 1]) g.add(part(new THREE.BoxGeometry(0.004, 0.03, 0.025), skin, s * 0.022, 0.075, 0.04));
+  const trunk = part(new THREE.CylinderGeometry(0.004, 0.007, 0.045, 5), skin, 0, 0.045, 0.062);
+  trunk.rotation.x = 0.3;
+  g.add(trunk);
+  return g;
+}
+function lion() {
+  const g = new THREE.Group();
+  const fur = mat('#d9a441'), mane = mat('#8a4b1e');
+  for (const [x, z] of [[-0.01, -0.015], [0.01, -0.015], [-0.01, 0.015], [0.01, 0.015]]) g.add(part(new THREE.BoxGeometry(0.007, 0.022, 0.007), fur, x, 0.011, z));
+  g.add(part(new THREE.BoxGeometry(0.022, 0.02, 0.045), fur, 0, 0.03, 0));
+  g.add(part(new THREE.SphereGeometry(0.017, 8, 6), mane, 0, 0.04, 0.025));
+  g.add(part(new THREE.SphereGeometry(0.01, 8, 6), fur, 0, 0.04, 0.036));
+  return g;
+}
+function zoo() {
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#7cc35f'), 0, 0.01, 0));
+  // Yürüyüş yolları
+  st.add(part(new THREE.BoxGeometry(0.12, 0.022, 0.98), mat('#e3cf9c'), 0, 0.012, 0));
+  st.add(part(new THREE.BoxGeometry(0.98, 0.022, 0.1), mat('#e3cf9c'), 0, 0.012, 0.05));
+  // Bölmeler: [merkez x, z, yarı genişlik, yarı derinlik, zemin rengi]
+  const pens: [number, number, number, number, string][] = [[-0.27, -0.24, 0.2, 0.2, '#c9b46b'], [0.27, -0.24, 0.2, 0.2, '#8fc76a'], [-0.27, 0.32, 0.2, 0.14, '#d8c27e']];
+  const wood = mat('#8d6e4c');
+  for (const [cx, cz, w, d, ground] of pens) {
+    st.add(part(new THREE.BoxGeometry(w * 2, 0.024, d * 2), mat(ground), cx, 0.013, cz));
+    for (const s of [-1, 1]) {
+      st.add(part(new THREE.BoxGeometry(w * 2, 0.03, 0.006), wood, cx, 0.03, cz + s * d));
+      st.add(part(new THREE.BoxGeometry(0.006, 0.03, d * 2), wood, cx + s * w, 0.03, cz));
+    }
+  }
+  // Fil bölmesinde gölet
+  st.add(part(new THREE.CylinderGeometry(0.07, 0.07, 0.006, 18), mat('#4fb3e8'), 0.32, 0.027, -0.16));
+  // Ağaçlar ve kayalar
+  for (const [x, z] of [[-0.36, -0.36], [-0.15, -0.36], [0.4, -0.38], [0.38, 0.38], [0.15, 0.4], [-0.4, 0.42]] as [number, number][]) st.add(tree(PROPS.treeLarge, x, z, 3, x * 5, 0.75));
+  st.add(part(new THREE.IcosahedronGeometry(0.04, 0), mat('#a1998d'), -0.2, 0.03, 0.38));
+  // Giriş kapısı ve tabela
+  for (const s of [-1, 1]) st.add(part(new THREE.BoxGeometry(0.025, 0.12, 0.025), wood, s * 0.08, 0.07, 0.46));
+  st.add(part(new THREE.BoxGeometry(0.2, 0.04, 0.02), mat('#2e7d32'), 0, 0.14, 0.46));
+  st.add(part(new THREE.BoxGeometry(0.14, 0.02, 0.022), mat('#fdd835'), 0, 0.14, 0.462));
+  g.add(mergeStatic([st]));
+  // Hayvanlar: her biri kendi bölmesinde küçük bir daire çizerek dolaşır
+  const animals: { obj: THREE.Object3D; cx: number; cz: number; r: number; phase: number; speed: number }[] = [];
+  const addAnimal = (make: () => THREE.Group, cx: number, cz: number, r: number, k: number) => {
+    const holder = new THREE.Group();
+    holder.add(mergeStatic([make()]));
+    holder.scale.setScalar(1 / (3 * 0.96) * 2.4);
+    g.add(holder);
+    animals.push({ obj: holder, cx, cz, r, phase: k * 2.1, speed: 0.25 + (k % 3) * 0.08 });
+  };
+  addAnimal(giraffe, -0.27, -0.24, 0.1, 0);
+  addAnimal(giraffe, -0.25, -0.2, 0.07, 1);
+  addAnimal(elephant, 0.22, -0.28, 0.08, 2);
+  addAnimal(lion, -0.27, 0.32, 0.08, 3);
+  addAnimal(lion, -0.22, 0.3, 0.05, 4);
+  g.userData.animals = animals;
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'zoo') return zoo();
   if (kind in HISTORIC) return HISTORIC[kind as keyof typeof HISTORIC]();
   if (kind === 'mosque') return mosque();
   if (kind === 'lighthouse') return lighthouse();
@@ -753,6 +840,16 @@ export function animateDecor(obj: THREE.Object3D, dt: number) {
     beam.rotation.y += dt * 0.9;
     beamMat.opacity = (LH.lamp.emissiveIntensity / 2) * 0.22;
     beam.visible = beamMat.opacity > 0.01;
+  }
+  // Hayvanat bahçesindeki hayvanlar bölmelerinde dolaşır
+  const animals = obj.userData.animals as { obj: THREE.Object3D; cx: number; cz: number; r: number; phase: number; speed: number }[] | undefined;
+  if (animals) {
+    const t = (obj.userData.t = ((obj.userData.t as number | undefined) ?? 0) + dt);
+    for (const a of animals) {
+      const ang = t * a.speed + a.phase;
+      a.obj.position.set(a.cx + Math.cos(ang) * a.r, Math.abs(Math.sin(t * 6 + a.phase)) * 0.002, a.cz + Math.sin(ang) * a.r * 0.7);
+      a.obj.rotation.y = Math.atan2(-Math.sin(ang) * a.r, Math.cos(ang) * a.r * 0.7);
+    }
   }
   // Yatlar dalgada sallanır
   const bob = obj.userData.bob as { obj: THREE.Object3D; phase: number }[] | undefined;

@@ -29,6 +29,7 @@ import { makeModel, loadSkins } from './assets';
 import { buildSurroundings } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
+import { setSignalTime, updateSignals } from './signals';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
@@ -531,7 +532,11 @@ const input = new TileInput(renderer.domElement, camera, {
       const area = block(items[0].i % SIZE, Math.floor(items[0].i / SIZE), size) ?? [items[0].i];
       items = area.map(i => ({ i, ok: items[0].ok }));
     }
-    view.showPreview(items);
+    if (ROAD_TOOLS.includes(build)) {
+      // Yol: çizilecek yolun kendisi görünsün; olmayan yerler kırmızı
+      view.showRoadPreview(items.filter(c => c.ok).map(c => c.i), ROAD_TOOLS.indexOf(build));
+      view.showPreview(items.filter(c => !c.ok));
+    } else view.showPreview(items);
     const n = items.filter(c => c.ok).length;
     if (coverKind(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
     if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
@@ -543,6 +548,7 @@ const input = new TileInput(renderer.domElement, camera, {
   },
   commit(cells) {
     view.showPreview([]);
+    view.showRoadPreview([], 0);
     setChip(null);
     if (tool === 'pan') return;
     const res = city.apply(tool, cells);
@@ -561,6 +567,7 @@ const input = new TileInput(renderer.domElement, camera, {
   },
   cancel() {
     view.showPreview([]);
+    view.showRoadPreview([], 0);
     setChip(null);
     showCoverage();
   },
@@ -726,6 +733,8 @@ function frame() {
     renderer.shadowMap.needsUpdate = true;
   }
   adaptQuality(dt);
+  setSignalTime(clock.elapsedTime);
+  updateSignals();
   traffic.update(dt);
   walkers.update(dt, weather.amount);
   trains.update(dt);
@@ -791,7 +800,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -818,7 +827,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, open: openTile, pick: pickTool, refresh: afterChange } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, open: openTile, pick: pickTool, refresh: afterChange } });
   })
   .catch(err => {
     console.error(err);

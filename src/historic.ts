@@ -112,6 +112,7 @@ function eiffel() {
   const lamp = new THREE.MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffd27a', emissiveIntensity: 0 });
   lamp.name = 'lamp';
   g.add(part(new THREE.SphereGeometry(0.018, 8, 6), lamp, 0, 1.69, 0));
+  g.scale.y = 1.25; // daha uzun (en yüksek simge)
   return g;
 }
 
@@ -132,40 +133,45 @@ function liberty() {
     else star.moveTo(p[0], p[1]);
   }
   g.add(part(new THREE.ExtrudeGeometry(star, { depth: 0.08, bevelEnabled: false }).rotateX(-Math.PI / 2), granite, 0, 0.02, 0));
-  // Kaide
-  g.add(part(new THREE.BoxGeometry(0.3, 0.06, 0.3), stone, 0, 0.13, 0));
-  g.add(part(new THREE.CylinderGeometry(0.105, 0.14, 0.28, 4).rotateY(Math.PI / 4), stone, 0, 0.3, 0));
-  g.add(part(new THREE.BoxGeometry(0.18, 0.04, 0.18), stone, 0, 0.46, 0));
+// Gerçek oranına yakın boy: yapı 2 kat büyütülür (zemin aynı kalır)
+  const s = new THREE.Group();
+  s.scale.setScalar(2);
+  s.position.y = -0.1;
+  g.add(s);
+    // Kaide
+  s.add(part(new THREE.BoxGeometry(0.3, 0.06, 0.3), stone, 0, 0.13, 0));
+  s.add(part(new THREE.CylinderGeometry(0.105, 0.14, 0.28, 4).rotateY(Math.PI / 4), stone, 0, 0.3, 0));
+  s.add(part(new THREE.BoxGeometry(0.18, 0.04, 0.18), stone, 0, 0.46, 0));
   for (let k = 0; k < 4; k++) {
     const w = part(new THREE.BoxGeometry(0.03, 0.06, 0.005), mat('#9c9484'), 0, 0.33, 0);
     w.rotation.y = (k * Math.PI) / 2;
     w.translateZ(0.11);
-    g.add(w);
+    s.add(w);
   }
   // Heykel: uzun elbise, baş, taç, meşale tutan kol, tablet
   const robe = new THREE.LatheGeometry(
     [[0.07, 0], [0.065, 0.05], [0.055, 0.15], [0.05, 0.24], [0.042, 0.29], [0.02, 0.31], [0, 0.315]].map(([x, y]) => new THREE.Vector2(x, y)),
     12,
   );
-  g.add(part(robe, copper, 0, 0.48, 0));
-  g.add(part(new THREE.SphereGeometry(0.03, 10, 8), copper, 0, 0.82, 0.005));
+  s.add(part(robe, copper, 0, 0.48, 0));
+  s.add(part(new THREE.SphereGeometry(0.03, 10, 8), copper, 0, 0.82, 0.005));
   for (let k = 0; k < 7; k++) {
     const ray = part(new THREE.ConeGeometry(0.006, 0.05, 4), copper, 0, 0.845, 0);
     ray.rotation.set(-0.5 + (k / 6) * 1.0 - 0.0, 0, 0);
     ray.rotation.z = -0.9 + (k / 6) * 1.8;
     ray.translateY(0.03);
-    g.add(ray);
+    s.add(ray);
   }
   const arm = part(new THREE.CylinderGeometry(0.012, 0.015, 0.17, 6), copper, 0.04, 0.84, 0);
   arm.rotation.z = -0.25;
-  g.add(arm);
-  g.add(part(new THREE.CylinderGeometry(0.012, 0.008, 0.04, 6), mat('#c9a14a'), 0.062, 0.93, 0));
+  s.add(arm);
+  s.add(part(new THREE.CylinderGeometry(0.012, 0.008, 0.04, 6), mat('#c9a14a'), 0.062, 0.93, 0));
   const flame = new THREE.MeshStandardMaterial({ color: '#ffcf4a', emissive: '#ffb300', emissiveIntensity: 0.4 });
   flame.name = 'lamp';
-  g.add(part(new THREE.ConeGeometry(0.016, 0.045, 8), flame, 0.064, 0.97, 0));
+  s.add(part(new THREE.ConeGeometry(0.016, 0.045, 8), flame, 0.064, 0.97, 0));
   const tablet = part(new THREE.BoxGeometry(0.05, 0.07, 0.014), copper, -0.05, 0.69, 0.035);
   tablet.rotation.z = 0.3;
-  g.add(tablet);
+  s.add(tablet);
   return g;
 }
 
@@ -194,6 +200,7 @@ function pisa() {
     tower.add(part(new THREE.CylinderGeometry(0.008, 0.008, 0.09, 5), marble, Math.sin(a) * 0.11, top + 0.05, Math.cos(a) * 0.11));
   }
   tower.add(part(new THREE.CylinderGeometry(0.12, 0.12, 0.015, 18), marble, 0, top + 0.105, 0));
+  tower.scale.setScalar(2.3); // gerçek oranına yakın boy
   tower.rotation.z = 0.075; // meşhur eğiklik
   g.add(mergeStatic([tower]));
   return g;
@@ -206,29 +213,34 @@ function galata() {
   const dark = mat('#4b5563');
   const roof = mat('#55606e');
   g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cfc6b3'), 0, 0.01, 0));
-  g.add(part(new THREE.CylinderGeometry(0.2, 0.22, 0.08, 20), stone, 0, 0.06, 0));
-  g.add(part(new THREE.CylinderGeometry(0.17, 0.19, 0.72, 20), stone, 0, 0.46, 0));
+  // Gerçek oranına yakın boy: yapı 2.2 kat büyütülür (zemin aynı kalır)
+  const t = new THREE.Group();
+  t.scale.setScalar(2.2);
+  t.position.y = -0.024;
+  g.add(t);
+  t.add(part(new THREE.CylinderGeometry(0.2, 0.22, 0.08, 20), stone, 0, 0.06, 0));
+  t.add(part(new THREE.CylinderGeometry(0.17, 0.19, 0.72, 20), stone, 0, 0.46, 0));
   // Pencere sıraları
   for (let row = 0; row < 4; row++) {
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2 + row * 0.5;
       const w = part(new THREE.BoxGeometry(0.025, 0.045, 0.01), dark, Math.sin(a) * 0.182, 0.22 + row * 0.15, Math.cos(a) * 0.182);
       w.rotation.y = a;
-      g.add(w);
+      t.add(w);
     }
   }
   // Balkon: dışa taşan halka, korkuluk ve kemerli pencereler
-  g.add(part(new THREE.CylinderGeometry(0.22, 0.2, 0.03, 20), stone, 0, 0.84, 0));
-  g.add(part(new THREE.CylinderGeometry(0.215, 0.215, 0.03, 20, 1, true), dark, 0, 0.87, 0));
-  g.add(part(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 20), mat('#e0d3b8'), 0, 0.91, 0));
+  t.add(part(new THREE.CylinderGeometry(0.22, 0.2, 0.03, 20), stone, 0, 0.84, 0));
+  t.add(part(new THREE.CylinderGeometry(0.215, 0.215, 0.03, 20, 1, true), dark, 0, 0.87, 0));
+  t.add(part(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 20), mat('#e0d3b8'), 0, 0.91, 0));
   for (let k = 0; k < 10; k++) {
     const a = (k / 10) * Math.PI * 2;
     const w = part(new THREE.BoxGeometry(0.03, 0.07, 0.01), dark, Math.sin(a) * 0.162, 0.91, Math.cos(a) * 0.162);
     w.rotation.y = a;
-    g.add(w);
+    t.add(w);
   }
-  g.add(part(new THREE.ConeGeometry(0.175, 0.36, 20), roof, 0, 1.15, 0));
-  g.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 5), mat('#e0b84c'), 0, 1.36, 0));
+  t.add(part(new THREE.ConeGeometry(0.175, 0.36, 20), roof, 0, 1.15, 0));
+  t.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 5), mat('#e0b84c'), 0, 1.36, 0));
   return mergeStatic([g]);
 }
 
@@ -237,7 +249,7 @@ function colosseum() {
   const g = new THREE.Group();
   const travertine = mat('#e3d2ad');
   g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#d6cdb6'), 0, 0.01, 0));
-  const rx = 0.44, rz = 0.36, H = 0.24;
+  const rx = 0.44, rz = 0.36, H = 0.42;
   // Dış duvar: elips, güneydoğusu yıkık (daha alçak)
   const wall = new THREE.CylinderGeometry(1, 1, 1, 64, 4, true);
   const p = wall.attributes.position as THREE.BufferAttribute;
@@ -267,7 +279,7 @@ function colosseum() {
     const hole = new THREE.Path();
     hole.absellipse(0, 0, rx - 0.05 - (t + 0.2) * 0.12, rz - 0.05 - (t + 0.2) * 0.12, 0, Math.PI * 2, true, 0);
     ring.holes.push(hole);
-    st.add(part(new THREE.ExtrudeGeometry(ring, { depth: 0.02, bevelEnabled: false, curveSegments: 40 }).rotateX(-Math.PI / 2), k % 2 ? travertine : mat('#d7c49c'), 0, 0.16 - k * 0.025, 0));
+    st.add(part(new THREE.ExtrudeGeometry(ring, { depth: 0.02, bevelEnabled: false, curveSegments: 40 }).rotateX(-Math.PI / 2), k % 2 ? travertine : mat('#d7c49c'), 0, 0.3 - k * 0.05, 0));
   }
   // Arena: kum zemin ve altındaki odaların izleri
   const arena = new THREE.Shape();
@@ -286,9 +298,9 @@ function pyramid() {
   const colors = ['#d9b36c', '#cfa862'];
   for (let k = 0; k < steps; k++) {
     const w = 0.86 * (1 - k / steps);
-    g.add(part(new THREE.BoxGeometry(w, 0.042, w), mat(colors[k % 2]), 0, 0.02 + k * 0.042 + 0.021, 0));
+    g.add(part(new THREE.BoxGeometry(w, 0.06, w), mat(colors[k % 2]), 0, 0.02 + k * 0.06 + 0.03, 0));
   }
-  g.add(part(new THREE.ConeGeometry(0.05, 0.05, 4).rotateY(Math.PI / 4), mat('#e8c46a'), 0, 0.02 + steps * 0.042 + 0.025, 0));
+  g.add(part(new THREE.ConeGeometry(0.05, 0.07, 4).rotateY(Math.PI / 4), mat('#e8c46a'), 0, 0.02 + steps * 0.06 + 0.035, 0));
   // Giriş ve palmiye benzeri küçük ağaçlar yerine taş dikilitaş
   g.add(part(new THREE.BoxGeometry(0.08, 0.06, 0.02), mat('#5c4a33'), 0, 0.06, 0.43));
   for (const x of [-0.42, 0.42]) {
