@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import { SIZE, DAY_SECONDS, COST, TOOLS, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
-import { City, type SaveData } from './city';
+import { City } from './city';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
+import { Traffic } from './traffic';
+import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import { buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, fmt } from './ui';
@@ -20,6 +22,7 @@ container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd8f0');
+scene.fog = new THREE.Fog('#9fd8f0', 70, 150);
 
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 500);
 const start = tileCenter(8, ENTRANCE_Z);
@@ -42,11 +45,7 @@ Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: 
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
-// Çimen zemin: harita içi açık yeşil, dışı biraz koyu
-const outer = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: '#5f9e4a' }));
-outer.rotation.x = -Math.PI / 2;
-outer.position.y = -0.02;
-scene.add(outer);
+// Şehrin çimen zemini
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshStandardMaterial({ color: '#7cc05c' }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
@@ -62,8 +61,8 @@ function loadCity(): City {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
-      const data = JSON.parse(raw) as SaveData;
-      if (data?.v === 1) return City.load(data);
+      const data = JSON.parse(raw) as Parameters<typeof City.load>[0];
+      if (data?.v === 1 || data?.v === 2) return City.load(data);
     }
   } catch {
     // Kayıt okunamazsa yeni şehirle başla
@@ -82,6 +81,8 @@ function save() {
 let city = loadCity();
 const view = new CityView(city);
 scene.add(view.root);
+const traffic = new Traffic(city);
+scene.add(traffic.root);
 
 const updateStats = () => setStats(city.money, city.population, city.day, city.dailyIncome);
 
@@ -132,8 +133,8 @@ const input = new TileInput(renderer.domElement, camera, {
     }
     view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
-    if (tool === 'house' && res.done.some(i => !city.isConnected(i))) {
-      toast('Bu yol şehir girişine bağlı değil. Yolu soldaki girişe bağla!', 'error');
+    if ((tool === 'res' || tool === 'com') && res.done.some(i => !city.isConnected(i))) {
+      toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
     updateStats();
     save();
@@ -160,6 +161,7 @@ document.getElementById('reset')!.addEventListener('click', () => {
   if (!confirm('Şehrin tamamen silinip baştan başlansın mı?')) return;
   city = new City();
   view.setCity(city);
+  traffic.setCity(city);
   save();
   updateStats();
   toast('Yeni şehir kuruldu!');
@@ -195,9 +197,9 @@ function frame() {
   dayTimer += dt;
   if (dayTimer >= DAY_SECONDS) {
     dayTimer -= DAY_SECONDS;
-    const { income, grown } = city.nextDay();
-    if (grown.length) {
-      view.refresh(grown, true);
+    const { income, changed } = city.nextDay();
+    if (changed.length) {
+      view.refresh(changed, true);
       play('grow', 0.35);
     }
     floatIncome(income);
@@ -206,11 +208,13 @@ function frame() {
   }
 
   view.update(dt);
+  traffic.update(dt);
   renderer.render(scene, camera);
 }
 
 loadModels(ALL_MODELS)
   .then(() => {
+    scene.add(buildSurroundings());
     view.rebuildAll();
     updateStats();
     hideLoading();

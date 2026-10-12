@@ -1,15 +1,22 @@
 import * as THREE from 'three';
-import { SIZE, HOUSE_LEVELS, PARK_MODELS } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from './config';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
-  ['road-straight', 0b0101],
-  ['road-corner', 0b1100],
-  ['road-split', 0b1110],
-  ['road-intersection', 0b1111],
+  ['kenney/models/road-straight', 0b0101],
+  ['kenney/models/road-corner', 0b1100],
+  ['kenney/models/road-split', 0b1110],
+  ['kenney/models/road-intersection', 0b1111],
 ];
+
+// Boş arsaların zemin rengi
+const lotGeo = new THREE.BoxGeometry(0.92, 0.03, 0.92);
+const lotMats = {
+  res: new THREE.MeshStandardMaterial({ color: '#8fd46f' }),
+  com: new THREE.MeshStandardMaterial({ color: '#7cc3f2' }),
+};
 
 // Maskeyi k kere 90° döndür (three.js'te +90° doğuyu kuzeye çevirir)
 function rotateMask(m: number, k: number) {
@@ -27,7 +34,7 @@ for (const [model, base] of ROAD_BASES) {
 }
 
 function roadPiece(mask: number) {
-  return ROAD_TABLE.get(mask) ?? { model: 'road-straight', k: mask & 0b1010 ? 1 : 0 };
+  return ROAD_TABLE.get(mask) ?? { model: ROAD_BASES[0][0], k: mask & 0b1010 ? 1 : 0 };
 }
 
 // Binaların kapısı modelde güneye bakıyor; istenen yöne çevirmek için kaç tur
@@ -103,24 +110,24 @@ export class CityView {
     const t = this.city.tiles[i];
     if (!t) return;
     const x = i % SIZE, z = Math.floor(i / SIZE);
-    let name: string;
-    let turns = 0;
+    let o: THREE.Object3D;
     if (t.kind === 'road') {
       const p = roadPiece(this.city.roadMask(x, z));
-      name = p.model;
-      turns = p.k;
       // Bazı düz yollara sokak lambası koy
-      if (name === 'road-straight' && (x + z) % 4 === 0) name = 'road-straight-lightposts';
-    } else if (t.kind === 'house') {
-      name = HOUSE_LEVELS[t.level - 1].model;
-      turns = FACING_TURNS[t.facing];
+      const name = p.model === ROAD_BASES[0][0] && (x + z) % 4 === 0 ? 'kenney/models/road-straight-lightposts' : p.model;
+      o = makeModel(name);
+      o.rotation.y = (p.k * Math.PI) / 2;
+    } else if (t.kind === 'park') {
+      o = makeModel(PARK_MODELS[t.variant % PARK_MODELS.length]);
+    } else if (t.level === 0) {
+      o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
+      o.position.y = 0.015;
+      o.receiveShadow = true;
     } else {
-      name = PARK_MODELS[t.variant] ?? PARK_MODELS[0];
+      o = this.building(t.kind, t.level, t.variant, t.facing);
     }
 
-    const o = makeModel(name);
-    o.position.copy(tileCenter(x, z));
-    o.rotation.y = (turns * Math.PI) / 2;
+    o.position.add(tileCenter(x, z));
     if (animate) {
       o.scale.setScalar(0.01);
       this.pops.push({ obj: o, t: 0 });
@@ -129,11 +136,28 @@ export class CityView {
     this.objs.set(i, o);
   }
 
-  // Yola bağlı olmayan evlerin üstünde kırmızı ünlem göster
+  // Seviyeye göre bina: model, duvar rengi ve yön rastgele sayıdan seçilir
+  private building(kind: 'res' | 'com', level: number, variant: number, facing: number) {
+    const models = (kind === 'res' ? RES_LEVELS : COM_LEVELS)[level - 1].models;
+    const path = models[variant % models.length];
+    const group = new THREE.Group();
+    const isCity = path.startsWith('polypizza/');
+    const b = makeModel(path, isCity ? WALL_COLORS[Math.floor(variant / 7) % WALL_COLORS.length] : undefined);
+    b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
+    group.add(b);
+    // Ticari kit binalarının altına kaldırım koy
+    if (isCity) {
+      group.add(makeModel(PAVEMENT));
+      b.position.y = 0.06;
+    }
+    return group;
+  }
+
+  // Yola bağlı olmayan binaların üstünde kırmızı ünlem göster
   private updateWarnings() {
     const want = new Set<number>();
     this.city.tiles.forEach((t, i) => {
-      if (t?.kind === 'house' && !this.city.isConnected(i)) want.add(i);
+      if ((t?.kind === 'res' || t?.kind === 'com') && t.level > 0 && !this.city.isConnected(i)) want.add(i);
     });
     for (const [i, s] of this.warns) {
       if (!want.has(i)) {
