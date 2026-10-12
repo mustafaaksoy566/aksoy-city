@@ -4,6 +4,7 @@ import { part, windowMat, showcaseMat } from './utilities';
 import { makeModel } from './assets';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
+import { signMat } from './signs';
 import { carModel } from './cars';
 
 // Sanayi ve dükkanlar gökdelenler gibi ayrıntılı çizilir: testere dişi çatılı fabrika, depo, tabelalı dükkanlar
@@ -33,23 +34,6 @@ const add = (g: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material, x:
 // Kutu: y alt kenar
 const box = (g: THREE.Object3D, w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => add(g, new THREE.BoxGeometry(w, h, d), m, x, y + h / 2, z);
 
-// Yazılı tabela dokusu
-function signMat(text: string, bg: string, fg = '#ffffff') {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 64;
-  const x = c.getContext('2d')!;
-  x.fillStyle = bg;
-  x.fillRect(0, 0, 256, 64);
-  x.fillStyle = fg;
-  x.font = 'bold 34px Fredoka, Arial, sans-serif';
-  x.textAlign = 'center';
-  x.textBaseline = 'middle';
-  x.fillText(text, 128, 34);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 });
-}
 // Oluklu konteyner dokusu (rengi malzemeden)
 const ribTex = (() => {
   const c = document.createElement('canvas');

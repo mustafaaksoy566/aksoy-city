@@ -1,6 +1,6 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
-  SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
+  SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_KINDS, TAX_PER_PERSON,
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS, SHOPS,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
@@ -1130,7 +1130,7 @@ export class City {
       const side = tool === 'station' ? 'rail' : NEEDS_WATER.includes(tool) ? 'water' : 'road';
       this.tiles[i] = { kind: tool as Kind, level: 0, facing: this.facingFor(i, n, side), variant };
       if (n > 1) this.tiles[i]!.fp = n;
-      if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
+      if (tool === 'park') this.tiles[i]!.variant = variant % PARK_KINDS;
       for (const c of area) if (c !== i) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: i };
       done.push(...area);
     }

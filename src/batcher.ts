@@ -100,7 +100,7 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
       for (const g of geos) addMesh(g, mat);
     }
   }
-  out.matrixAutoUpdate = false;
+  // Dış grup taşınabilir, döndürülebilir ve büyütülebilir kalır (binalar bu grubu doğrudan döndürüp yerine koyar)
   return out;
 }
 

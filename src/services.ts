@@ -3,6 +3,7 @@ import type { ServiceKind } from './config';
 import { part } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
+import { signMat } from './signs';
 import { carModel } from './cars';
 
 // Hizmet binaları gökdelenler gibi ayrıntılı çizilir: karakol, itfaiye, hastane, okul ve belediye.
@@ -34,22 +35,6 @@ const add = (g: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material, x:
 };
 const box = (g: THREE.Object3D, w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => add(g, new THREE.BoxGeometry(w, h, d), m, x, y + h / 2, z);
 
-function signMat(text: string, bg: string, fg = '#ffffff') {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 64;
-  const x = c.getContext('2d')!;
-  x.fillStyle = bg;
-  x.fillRect(0, 0, 256, 64);
-  x.fillStyle = fg;
-  x.font = 'bold 34px Fredoka, Arial, sans-serif';
-  x.textAlign = 'center';
-  x.textBaseline = 'middle';
-  x.fillText(text, 128, 34);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 });
-}
 function tree(g: THREE.Object3D, x: number, z: number, s = 1) {
   add(g, new THREE.CylinderGeometry(0.01 * s, 0.014 * s, 0.1 * s, 6), pm('#6b4a33'), x, 0.07 * s, z);
   add(g, new THREE.IcosahedronGeometry(0.07 * s, 1), pm('#5aa845', 1), x, 0.16 * s, z);

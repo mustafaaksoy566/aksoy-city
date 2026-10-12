@@ -27,6 +27,7 @@ import { makeUtility } from './utilities';
 import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
+import { makePark } from './fun';
 import { makeModel, loadSkins } from './assets';
 import { buildSurroundings } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
@@ -943,7 +944,7 @@ function makeMenuPictures() {
     ['rail', railPiece(0b0110)],
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
-    ['park', makeModel('kenney/models/grass-trees-tall')],
+    ['park', makePark(0, 0.3)],
     ['hall', makeHall()],
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
+import { makePark } from './fun';
 import { SIGNAL_MATS, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
@@ -10,7 +11,7 @@ import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
-  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.beam || o.userData.bob || o.userData.animals || o.getObjectByName('flames'));
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.drop || o.userData.swing || o.userData.spray || o.userData.beam || o.userData.bob || o.userData.animals || o.getObjectByName('flames'));
 import { makeModel, ROAD_COLORS } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -441,55 +442,9 @@ function flames() {
   return g;
 }
 
-// Park: çim zemin, yürüyüş yolu, banklar, ağaçlar; çeşide göre çeşme ya da gölet
-const parkMats = {
-  lawn: new THREE.MeshStandardMaterial({ color: '#6cc35a' }),
-  path: new THREE.MeshStandardMaterial({ color: '#e6d8b8' }),
-  water: new THREE.MeshStandardMaterial({ color: '#4fb3e8', roughness: 0.2 }),
-};
-const parkGeo = {
-  lawn: new THREE.BoxGeometry(0.98, 0.03, 0.98),
-  pathX: new THREE.BoxGeometry(0.98, 0.012, 0.16),
-  pathZ: new THREE.BoxGeometry(0.16, 0.012, 0.98),
-  pond: new THREE.CylinderGeometry(0.2, 0.2, 0.012, 20),
-};
+// Park: çardaklı bahçe, göletli park ya da oyun parkı (fun.ts)
 function park(variant: number, x: number, z: number) {
-  const g = new THREE.Group();
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number, px = 0, pz = 0) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(px, y, pz);
-    mesh.receiveShadow = true;
-    g.add(mesh);
-  };
-  add(parkGeo.lawn, parkMats.lawn, 0.015);
-  const type = variant % 3;
-  if (type === 0) {
-    // Çapraz yollar, köşelerde ağaç
-    add(parkGeo.pathX, parkMats.path, 0.035);
-    add(parkGeo.pathZ, parkMats.path, 0.035);
-    for (const [dx, dz] of [[-0.3, -0.3], [0.3, 0.3]]) g.add(prop(PROPS.treeLarge, dx, dz, hash(x, z, dx)));
-    for (const [dx, dz] of [[0.3, -0.3], [-0.3, 0.3]]) g.add(prop(PROPS.treeSmall, dx, dz, hash(x, z, dz)));
-    g.add(prop(PROPS.bench, 0.2, 0.13, Math.PI));
-    g.add(prop(PROPS.bench, -0.2, -0.13));
-  } else if (type === 1) {
-    // Gölet ve etrafında banklar
-    add(parkGeo.pathX, parkMats.path, 0.035, 0, 0.36);
-    add(parkGeo.pond, parkMats.water, 0.035, 0, -0.05);
-    g.add(prop(PROPS.bench, -0.2, 0.26));
-    g.add(prop(PROPS.bench, 0.2, 0.26));
-    g.add(prop(PROPS.treeLarge, -0.36, -0.34, 1));
-    g.add(prop(PROPS.treeSmall, 0.36, -0.36, 2));
-    g.add(prop(PROPS.bush, 0.38, 0.05));
-    g.add(prop(PROPS.bush, -0.38, 0.05));
-  } else {
-    // Ortada çeşme
-    g.add(makeModel(PARK_MODELS[2]));
-    g.add(prop(PROPS.treeSmall, -0.36, -0.36, 1, 0.9));
-    g.add(prop(PROPS.treeSmall, 0.36, 0.36, 2, 0.9));
-    g.add(prop(PROPS.bush, 0.36, -0.36));
-    g.add(prop(PROPS.bush, -0.36, 0.36));
-  }
-  return g;
+  return makePark(variant, hash(x, z, 9));
 }
 
 // Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
@@ -897,6 +852,7 @@ export class CityView {
       }
       if (list.length) {
         const g = mergeStatic(list);
+        g.matrixAutoUpdate = false; // bölge hiç kıpırdamaz
         this.root.add(g);
         this.chunks.set(c, g);
       }

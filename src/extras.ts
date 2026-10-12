@@ -177,25 +177,3 @@ export function casino() {
   }
   return mergeStatic([st]);
 }
-
-// --- Gözlemevi: beyaz kubbe ve yarığından uzanan teleskop, yanında uydu çanağı ---
-export function observatory() {
-  const st = new THREE.Group();
-  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cfd3d8'), 0, 0.01, 0));
-  st.add(part(new THREE.CylinderGeometry(0.3, 0.32, 0.2, 24), mat('#eceff1'), -0.12, 0.12, -0.08));
-  st.add(part(new THREE.SphereGeometry(0.3, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat('#f5f7f9'), -0.12, 0.22, -0.08));
-  st.add(part(new THREE.BoxGeometry(0.08, 0.3, 0.32), mat('#37474f'), -0.12, 0.33, 0.0).rotateX(-0.5));
-  const scope = part(new THREE.CylinderGeometry(0.03, 0.04, 0.3, 10), mat('#90a4ae'), -0.12, 0.42, 0.06);
-  scope.rotation.x = 0.9;
-  st.add(scope);
-  // Uydu çanağı
-  st.add(part(new THREE.CylinderGeometry(0.02, 0.03, 0.2, 8), mat('#b0bec5'), 0.3, 0.12, 0.25));
-  const dish = part(new THREE.SphereGeometry(0.13, 16, 8, 0, Math.PI * 2, 0, Math.PI / 3), mat('#fafafa'), 0.3, 0.3, 0.25);
-  dish.rotation.x = -2.2;
-  st.add(dish);
-  // Giriş binası ve çimler
-  st.add(part(new THREE.BoxGeometry(0.3, 0.12, 0.2), mat('#e0e0e0'), 0.25, 0.08, -0.3));
-  st.add(part(new THREE.BoxGeometry(0.2, 0.06, 0.012), new THREE.MeshStandardMaterial({ color: '#9fd0ee' }), 0.25, 0.08, -0.195));
-  st.add(part(new THREE.BoxGeometry(0.3, 0.02, 0.25), mat('#6cbd55'), 0.25, 0.02, 0.0));
-  return mergeStatic([st]);
-}

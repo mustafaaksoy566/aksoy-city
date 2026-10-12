@@ -428,7 +428,7 @@ export const JOBS_PER_PERSON = 0.5; // iş yeri sayısı nüfusun yarısını ge
 export const BUILD_CHANCE = 0.35; // boş arsaya bir günde bina yapılma şansı
 export const GROW_CHANCE = 0.08; // bir binanın bir günde büyüme şansı
 
-export const PARK_MODELS = [k('grass-trees'), k('grass-trees-tall'), k('pavement-fountain')];
+export const PARK_KINDS = 3; // park çeşidi: çardaklı bahçe, göletli park, oyun parkı (fun.ts)
 export const BASE = kk('base'); // KayKit kaldırım karesi
 
 export const ROAD_MODELS = ['road_straight', 'road_straight_crossing', 'road_corner_curved', 'road_tsplit', 'road_junction'].map(kk);
@@ -490,14 +490,11 @@ export const PROPS = {
   firetruck: kc('firetruck'),
 };
 
-export const DECOR_MODELS: Partial<Record<DecorKind, string>> = { fountain: x('q-town-center-1'), statue: x('q-horse-statue') };
-
 export const ALL_MODELS = [
   ...new Set([
     ...ROAD_MODELS,
     ...RES_LEVELS.flatMap(l => l.models),
     ...COM_LEVELS.flatMap(l => l.models),
-    ...PARK_MODELS,
     BASE,
     ...CAR_MODELS,
     ...Object.values(PROPS),
@@ -506,6 +503,5 @@ export const ALL_MODELS = [
     TRAIN_MODELS.mid,
     ...INDUSTRY_MODELS.factory,
     ...INDUSTRY_MODELS.depot,
-    ...(Object.values(DECOR_MODELS) as string[]),
   ]),
 ];
