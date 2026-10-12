@@ -5,7 +5,7 @@ import {
   SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
   type Tool, type BuildTool, type MatId,
 } from './config';
-import { City, isUtility, isService, isIndustry, serviceArea } from './city';
+import { City, isUtility, isService, isIndustry, isDecor, serviceArea, sizeOf, block } from './city';
 import { describeTile, describeStorage, describeQuests, describeHall, type CardActions } from './info';
 import { questDone } from './quests';
 import { loadModels } from './assets';
@@ -324,7 +324,7 @@ function applyControls() {
 function showCoverage(candidate?: number) {
   if (!isService(tool)) return view.showCoverage([], '#fff');
   const cells = new Set(city.coverageOf(tool));
-  if (candidate !== undefined) for (const c of serviceArea(candidate, tool)) cells.add(c);
+  if (candidate !== undefined) for (const c of serviceArea(candidate, tool, sizeOf(tool))) cells.add(c);
   view.showCoverage([...cells], SERVICES[tool].color);
 }
 
@@ -360,11 +360,20 @@ const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
   preview(cells) {
     if (tool === 'pan') return;
-    const items = cells.map(i => ({ i, ok: city.check(tool as Exclude<Tool, 'pan'>, i % SIZE, Math.floor(i / SIZE)) === null }));
+    const build = tool as Exclude<Tool, 'pan'>;
+    let items = cells.map(i => ({ i, ok: city.check(build, i % SIZE, Math.floor(i / SIZE)) === null }));
+    // Büyük binalarda kaplayacağı bütün alanı göster
+    const size = sizeOf(build);
+    if (size > 1 && items.length === 1) {
+      const area = block(items[0].i % SIZE, Math.floor(items[0].i / SIZE), size) ?? [items[0].i];
+      items = area.map(i => ({ i, ok: items[0].ok }));
+    }
     view.showPreview(items);
     const n = items.filter(c => c.ok).length;
-    if (isService(tool)) showCoverage(items[0]?.ok ? items[0].i : undefined);
-    if (cells.length > 1 || isUtility(tool) || isService(tool) || isIndustry(tool)) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
+    if (isService(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
+    if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
+      setChip(`${TOOL_INFO[tool].label} · 💰${fmt(COST[tool])}${size > 1 ? ` · ${size}x${size} kare` : ''}`);
+    } else if (cells.length > 1) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
   },
   commit(cells) {
     view.showPreview([]);

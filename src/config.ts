@@ -131,6 +131,11 @@ export const COST: Record<BuildTool, number> = {
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000,
 };
 
+// Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
+export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3,
+};
+
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
 export const UNLOCK: Partial<Record<BuildTool, number>> = {
   com: 2, depot: 2, police: 2,

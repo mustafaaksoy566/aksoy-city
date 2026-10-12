@@ -81,8 +81,10 @@ function hospital() {
   g.add(part(box(0.3, 0.03, 0.16), M.cross, 0, 0.16, 0.22));
   for (const x of [-0.13, 0.13]) g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.12, 6), M.steel, x, 0.1, 0.28));
   // Önde park etmiş ambulans
+  // Hastane 2x2 büyütülerek çizildiği için ambulans yarı boyutta eklenir (sonunda normal araba boyunda görünür)
   const amb = makeModel('kenney-cars/ambulance');
-  amb.position.set(-0.28, 0.06, 0.32);
+  amb.scale.multiplyScalar(0.55);
+  amb.position.set(-0.3, 0.04, 0.36);
   amb.rotation.y = Math.PI / 2;
   g.add(amb);
   // Çatıda helikopter pisti

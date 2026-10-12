@@ -3,13 +3,14 @@ import {
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
-  HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX,
+  HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
 
-export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | UtilKind | ServiceKind | IndustryKind | DecorKind;
+// 'part': büyük bir binanın ana kare dışındaki kareleri (variant = ana karenin numarası)
+export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | 'part' | UtilKind | ServiceKind | IndustryKind | DecorKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
@@ -18,6 +19,7 @@ export interface Tile {
   locked?: boolean;
   fire?: number; // kaç gündür yanıyor
   damaged?: boolean; // depremde hasar gördü
+  fp?: number; // büyük binalarda kenar uzunluğu (2 = 2x2 kare)
 }
 
 // Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
@@ -42,14 +44,14 @@ export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k &&
 export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
 export const isIndustry = (k: Kind | string | undefined): k is IndustryKind => !!k && k in INDUSTRY;
 export const isDecor = (k: Kind | string | undefined): k is DecorKind => !!k && k in DECOR;
-const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS, ...DECOR_KINDS];
+const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', 'part', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS, ...DECOR_KINDS];
 
-// Daire şeklinde bir alanın kareleri (hizmet ve simge yapılar için)
-export function areaAround(i: number, r: number): number[] {
-  const x0 = i % SIZE, z0 = Math.floor(i / SIZE);
+// Daire şeklinde bir alanın kareleri (hizmet ve simge yapılar için); n = binanın kenar uzunluğu
+export function areaAround(i: number, r: number, n = 1): number[] {
+  const x0 = (i % SIZE) + (n - 1) / 2, z0 = Math.floor(i / SIZE) + (n - 1) / 2;
   const out: number[] = [];
-  for (let z = z0 - r; z <= z0 + r; z++) {
-    for (let x = x0 - r; x <= x0 + r; x++) {
+  for (let z = Math.ceil(z0 - r); z <= z0 + r; z++) {
+    for (let x = Math.ceil(x0 - r); x <= x0 + r; x++) {
       if (inBounds(x, z) && (x - x0) ** 2 + (z - z0) ** 2 <= r * r + r) out.push(idx(x, z));
     }
   }
@@ -57,15 +59,17 @@ export function areaAround(i: number, r: number): number[] {
 }
 
 // Bir hizmet binasının kapsadığı kareler (daire şeklinde)
-export function serviceArea(i: number, kind: ServiceKind): number[] {
-  const r = SERVICES[kind].radius;
-  const x0 = i % SIZE, z0 = Math.floor(i / SIZE);
+export function serviceArea(i: number, kind: ServiceKind, n = 1): number[] {
+  return areaAround(i, SERVICES[kind].radius, n);
+}
+
+export const sizeOf = (tool: BuildTool | Kind) => FOOTPRINT[tool as BuildTool] ?? 1;
+
+// Sol üst köşesi (x, z) olan n x n alanın kareleri (harita dışına taşarsa null)
+export function block(x: number, z: number, n: number): number[] | null {
+  if (!inBounds(x, z) || !inBounds(x + n - 1, z + n - 1)) return null;
   const out: number[] = [];
-  for (let z = z0 - r; z <= z0 + r; z++) {
-    for (let x = x0 - r; x <= x0 + r; x++) {
-      if (inBounds(x, z) && (x - x0) ** 2 + (z - z0) ** 2 <= r * r + r) out.push(idx(x, z));
-    }
-  }
+  for (let dz = 0; dz < n; dz++) for (let dx = 0; dx < n; dx++) out.push(idx(x + dx, z + dz));
   return out;
 }
 
@@ -73,7 +77,7 @@ const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.le
 const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Record<MatId, number>;
 
 // [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?]
-type TileRow = [number, Kind, number, number, number, number?, number?];
+type TileRow = [number, Kind, number, number, number, number?, number?, number?];
 export interface SaveData {
   v: 5;
   sz: number; // harita boyutu
@@ -286,7 +290,7 @@ export class City {
       const seen = new Uint8Array(SIZE * SIZE);
       this.tiles.forEach((t, i) => {
         if (t?.kind !== kind) return;
-        for (const c of areaAround(i, DECOR[kind].radius)) seen[c] = 1;
+        for (const c of areaAround(i, DECOR[kind].radius, t.fp ?? 1)) seen[c] = 1;
       });
       seen.forEach((v, c) => v && (decor[c] += DECOR[kind].happy));
     }
@@ -321,7 +325,7 @@ export class City {
     this.tiles.forEach((t, i) => {
       if (!t || !isService(t.kind) || !this.isConnected(i)) return;
       const bit = 1 << SERVICE_KINDS.indexOf(t.kind);
-      for (const c of serviceArea(i, t.kind)) this.covered[c] |= bit;
+      for (const c of serviceArea(i, t.kind, t.fp ?? 1)) this.covered[c] |= bit;
     });
   }
 
@@ -395,10 +399,26 @@ export class City {
     );
   }
 
-  // Bu karenin yanında girişe bağlı bir yol var mı?
+  // Büyük binanın bir karesine dokunulursa ana kare
+  anchorOf(i: number) {
+    const t = this.tiles[i];
+    return t?.kind === 'part' ? t.variant : i;
+  }
+
+  // Bir binanın kapladığı bütün kareler
+  cellsOf(i: number) {
+    const a = this.anchorOf(i);
+    const n = this.tiles[a]?.fp ?? 1;
+    return n === 1 ? [a] : block(a % SIZE, Math.floor(a / SIZE), n) ?? [a];
+  }
+
+  // Bu binanın (büyükse herhangi bir karesinin) yanında girişe bağlı bir yol var mı?
   isConnected(i: number) {
-    const x = i % SIZE, z = Math.floor(i / SIZE);
-    return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && this.reach.has(idx(x + dx, z + dz)));
+    for (const c of this.cellsOf(i)) {
+      const x = c % SIZE, z = Math.floor(c / SIZE);
+      if (DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && this.reach.has(idx(x + dx, z + dz)))) return true;
+    }
+    return false;
   }
 
   // Bina yola bağlı, elektriği, suyu var, yanmıyor ve hasarsız mı?
@@ -638,29 +658,42 @@ export class City {
     const t = this.get(x, z);
     if (tool === 'bulldoze') {
       if (!t) return 'Burada yıkılacak bir şey yok';
-      return t.locked ? 'Şehir girişi yıkılamaz' : null;
+      return this.tiles[this.anchorOf(idx(x, z))]?.locked ? 'Şehir girişi yıkılamaz' : null;
     }
     if (!this.isUnlocked(tool)) return `Şehir seviyesi ${this.unlockLevel(tool)}'te açılır`;
-    if (inBounds(x, z) && !this.isOwned(idx(x, z))) return 'Bu arazi henüz senin değil';
-    if (t) return 'Burası dolu';
+    const n = sizeOf(tool);
+    const cells = block(x, z, n);
+    if (!cells) return 'Harita dışına taşıyor';
+    if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
+    if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
+    const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
     if (tool === 'res' || tool === 'com') {
-      if (this.roadMask(x, z) === 0) return 'Bölgeler yol kenarına çizilmeli';
-    } else if ((isUtility(tool) || isService(tool) || isIndustry(tool)) && this.roadMask(x, z) === 0) {
+      if (!nearRoad) return 'Bölgeler yol kenarına çizilmeli';
+    } else if ((isUtility(tool) || isService(tool) || isIndustry(tool)) && !nearRoad) {
       return 'Bu yapı yol kenarına kurulmalı';
     }
     return null;
   }
 
-  private facingFor(i: number) {
-    const m = this.roadMask(i % SIZE, Math.floor(i / SIZE));
-    // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin
-    return [2, 1, 3, 0].find(d => m & (1 << d)) ?? 2;
+  // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin. n = binanın kenar uzunluğu
+  private facingFor(i: number, n = 1) {
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const side = (d: number) => {
+      for (let k = 0; k < n; k++) {
+        const [cx, cz] = d === 0 ? [x + k, z - 1] : d === 1 ? [x + n, z + k] : d === 2 ? [x + k, z + n] : [x - 1, z + k];
+        if (this.isRoad(cx, cz)) return true;
+      }
+      return false;
+    };
+    return [2, 1, 3, 0].find(side) ?? 2;
   }
 
   // Seçilen karelere uygula. Yapılan kareleri ya da hata mesajını döndürür.
   apply(tool: BuildTool, cells: number[]): { done: number[]; error: string | null } {
     let firstError: string | null = null;
-    const ok = cells.filter(i => {
+    // Yıkarken büyük binanın herhangi bir karesi bütün binayı yıkar
+    const targets = tool === 'bulldoze' ? [...new Set(cells.map(i => (this.tiles[i] ? this.anchorOf(i) : i)))] : cells;
+    const ok = targets.filter(i => {
       const err = this.check(tool, i % SIZE, Math.floor(i / SIZE));
       firstError ??= err;
       return err === null;
@@ -669,18 +702,28 @@ export class City {
     const cost = ok.length * COST[tool];
     if (cost > this.money) return { done: [], error: 'Yeterli para yok' };
 
+    const done: number[] = [];
+    const n = sizeOf(tool);
     for (const i of ok) {
-      this.jobs.delete(i);
-      if (tool === 'bulldoze') this.tiles[i] = null;
-      else {
-        const variant = Math.floor(Math.random() * 1000);
-        this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i), variant };
-        if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
+      if (tool === 'bulldoze') {
+        for (const c of this.cellsOf(i)) {
+          this.jobs.delete(c);
+          this.tiles[c] = null;
+          done.push(c);
+        }
+        continue;
       }
+      const variant = Math.floor(Math.random() * 1000);
+      const area = block(i % SIZE, Math.floor(i / SIZE), n)!;
+      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n), variant };
+      if (n > 1) this.tiles[i]!.fp = n;
+      if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
+      for (const c of area) if (c !== i) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: i };
+      done.push(...area);
     }
     this.money -= cost;
     this.refresh();
-    return { done: ok, error: null };
+    return { done, error: null };
   }
 
   // Bir gün geçer: vergi belediyede birikir, bakım ödenir, arsalara bina yapılır, dükkanlar büyür,
@@ -778,7 +821,7 @@ export class City {
     this.tiles.forEach((tile, i) => {
       if (!tile || (tile.locked && tile.kind === 'road')) return;
       const row: TileRow = [i, tile.kind, tile.level, tile.facing, tile.variant];
-      if (tile.fire || tile.damaged) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0);
+      if (tile.fire || tile.damaged || tile.fp) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
       t.push(row);
     });
     const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => [job.mat, job.end] as [MatId, number])]);
@@ -812,8 +855,10 @@ export class City {
       c.owned.fill(0);
       for (const p of data.own) if (p >= 0 && p < c.owned.length) c.owned[p] = 1;
     }
-    for (const [oldI, rawKind, rawLevel, facing, variant, fire, damaged] of data.t as TileRow[]) {
+    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp] of data.t as TileRow[]) {
       const i = move(oldI);
+      // Büyük binanın parçaları ana karenin numarasını tutar; o da taşınmalı
+      const variant = rawKind === 'part' ? move(rawVariant) : rawVariant;
       let kind = rawKind as Kind;
       let level = rawLevel;
       if (data.v === 1 && (rawKind as string) === 'house') {
@@ -826,6 +871,7 @@ export class City {
         if (kind === 'hall') c.tiles[i]!.locked = true;
         if (fire) c.tiles[i]!.fire = fire;
         if (damaged) c.tiles[i]!.damaged = true;
+        if (fp && fp > 1) c.tiles[i]!.fp = fp;
       }
     }
     if (data.v >= 3) {

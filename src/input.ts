@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { SIZE, type Tool } from './config';
-import { idx, isService, isUtility } from './city';
+import { idx, isService, isUtility, isIndustry, isDecor } from './city';
 
 interface Handlers {
   tool(): Tool;
@@ -47,7 +47,7 @@ export class TileInput {
     const out: number[] = [];
     const tool = this.h.tool();
     // Hizmet ve altyapı binaları tek tek yerleşir
-    if (isService(tool) || isUtility(tool)) return [idx(ex, ez)];
+    if (isService(tool) || isUtility(tool) || isIndustry(tool) || isDecor(tool)) return [idx(ex, ez)];
     if (tool === 'road') {
       if (Math.abs(ex - sx) >= Math.abs(ez - sz)) {
         const step = ex >= sx ? 1 : -1;

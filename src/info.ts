@@ -117,6 +117,7 @@ export function describeStorage(city: City): InfoCard {
 }
 
 export function describeTile(city: City, i: number, act: CardActions, now = Date.now()): InfoCard | null {
+  if (city.tiles[i]?.kind === 'part') return describeTile(city, city.anchorOf(i), act, now);
   const t = city.tiles[i];
   if (!city.isOwned(i) && t?.kind !== 'road') return describeLand(city, city.plotOf(i), act);
   if (!t || t.kind === 'road') return null;
@@ -229,7 +230,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   if (isService(t.kind)) {
     const s = SERVICES[t.kind];
     const info = TOOL_INFO[t.kind];
-    const homes = serviceArea(i, t.kind).filter(c => city.tiles[c]?.kind === 'res' && city.tiles[c]!.level > 0).length;
+    const homes = serviceArea(i, t.kind, t.fp ?? 1).filter(c => city.tiles[c]?.kind === 'res' && city.tiles[c]!.level > 0).length;
     return {
       title: `${info.icon} ${info.label}`,
       lines: [

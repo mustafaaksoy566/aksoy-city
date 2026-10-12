@@ -367,7 +367,7 @@ export class CityView {
   private build(i: number, animate: boolean) {
     this.remove(i);
     const t = this.city.tiles[i];
-    if (!t) return;
+    if (!t || t.kind === 'part') return; // büyük binaların diğer kareleri ana karede çizilir
     const x = i % SIZE, z = Math.floor(i / SIZE);
     let o: THREE.Object3D;
     if (t.kind === 'road') {
@@ -417,7 +417,16 @@ export class CityView {
       if (t.damaged) o.children[0].rotation.z = 0.08;
     }
 
-    o.position.add(tileCenter(x, z));
+    // Büyük binalar: modeli büyüt ve kapladığı alanın ortasına koy
+    const n = t.fp ?? 1;
+    if (n > 1) {
+      const wrap = new THREE.Group();
+      o.scale.multiplyScalar(n * 0.96);
+      wrap.add(o);
+      wrap.userData = o.userData;
+      o = wrap;
+    }
+    o.position.add(tileCenter(x + (n - 1) / 2, z + (n - 1) / 2));
     this.objs.set(i, o);
     this.dirty.add(this.chunkOf(i));
     const moving = needsLive(o);
