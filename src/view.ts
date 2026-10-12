@@ -790,6 +790,7 @@ function ghostify(obj: THREE.Object3D) {
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
+  private tall = new Map<number, { x: number; z: number; half: number; top: number }>(); // yüksek binalar (kamera için)
   private icons = new Map<string, THREE.Sprite>();
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
   private live = new Set<number>(); // ayrı çizilen kareler
@@ -1039,7 +1040,18 @@ export class CityView {
     }
     this.animated.delete(old);
     this.objs.delete(i);
+    this.tall.delete(i);
     this.dirty.add(this.chunkOf(i));
+  }
+
+  // Bu noktanın yakınındaki en yüksek binanın tepesi (kamera kulelerin içine girmesin diye; yoksa 0)
+  topNear(x: number, z: number, reach = 0.4) {
+    let top = 0;
+    for (const b of this.tall.values()) {
+      const dx = Math.max(0, Math.abs(x - b.x) - b.half), dz = Math.max(0, Math.abs(z - b.z) - b.half);
+      if (dx * dx + dz * dz < reach * reach) top = Math.max(top, b.top);
+    }
+    return top;
   }
 
   private build(i: number, animate: boolean) {
@@ -1126,6 +1138,11 @@ export class CityView {
     }
     o.position.add(tileCenter(x + (n - 1) / 2, z + (n - 1) / 2));
     this.objs.set(i, o);
+    // Yüksek binalar (gökdelenler, kuleler): kamera bunların tepesinin altına inmesin
+    if (t.kind !== 'road' && t.kind !== 'rail' && t.kind !== 'park') {
+      const top = new THREE.Box3().setFromObject(o).max.y;
+      if (top > 1.2) this.tall.set(i, { x: o.position.x, z: o.position.z, half: n / 2, top });
+    }
     this.dirty.add(this.chunkOf(i));
     const moving = needsLive(o);
     if (moving) this.animated.add(o);

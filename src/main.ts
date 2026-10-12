@@ -672,6 +672,7 @@ let house: { level: number; model: number } | null = null;
 
 // İnşa modunda tek parmak çizer, gez modunda kaydırır
 rig.singlePan = () => tool === 'pan';
+rig.clearance = (x, z) => view.topNear(x, z);
 function applyControls() {
   rig.stop();
 }

@@ -21,6 +21,10 @@ export class CameraRig {
   maxDistance = 60;
   // Tek parmakla kaydırma açık mı? (inşa modunda tek parmak çizim yapar)
   singlePan: () => boolean = () => true;
+  // Kameranın yakınındaki en yüksek binanın tepesi: kamera ondan aşağı inmez
+  // (yoksa yakınlaşınca kulenin çatısı kesilir ve içi boş/şeffaf görünür)
+  clearance: ((x: number, z: number) => number) | null = null;
+  private lift = 0; // binaların üstünde kalmak için kameranın yumuşakça yükseldiği miktar
 
   private pointers = new Map<number, { x: number; y: number }>();
   private grab: THREE.Vector3 | null = null; // tek parmakla tutulan zemin noktası
@@ -73,9 +77,24 @@ export class CameraRig {
   apply() {
     const p = this.pitch;
     const h = Math.cos(p) * this.distance;
-    this.camera.position.set(this.target.x + Math.sin(this.yaw) * h, this.target.y + Math.sin(p) * this.distance, this.target.z + Math.cos(this.yaw) * h);
+    this.camera.position.set(this.target.x + Math.sin(this.yaw) * h, this.target.y + Math.sin(p) * this.distance + this.lift, this.target.z + Math.cos(this.yaw) * h);
     this.camera.lookAt(this.target);
     this.camera.updateMatrixWorld();
+  }
+
+  // Kamera bir kulenin tepesine çok yaklaştıysa yumuşakça yukarı çık; uzaklaşınca geri in
+  private keepAbove(dt: number) {
+    if (!this.clearance) return;
+    const p = this.pitch;
+    const h = Math.cos(p) * this.distance;
+    const x = this.target.x + Math.sin(this.yaw) * h, z = this.target.z + Math.cos(this.yaw) * h;
+    const y = this.target.y + Math.sin(p) * this.distance;
+    const top = this.clearance(x, z);
+    const need = top > 0 ? Math.max(0, top + 0.8 - y) : 0;
+    if (Math.abs(need - this.lift) < 1e-3) return;
+    // Yukarı hızlı (kulenin içine girmesin), aşağı yavaş
+    this.lift += (need - this.lift) * Math.min(1, dt * (need > this.lift ? 12 : 4));
+    this.apply();
   }
 
   private clamp() {
@@ -264,6 +283,7 @@ export class CameraRig {
   // Haritayı bırakılan yerde biraz kaydır, döndürme animasyonunu ilerlet
   update(dt: number) {
     this.keyMove(dt);
+    this.keepAbove(dt);
     if (this.turn) {
       this.turn.t = Math.min(1, this.turn.t + dt / 0.5);
       const k = 1 - Math.pow(1 - this.turn.t, 3);
