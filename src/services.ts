@@ -40,8 +40,8 @@ function police() {
   g.add(part(box(0.06, 0.04, 0.05), blue, 0.035, 0.44, -0.12));
   g.userData.blink = [red, blue];
   // Önde park etmiş polis arabası
-  const car = makeModel('polypizza/cars/police');
-  car.position.set(0.24, 0.04, 0.3);
+  const car = makeModel('kaykit/car_police');
+  car.position.set(0.24, 0.07, 0.3);
   car.rotation.y = Math.PI / 2;
   g.add(car);
   return g;

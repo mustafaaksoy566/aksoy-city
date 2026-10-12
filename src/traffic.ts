@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { SIZE, CAR_MODELS } from './config';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
-import { bakeModel, vertexColorMat } from './batcher';
+import { bakeTextured } from './batcher';
 import { tileCenter } from './view';
 
-const CAR_LANE = 0.17; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
-const WALK_LANE = 0.41; // yayalar: kaldırım
+const CAR_LANE = 0.16; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
+const CAR_Y = 0.066; // asfalt (0.036) + tekerleklerin altı
+const WALK_LANE = 0.43; // yayalar: kaldırım
 const MAX_CARS = 40;
 const MAX_WALKERS = 70;
 
@@ -97,8 +98,10 @@ export class Traffic {
   // Modeller yüklendikten sonra çağrılır
   init() {
     for (const path of CAR_MODELS) {
-      const geo = bakeModel(makeModel(path)) ?? new THREE.BoxGeometry(0.2, 0.1, 0.4);
-      const mesh = new THREE.InstancedMesh(geo, vertexColorMat, MAX_CARS);
+      const baked = bakeTextured(makeModel(path));
+      if (!baked) continue;
+      const mesh = new THREE.InstancedMesh(baked.geo, baked.mat, MAX_CARS);
+      mesh.castShadow = false;
       mesh.count = 0;
       mesh.frustumCulled = false;
       this.meshes.push(mesh);
@@ -128,7 +131,7 @@ export class Traffic {
     this.cars = this.cars.filter(car => advance(this.city, car, dt));
     const counts = this.meshes.map(() => 0);
     for (const car of this.cars) {
-      this.tmp.rotation.y = lanePos(car, CAR_LANE, 0.02, this.tmp.position);
+      this.tmp.rotation.y = lanePos(car, CAR_LANE, CAR_Y, this.tmp.position);
       this.tmp.updateMatrix();
       this.meshes[car.type].setMatrixAt(counts[car.type]++, this.tmp.matrix);
     }

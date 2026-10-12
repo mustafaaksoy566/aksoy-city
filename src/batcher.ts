@@ -8,7 +8,6 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // - Dokulu malzemeler (Kenney colormap) ve pencereler (gece yandıkları için) kendi malzemeleriyle gruplanır.
 
 const vertexColorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
-const sharedTextured = new Map<string, THREE.Material>();
 
 type Kind = 'vc' | 'tex' | 'keep';
 
@@ -61,10 +60,8 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
       if (kind === 'vc') {
         push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], mat.color));
       } else if (kind === 'tex') {
-        // Aynı dokuyu kullanan malzemeler (Kenney'nin tek colormap'i) tek grupta
-        const key = `tex|${mat.name}|${(mat.map!.image as { width?: number } | null)?.width ?? 0}`;
-        if (!sharedTextured.has(key)) sharedTextured.set(key, mat);
-        push(key, sharedTextured.get(key)!, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+        // Aynı doku atlası tek malzeme olarak yüklenir (assets.ts), o yüzden malzemeye göre grupla
+        push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
       } else {
         push(`keep|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
       }
@@ -92,6 +89,7 @@ export function disposeMerged(group: THREE.Group) {
 
 // Bir modeli tek geometriye çevir (renkler köşelere yazılır). Arabalar için: binlerce parça yerine tek çizim.
 export function bakeModel(obj: THREE.Object3D): THREE.BufferGeometry | null {
+  // Not: dokulu modellerde (KayKit) renk yerine dokuyu kullanmak için bakeTextured kullanılır
   obj.updateMatrixWorld(true);
   const geos: THREE.BufferGeometry[] = [];
   obj.traverse(node => {
@@ -106,3 +104,19 @@ export function bakeModel(obj: THREE.Object3D): THREE.BufferGeometry | null {
 }
 
 export { vertexColorMat };
+
+// Dokulu (tek atlas kullanan) bir modeli tek geometriye çevir; malzemesiyle birlikte döner
+export function bakeTextured(obj: THREE.Object3D): { geo: THREE.BufferGeometry; mat: THREE.Material } | null {
+  obj.updateMatrixWorld(true);
+  const geos: THREE.BufferGeometry[] = [];
+  let mat: THREE.Material | null = null;
+  obj.traverse(node => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mat ??= Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    geos.push(prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+  });
+  const geo = mergeGeometries(geos, false);
+  geos.forEach(g => g.dispose());
+  return geo && mat ? { geo, mat } : null;
+}

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { UtilKind } from './config';
+import { makeModel } from './assets';
 
 // Elektrik ve su yapıları: hazır model bulamadığımız için basit şekillerden kendimiz yapıyoruz.
 // Kenney'nin sade, renkli tarzına uysun diye düz renkler kullanılıyor.
@@ -81,13 +82,11 @@ function powerPlant() {
 
 function waterTower() {
   const g = new THREE.Group();
-  g.add(pad());
-  for (const [x, z] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]]) {
-    g.add(part(new THREE.CylinderGeometry(0.02, 0.025, 0.8, 6), M.steel, x, 0.44, z));
-  }
-  g.add(part(new THREE.CylinderGeometry(0.26, 0.26, 0.32, 18), M.blue, 0, 0.98, 0));
-  g.add(part(new THREE.CylinderGeometry(0.265, 0.265, 0.05, 18), M.white, 0, 0.98, 0));
-  g.add(part(new THREE.ConeGeometry(0.28, 0.16, 18), M.darkBlue, 0, 1.22, 0));
+  g.add(makeModel('kaykit/base'));
+  const t = makeModel('kaykit/watertower');
+  t.scale.multiplyScalar(2.2);
+  t.position.y = 0.05;
+  g.add(t);
   return g;
 }
 

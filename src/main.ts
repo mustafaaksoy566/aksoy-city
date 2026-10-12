@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
   type Tool, type BuildTool, type MatId,
@@ -36,15 +37,20 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 // Gölgeler her karede değil, sadece şehir değişince yeniden hesaplanır
 renderer.shadowMap.autoUpdate = false;
+// Daha canlı ve gerçekçi renkler için ışık ayarı (film tonlaması + ortam yansıması)
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#9fd8f0');
 scene.fog = new THREE.Fog('#9fd8f0', 70, 150);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.55;
 
 const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 400);
 const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
-camera.position.set(start.x + 12, 18, start.z + 12);
+camera.position.set(start.x + 8, 11, start.z + 8);
 
 const controls = new MapControls(camera, renderer.domElement);
 controls.target.copy(start);
@@ -53,7 +59,7 @@ controls.enableRotate = false;
 controls.minDistance = 8;
 controls.maxDistance = 60;
 
-const hemi = new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.6);
+const hemi = new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.0);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff6e0', 2.2);
 sun.position.set(-12, 30, 18);
@@ -548,9 +554,9 @@ function adaptQuality(dt: number) {
 // Menü düğmeleri için her binanın küçük resmini çiz
 function makeMenuPictures() {
   const items: [Tool, THREE.Object3D][] = [
-    ['road', makeModel('kenney/models/road-intersection')],
-    ['res', makeModel('polypizza/extra/k-house2-1', '#f3e3c3', '#c0503a')],
-    ['com', makeModel('polypizza/city/low-wide-1', '#9fd3ea')],
+    ['road', makeModel('kaykit/road_junction')],
+    ['res', makeModel('kaykit/building_C')],
+    ['com', makeModel('kaykit/building_E')],
     ['park', makeModel('kenney/models/grass-trees-tall')],
   ];
   for (const k of ['wind', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS, ROOF_COLORS, PLOT, PLOTS } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
 import { makeDecor, animateDecor } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
@@ -15,11 +15,26 @@ import { makeIndustry, setWorking } from './industry';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
-  ['kenney/models/road-straight', 0b0101],
-  ['kenney/models/road-corner', 0b1100],
-  ['kenney/models/road-split', 0b1110],
-  ['kenney/models/road-intersection', 0b1111],
+  ['kaykit/road_straight', 0b0101],
+  ['kaykit/road_corner_curved', 0b0110],
+  ['kaykit/road_tsplit', 0b0111],
+  ['kaykit/road_junction', 0b1111],
 ];
+
+// Her kare için sabit "rastgele" sayı (aynı karede hep aynı süsler çıksın)
+const hash = (x: number, z: number, seed = 0) => {
+  const v = Math.sin(x * 127.1 + z * 311.7 + seed * 74.7) * 43758.5453;
+  return v - Math.floor(v);
+};
+
+// Bir modeli kare merkezine göre (dx, dz) konumuna, verilen açıyla koy
+function prop(path: string, dx: number, dz: number, rot = 0, scale = 1) {
+  const o = makeModel(path);
+  o.position.set(dx, 0, dz);
+  o.rotation.y = rot;
+  if (scale !== 1) o.scale.multiplyScalar(scale);
+  return o;
+}
 
 // Boş arsaların zemin rengi
 const lotGeo = new THREE.BoxGeometry(0.92, 0.03, 0.92);
@@ -204,6 +219,7 @@ export class CityView {
 
   // Satın alınmamış arazi parçalarını koyulaştır, satılık olanların ortasına "+" koy
   updateLand() {
+    for (let c = 0; c < PLOTS * PLOTS; c++) this.dirty.add(c);
     this.land.clear();
     const geo = new THREE.PlaneGeometry(PLOT, PLOT).rotateX(-Math.PI / 2);
     for (let p = 0; p < PLOTS * PLOTS; p++) {
@@ -232,6 +248,7 @@ export class CityView {
     this.updateLand();
     for (const i of [...this.objs.keys()]) this.remove(i);
     for (let i = 0; i < SIZE * SIZE; i++) this.build(i, false);
+    for (let c = 0; c < PLOTS * PLOTS; c++) this.dirty.add(c);
     this.flush();
     this.updateIcons();
   }
@@ -256,6 +273,10 @@ export class CityView {
           const i = idx(x, z);
           const o = this.objs.get(i);
           if (o && !this.live.has(i)) list.push(o);
+          else if (!this.city.tiles[i]) {
+            const n = this.nature(i);
+            if (n) list.push(n);
+          }
         }
       }
       if (list.length) {
@@ -299,11 +320,7 @@ export class CityView {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     let o: THREE.Object3D;
     if (t.kind === 'road') {
-      const p = roadPiece(this.city.roadMask(x, z));
-      // Bazı düz yollara sokak lambası koy
-      const name = p.model === ROAD_BASES[0][0] && (x + z) % 4 === 0 ? 'kenney/models/road-straight-lightposts' : p.model;
-      o = makeModel(name);
-      o.rotation.y = (p.k * Math.PI) / 2;
+      o = this.road(x, z);
     } else if (t.kind === 'park') {
       o = makeModel(PARK_MODELS[t.variant % PARK_MODELS.length]);
     } else if (isUtility(t.kind)) {
@@ -322,9 +339,13 @@ export class CityView {
       o = makeIndustry(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (t.level === 0) {
-      o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
-      o.position.y = 0.015;
-      o.receiveShadow = true;
+      // Boş arsa: bölge renginde zemin ve birkaç inşaat kasası
+      o = new THREE.Group();
+      const plate = new THREE.Mesh(lotGeo, lotMats[t.kind]);
+      plate.position.y = 0.015;
+      plate.receiveShadow = true;
+      o.add(plate);
+      if (hash(x, z, 3) < 0.6) o.add(prop(hash(x, z, 4) < 0.5 ? PROPS.boxA : PROPS.boxB, (hash(x, z, 5) - 0.5) * 0.5, (hash(x, z, 6) - 0.5) * 0.5, hash(x, z, 7) * 6));
     } else {
       o = this.building(t.kind, t.level, t.variant, t.facing);
       if (t.fire) {
@@ -353,23 +374,65 @@ export class CityView {
     }
   }
 
-  // Seviyeye göre bina: model, duvar rengi ve yön rastgele sayıdan seçilir
+  // Yol karesi: yön ve kavşak türü komşulara göre; kenarlarda sokak lambası, kavşakta trafik ışığı
+  private road(x: number, z: number) {
+    const g = new THREE.Group();
+    const mask = this.city.roadMask(x, z);
+    const p = roadPiece(mask);
+    const straight = p.model === ROAD_BASES[0][0];
+    const alongX = straight && (mask & 0b1010) !== 0 && (mask & 0b0101) === 0;
+    // Kavşağa bitişik düz yollarda yaya geçidi
+    const nearJunction = straight && DIRS.some(([dx, dz]) => {
+      const m = this.city.isRoad(x + dx, z + dz) ? this.city.roadMask(x + dx, z + dz) : 0;
+      return [1, 2, 4, 8].filter(b => m & b).length >= 3;
+    });
+    const r = makeModel(nearJunction ? 'kaykit/road_straight_crossing' : p.model);
+    r.rotation.y = (p.k * Math.PI) / 2;
+    g.add(r);
+    if (straight) {
+      const along = alongX ? x : z;
+      const side = hash(x, z) < 0.5 ? 1 : -1;
+      // Lambanın kolu yola doğru uzansın
+      if (along % 3 === 0) {
+        if (alongX) g.add(prop(PROPS.streetlight, 0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
+        else g.add(prop(PROPS.streetlight, side * 0.46, 0, side > 0 ? 0 : Math.PI));
+      } else if (along % 5 === 1 && hash(x, z, 2) < 0.6) {
+        if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
+        else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
+      }
+    } else if (p.model === 'kaykit/road_junction' || p.model === 'kaykit/road_tsplit') {
+      g.add(prop(PROPS.traffic, 0.45, 0.45, -Math.PI / 4));
+    }
+    return g;
+  }
+
+  // Seviyeye göre bina: model ve yön rastgele sayıdan seçilir; bazıları aynalanır ki çeşit artsın
   private building(kind: 'res' | 'com', level: number, variant: number, facing: number) {
     const models = (kind === 'res' ? RES_LEVELS : COM_LEVELS)[level - 1].models;
     const path = models[variant % models.length];
     const group = new THREE.Group();
-    const isCity = path.startsWith('polypizza/');
-    const wall = isCity ? WALL_COLORS[Math.floor(variant / 7) % WALL_COLORS.length] : undefined;
-    const roof = isCity ? ROOF_COLORS[Math.floor(variant / 3) % ROOF_COLORS.length] : undefined;
-    const b = makeModel(path, wall, roof);
+    const b = makeModel(path);
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
+    if (Math.floor(variant / 11) % 2) b.scale.x *= -1;
     group.add(b);
-    // Ticari kit binalarının altına kaldırım koy
-    if (isCity) {
-      group.add(makeModel(PAVEMENT));
-      b.position.y = 0.06;
+    // KayKit dışındaki binaların (gökdelenler) altına kaldırım koy
+    if (!path.startsWith('kaykit/')) {
+      group.add(makeModel(BASE));
+      b.position.y = 0.05;
     }
     return group;
+  }
+
+  // Boş karelerde ağaç ve çalı (şehir boş görünmesin); satın alınmamış arazide daha sık
+  private nature(i: number): THREE.Object3D | null {
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const owned = this.city.isOwned(i);
+    if (hash(x, z, 9) > (owned ? 0.16 : 0.32)) return null;
+    const pick = hash(x, z, 10);
+    const path = pick < 0.45 ? PROPS.treeLarge : pick < 0.8 ? PROPS.treeSmall : PROPS.bush;
+    const o = prop(path, (hash(x, z, 11) - 0.5) * 0.5, (hash(x, z, 12) - 0.5) * 0.5, hash(x, z, 13) * 6, 0.8 + hash(x, z, 14) * 0.5);
+    o.position.add(tileCenter(x, z));
+    return o;
   }
 
   // Binaların üstündeki simgeleri güncelle (sorunlar, yükseltme, depo dolu)

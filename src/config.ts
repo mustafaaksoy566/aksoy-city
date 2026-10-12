@@ -177,32 +177,26 @@ export const TOOLBAR: ToolbarItem[] = [
   'bulldoze',
 ];
 
-// Kenney başlangıç paketi (k/) ve Poly Pizza'dan gelen ticari binalar (c/)
+// Modeller: KayKit City Builder Bits (kk/), Kenney City Kit 2.1 gökdelenleri (k2/), Kenney başlangıç paketi (k/)
 const k = (n: string) => `kenney/models/${n}`;
-const c = (n: string) => `polypizza/city/${n}`;
+const kk = (n: string) => `kaykit/${n}`;
+const k2 = (n: string) => `kenney2/${n}`;
 const x = (n: string) => `polypizza/extra/${n}`;
 
 // Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
 export const RES_LEVELS = [
-  { pop: 6, need: 1, models: [k('building-small-a'), k('building-small-d'), c('small-building-3'), x('k-house-1'), x('k-house-2'), x('k-house-1'), x('k-house-2')] },
-  {
-    pop: 14,
-    need: 2,
-    models: [
-      k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6'),
-      x('k-house2-1'), x('k-house2-2'), x('k-house2-3'), x('k-house2-4'), x('k-house2-5'), x('k-house2-6'),
-    ],
-  },
-  { pop: 30, need: 4, models: [c('large-building-1'), c('large-building-3'), c('large-building-5'), c('low-wide-1'), c('low-wide-2')] },
-  { pop: 60, need: 7, models: [c('skyscraper-3'), c('skyscraper-6'), c('large-building-4')] },
-  { pop: 100, need: 12, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5')] },
+  { pop: 6, need: 1, models: [kk('building_A'), kk('building_B')] },
+  { pop: 14, need: 2, models: [kk('building_E'), kk('building_F')] },
+  { pop: 30, need: 4, models: [kk('building_C'), kk('building_D'), kk('building_G'), kk('building_H')] },
+  { pop: 60, need: 7, models: [k2('building-skyscraper-a'), k2('building-skyscraper-b')] },
+  { pop: 100, need: 12, models: [k2('building-skyscraper-c'), k2('building-skyscraper-d'), k2('building-skyscraper-e')] },
 ];
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
 export const COM_LEVELS = [
-  { jobs: 5, need: 1, models: [c('low-wide-1'), c('low-wide-2'), k('building-garage')] },
-  { jobs: 15, need: 3, models: [c('low-building-1'), c('low-building-2'), c('low-building-3'), c('low-building-4'), c('low-building-5')] },
-  { jobs: 40, need: 6, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5'), c('low-building-6'), c('low-building-7')] },
+  { jobs: 5, need: 1, models: [kk('building_A'), kk('building_B'), kk('building_E')] },
+  { jobs: 15, need: 3, models: [kk('building_F'), kk('building_C'), kk('building_G')] },
+  { jobs: 40, need: 6, models: [k2('building-skyscraper-a'), k2('building-skyscraper-c'), k2('building-skyscraper-e')] },
 ];
 
 export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviyeye çıkar
@@ -215,18 +209,27 @@ export const BUILD_CHANCE = 0.35; // boş arsaya bir günde bina yapılma şans�
 export const GROW_CHANCE = 0.08; // bir binanın bir günde büyüme şansı
 
 export const PARK_MODELS = [k('grass-trees'), k('grass-trees-tall'), k('pavement-fountain')];
-export const PAVEMENT = k('pavement');
+export const BASE = kk('base'); // KayKit kaldırım karesi
 
-export const ROAD_MODELS = ['road-straight', 'road-straight-lightposts', 'road-corner', 'road-split', 'road-intersection'].map(k);
+export const ROAD_MODELS = ['road_straight', 'road_straight_crossing', 'road_corner_curved', 'road_tsplit', 'road_junction'].map(kk);
 
-export const CAR_MODELS = ['car-1', 'car-2', 'suv', 'sports-1', 'sports-2', 'taxi', 'police', 'truck', 'pickup'].map(
-  n => `polypizza/cars/${n}`,
-);
+export const CAR_MODELS = ['car_sedan', 'car_taxi', 'car_hatchback', 'car_stationwagon', 'car_police'].map(kk);
 
-// Ticari binaların duvar renkleri (her bina rastgele birini alır)
-export const WALL_COLORS = ['#f3e3c3', '#f2b88b', '#e98b6d', '#9fd3ea', '#c7e3a4', '#f6d77c', '#ececec', '#c5b3e6', '#f5a9a0', '#b9d4c8'];
-// Banliyö evlerinin çatı renkleri
-export const ROOF_COLORS = ['#7fbfa6', '#c0503a', '#5a6f8a', '#8a5a44', '#d9874a', '#6b8e4e', '#9b6fa8'];
+// Şehri dolduran süs eşyaları ve ağaçlar
+export const PROPS = {
+  streetlight: kk('streetlight'),
+  traffic: kk('trafficlight_B'),
+  hydrant: kk('firehydrant'),
+  bench: kk('bench'),
+  bush: kk('bush'),
+  trash: kk('trash_A'),
+  boxA: kk('box_A'),
+  boxB: kk('box_B'),
+  watertower: kk('watertower'),
+  treeLarge: 'kenney-sub/tree-large',
+  treeSmall: 'kenney-sub/tree-small',
+};
+
 export const DECOR_MODELS: Partial<Record<DecorKind, string>> = { fountain: x('q-town-center-1'), statue: x('q-horse-statue') };
 
 export const ALL_MODELS = [
@@ -235,8 +238,9 @@ export const ALL_MODELS = [
     ...RES_LEVELS.flatMap(l => l.models),
     ...COM_LEVELS.flatMap(l => l.models),
     ...PARK_MODELS,
-    PAVEMENT,
+    BASE,
     ...CAR_MODELS,
+    ...Object.values(PROPS),
     ...(Object.values(DECOR_MODELS) as string[]),
   ]),
 ];

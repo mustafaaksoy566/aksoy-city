@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const models = new Map<string, THREE.Object3D>();
+// Aynı klasördeki modeller aynı doku atlasını kullanır; tek malzemede birleştirilir ki çizim sayısı azalsın
+const atlasMats = new Map<string, THREE.Material>();
+export const KAYKIT_SCALE = 0.5; // KayKit parçaları 2x2 birim, oyunda 1 kare
 const tinted = new Map<string, THREE.Material>();
 
 const BUILDING_FIT = 0.86; // ticari binalar karenin bu kadarını kaplasın
 const BUILDING_MAX_SCALE = 1.4;
-export const CAR_LENGTH = 0.4;
 
 // Modeli bir kutuya sığdırıp ortala; tabanı y=0'a otursun
 function normalize(obj: THREE.Object3D, turn: number, scaleFor: (size: THREE.Vector3) => number) {
@@ -23,38 +25,35 @@ function normalize(obj: THREE.Object3D, turn: number, scaleFor: (size: THREE.Vec
   return pivot;
 }
 
-// Arabanın ön farlarının olduğu tarafı bulup +z yönüne çevirmek için açı
-function carTurn(obj: THREE.Object3D) {
-  obj.updateMatrixWorld(true);
-  const all = new THREE.Box3().setFromObject(obj).getCenter(new THREE.Vector3());
-  let front: THREE.Vector3 | null = null;
-  obj.traverse(o => {
-    const m = (o as THREE.Mesh).material as THREE.Material | undefined;
-    if (!front && m && /headlight/i.test(m.name)) front = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
-  });
-  if (!front) return 0;
-  const f = (front as THREE.Vector3).sub(all);
-  const dir = Math.abs(f.x) > Math.abs(f.z) ? new THREE.Vector3(Math.sign(f.x), 0, 0) : new THREE.Vector3(0, 0, Math.sign(f.z));
-  return -Math.atan2(dir.x, dir.z);
-}
-
 // Modelleri bir kere yükle, sonra kopyalarını kullan
 export async function loadModels(paths: string[]) {
   const loader = new GLTFLoader();
   await Promise.all(
     paths.map(async path => {
-      const gltf = await loader.loadAsync(`${import.meta.env.BASE_URL}${path}.glb`);
+      const gltf = await loader.loadAsync(`${import.meta.env.BASE_URL}${path}${path.startsWith('kaykit/') ? '.gltf' : '.glb'}`);
       let obj: THREE.Object3D = gltf.scene;
+      const folder = path.slice(0, path.lastIndexOf('/'));
       obj.traverse(o => {
-        if ((o as THREE.Mesh).isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (mat.map) {
+          const key = `${folder}|${mat.name}`;
+          if (!atlasMats.has(key)) atlasMats.set(key, mat);
+          mesh.material = atlasMats.get(key)!;
         }
       });
-      if (path.startsWith('polypizza/city/') || path.startsWith('polypizza/extra/')) {
+      if (path.startsWith('kaykit/')) {
+        const g = new THREE.Group();
+        obj.scale.setScalar(KAYKIT_SCALE);
+        g.add(obj);
+        obj = g;
+      } else if (path.startsWith('kenney-sub/')) {
+        obj = normalize(obj, 0, s => 0.36 / Math.max(s.x, s.z));
+      } else if (path.startsWith('polypizza/extra/') || path.startsWith('kenney2/')) {
         obj = normalize(obj, 0, s => Math.min(BUILDING_MAX_SCALE, BUILDING_FIT / Math.max(s.x, s.z)));
-      } else if (path.startsWith('polypizza/cars/')) {
-        obj = normalize(obj, carTurn(obj), s => CAR_LENGTH / Math.max(s.x, s.z));
       }
       models.set(path, obj);
     }),

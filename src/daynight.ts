@@ -56,7 +56,7 @@ export class DayNight {
     (this.scene.fog as THREE.Fog).color.copy(sky);
     this.sun.intensity = THREE.MathUtils.lerp(2.2, 0.25, night);
     this.sun.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk);
-    this.hemi.intensity = THREE.MathUtils.lerp(1.6, 0.5, night);
+    this.hemi.intensity = THREE.MathUtils.lerp(1.0, 0.35, night);
     // Pencereler yalnızca gece değeri belirgin değiştiğinde güncellensin
     if (Math.abs(night - this.lastNight) > 0.02) {
       this.lastNight = night;

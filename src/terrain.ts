@@ -137,11 +137,17 @@ function buildTrees() {
 function buildHighway() {
   const parts: THREE.Object3D[] = [];
   for (let x = -HALF - 0.5; x > -EXTENT / 2; x--) {
-    const name = Math.round(x) % 5 === 0 ? 'kenney/models/road-straight-lightposts' : 'kenney/models/road-straight';
-    const r = makeModel(name);
+    const r = makeModel('kaykit/road_straight');
     r.position.set(x, 0, ROAD_Z);
     r.rotation.y = Math.PI / 2;
     parts.push(r);
+    // Otoyol kenarında sokak lambaları
+    if (Math.round(x) % 4 === 0) {
+      const l = makeModel('kaykit/streetlight');
+      l.position.set(x, 0, ROAD_Z + 0.46);
+      l.rotation.y = -Math.PI / 2;
+      parts.push(l);
+    }
   }
   return mergeStatic(parts);
 }
