@@ -85,6 +85,21 @@ export const XP = {
 export const LEVEL_XP = [0, 40, 120, 250, 450, 750, 1150, 1700, 2400, 3300, 4500];
 export const LEVEL_REWARD = 250; // her seviye atlayınca (seviye x bu kadar) para
 
+// Mutluluk: her evin mutluluğu 0..1 arası. Vergi çarpanı = 0.5 + mutluluk (yani x0.5 ile x1.5 arası)
+export const HAPPY = {
+  base: 0.35,
+  service: 0.1, // kapsayan her hizmet için
+  park: 0.15,
+  shop: 0.1,
+  pollution: -0.3, // yakında fabrika ya da santral varsa
+};
+export const POLLUTION_RADIUS = 3;
+
+// Felaketler ve olaylar
+export const FIRE = { chance: 0.05, days: 4, cost: 150 }; // itfaiye kapsamayan evlerde yangın
+export const CRIME = { chance: 0.06, minPop: 60 }; // polis kapsamayan mahallelerde hırsızlık
+export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 2, wood: 1 } as Partial<Record<MatId, number>> };
+
 export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
@@ -122,6 +137,7 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   store: { icon: '🔨', label: 'Hırdavatçı', hint: 'Hırdavatçı metal ve odundan çivi, çekiç gibi ürünler yapar.' },
   depot: { icon: '📦', label: 'Depo', hint: 'Her depo malzeme saklama yerini 40 artırır.' },
 };
+export const HALL_INFO = { icon: '🏛️', label: 'Belediye' };
 
 // Alt çubuk: tek araçlar ve açılır gruplar
 export type ToolbarItem = Tool | { group: string; icon: string; label: string; tools: Tool[] };

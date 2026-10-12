@@ -106,6 +106,29 @@ function school() {
   return g;
 }
 
+// Belediye: sütunlu, kubbeli, bayraklı beyaz bina
+export function makeHall(): THREE.Object3D {
+  const g = new THREE.Group();
+  g.add(pad());
+  const marble = mat('#f1ece2');
+  const dome = mat('#7fb3d5');
+  g.add(part(box(0.8, 0.06, 0.6), M.steel, 0, 0.07, -0.02));
+  g.add(part(box(0.72, 0.36, 0.42), marble, 0, 0.28, -0.08));
+  g.add(part(box(0.76, 0.05, 0.46), M.white, 0, 0.48, -0.08));
+  // Ön sütunlar ve üçgen alınlık
+  for (const x of [-0.27, -0.09, 0.09, 0.27]) g.add(part(new THREE.CylinderGeometry(0.03, 0.03, 0.34, 10), M.white, x, 0.27, 0.18));
+  g.add(part(box(0.66, 0.04, 0.1), M.white, 0, 0.46, 0.18));
+  const tri = new THREE.Shape([new THREE.Vector2(-0.34, 0), new THREE.Vector2(0.34, 0), new THREE.Vector2(0, 0.12)]);
+  g.add(part(new THREE.ExtrudeGeometry(tri, { depth: 0.1, bevelEnabled: false }), marble, 0, 0.48, 0.13));
+  g.add(part(box(0.16, 0.2, 0.01), M.dark, 0, 0.2, 0.135));
+  // Kubbe ve bayrak
+  g.add(part(new THREE.CylinderGeometry(0.17, 0.17, 0.12, 20), marble, 0, 0.56, -0.1));
+  g.add(part(new THREE.SphereGeometry(0.17, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), dome, 0, 0.62, -0.1));
+  g.add(part(new THREE.CylinderGeometry(0.006, 0.006, 0.3, 6), M.steel, 0, 0.92, -0.1));
+  g.add(part(box(0.12, 0.07, 0.004), M.cross, 0.06, 1.03, -0.1));
+  return g;
+}
+
 export function makeService(kind: ServiceKind): THREE.Object3D {
   if (kind === 'police') return police();
   if (kind === 'fire') return fireStation();

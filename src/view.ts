@@ -3,7 +3,7 @@ import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isZone } from './city';
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
-import { makeService, animateService } from './services';
+import { makeService, animateService, makeHall } from './services';
 import { makeIndustry, setWorking } from './industry';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
@@ -45,9 +45,10 @@ const FACING_TURNS = [2, 1, 0, 3];
 
 export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - SIZE / 2 + 0.5);
 
-type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full';
+type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full' | 'fire' | 'repair' | 'coin';
 const ICON_COLORS: Record<IconType, string> = {
   road: '#e53935', power: '#ffb300', water: '#1e88e5', upgrade: '#43a047', full: '#8e44ad',
+  fire: '#ff5722', repair: '#607d8b', coin: '#f9a825',
 };
 
 // Binaların üstünde çıkan simgeler: yol yok (!), elektrik yok (şimşek), su yok (damla),
@@ -86,6 +87,31 @@ function iconTexture(type: IconType) {
     g.lineTo(24, 52);
     g.lineTo(24, 32);
     g.lineTo(12, 32);
+  } else if (type === 'fire') {
+    // Alev
+    g.moveTo(32, 10);
+    g.bezierCurveTo(44, 24, 48, 34, 44, 44);
+    g.bezierCurveTo(40, 54, 24, 54, 20, 44);
+    g.bezierCurveTo(16, 34, 24, 28, 26, 20);
+    g.bezierCurveTo(30, 28, 32, 26, 32, 10);
+  } else if (type === 'repair') {
+    // İngiliz anahtarı
+    g.save();
+    g.translate(32, 32);
+    g.rotate(-Math.PI / 4);
+    g.fillRect(-5, -6, 10, 26);
+    g.arc(0, -12, 10, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = ICON_COLORS.repair;
+    g.fillRect(-4, -26, 8, 12);
+    g.restore();
+    g.fillStyle = '#fff';
+  } else if (type === 'coin') {
+    // Para: içinde ₺ yazan altın
+    g.font = 'bold 34px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('₺', 32, 34);
   } else if (type === 'full') {
     // Kutu
     g.fillRect(16, 24, 32, 26);
@@ -113,6 +139,19 @@ const ICON_MATS = Object.fromEntries(
   (Object.keys(ICON_COLORS) as IconType[]).map(t => [t, new THREE.SpriteMaterial({ map: iconTexture(t), depthTest: false })]),
 ) as Record<IconType, THREE.SpriteMaterial>;
 const ICON_Y = 2.2;
+
+// Yanan binanın üstünde titreyen alevler
+const flameMats = [new THREE.MeshBasicMaterial({ color: '#ff6d00' }), new THREE.MeshBasicMaterial({ color: '#ffc400' })];
+function flames() {
+  const g = new THREE.Group();
+  g.name = 'flames';
+  for (let n = 0; n < 5; n++) {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.48, 6).translate(0, 0.24, 0), flameMats[n % 2]);
+    c.position.set(Math.cos(n * 1.3) * 0.22, 0.6 + (n % 3) * 0.15, Math.sin(n * 1.3) * 0.22);
+    g.add(c);
+  }
+  return g;
+}
 
 export class CityView {
   readonly root = new THREE.Group();
@@ -193,6 +232,9 @@ export class CityView {
       o = makeUtility(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       this.animated.add(o);
+    } else if (t.kind === 'hall') {
+      o = makeHall();
+      o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isService(t.kind)) {
       o = makeService(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
@@ -207,6 +249,16 @@ export class CityView {
       o.receiveShadow = true;
     } else {
       o = this.building(t.kind, t.level, t.variant, t.facing);
+      if (t.fire) {
+        // Alevler çatının üstünde yansın
+        const top = new THREE.Box3().setFromObject(o).max.y;
+        const fl = flames();
+        fl.position.y = top - 0.65;
+        o.add(fl);
+        this.animated.add(o);
+      }
+      // Depremde hasar gören bina biraz eğilsin
+      if (t.damaged) o.children[0].rotation.z = 0.08;
     }
 
     o.position.add(tileCenter(x, z));
@@ -245,7 +297,16 @@ export class CityView {
         const obj = this.objs.get(i);
         if (obj) setWorking(obj, (this.city.jobs.get(i) ?? []).some(j => j.end > now));
       }
+      if (t?.kind === 'hall' && this.city.treasury >= 1) want.set(`${i}|coin`, { i, type: 'coin', slot: 0 });
       if (!t || !isZone(t.kind) || t.level === 0) return;
+      if (t.fire) {
+        want.set(`${i}|fire`, { i, type: 'fire', slot: 0 });
+        return;
+      }
+      if (t.damaged) {
+        want.set(`${i}|repair`, { i, type: 'repair', slot: 0 });
+        return;
+      }
       if (this.city.canUpgrade(i)) {
         want.set(`${i}|upgrade`, { i, type: 'upgrade', slot: 0 });
         return;
@@ -270,7 +331,7 @@ export class CityView {
       s.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE)));
       const t = this.city.tiles[i];
       // Yükseltme oku binanın üstünde dursun, uyarılar sabit yükseklikte
-      const top = type === 'upgrade' && t ? 1 + t.level * 0.45 : type === 'full' ? 1.1 : ICON_Y;
+      const top = (type === 'upgrade' || type === 'fire' || type === 'repair') && t ? 1 + t.level * 0.45 : type === 'full' || type === 'coin' ? 1.25 : ICON_Y;
       s.userData.y = top + slot * 0.55;
       s.userData.phase = (i * 0.37) % (Math.PI * 2);
       s.scale.setScalar(type === 'upgrade' ? 0.42 : 0.5);
@@ -323,6 +384,13 @@ export class CityView {
     for (const o of this.animated) {
       animateUtility(o, this.time, dt);
       animateService(o, this.time);
+      const fl = o.getObjectByName('flames');
+      if (fl) {
+        fl.children.forEach((c, n) => {
+          const k = 0.75 + Math.sin(this.time * 12 + n * 1.7) * 0.25;
+          c.scale.set(k, 0.8 + Math.sin(this.time * 9 + n) * 0.3, k);
+        });
+      }
     }
   }
 }

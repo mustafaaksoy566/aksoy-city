@@ -1,8 +1,9 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, type MatId,
+  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, type MatId,
 } from './config';
 import { City, isService, isUtility, serviceArea } from './city';
+import { questProgress, questDone, questText } from './quests';
 
 // Bir binaya dokununca çıkan kartın içeriği
 export interface InfoCard {
@@ -15,6 +16,45 @@ export interface InfoCard {
 export interface CardActions {
   upgrade(i: number): void;
   make(i: number, mat: MatId): void;
+  collect(): void;
+  extinguish(i: number): void;
+  repair(i: number): void;
+  claim(n: number): void;
+}
+
+const pct = (x: number) => `%${Math.round(x * 100)}`;
+const mood = (x: number) => (x >= 0.75 ? '😄' : x >= 0.5 ? '🙂' : x >= 0.3 ? '😐' : '😟');
+
+export function describeHall(city: City, act: CardActions): InfoCard {
+  const happy = city.happiness;
+  const pending = Math.floor(city.treasury);
+  return {
+    title: `${HALL_INFO.icon} ${HALL_INFO.label}`,
+    lines: [
+      { text: `${mood(happy)} Şehrin mutluluğu: ${pct(happy)}` },
+      { text: `Mutlu şehir daha çok vergi öder (x${(0.5 + happy).toFixed(1)})` },
+      { text: `💰 Günlük vergi: ${fmt(Math.round(city.dailyTax))}  ·  🔧 Bakım: ${fmt(city.upkeep)}` },
+      { text: `🏛️ Toplanmayı bekleyen: 💰${fmt(pending)}` },
+    ],
+    actions: [{ label: `💰 Vergiyi topla (${fmt(pending)})`, enabled: pending > 0, primary: true, run: () => act.collect() }],
+  };
+}
+
+export function describeQuests(city: City, act: CardActions): InfoCard {
+  const lines: InfoCard['lines'] = [];
+  const actions: NonNullable<InfoCard['actions']> = [];
+  city.quests.forEach((q, n) => {
+    const done = questDone(city, q);
+    const prog = Math.min(questProgress(city, q), q.target);
+    lines.push({ ok: done || undefined, text: `${done ? '' : '⏳ '}${questText(q)}  (${fmt(prog)}/${fmt(q.target)})` });
+    actions.push({
+      label: `${n + 1}. ödül: 💰${fmt(q.money)} ⭐${q.xp}`,
+      enabled: done,
+      primary: false,
+      run: () => act.claim(n),
+    });
+  });
+  return { title: '📋 Görevler', lines, actions };
 }
 
 const fmt = (n: number) => n.toLocaleString('tr-TR');
@@ -70,6 +110,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   const connected = city.isConnected(i);
   const road = { ok: connected, text: connected ? 'Şehrin yollarına bağlı' : 'Yol bağlantısı yok' };
 
+  if (t.kind === 'hall') return describeHall(city, act);
   if (t.kind === 'factory' || t.kind === 'store') return production(city, i, act, now);
   if (t.kind === 'depot') return describeStorage(city);
 
@@ -86,10 +127,31 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
         ],
       };
     }
+    if (t.fire) {
+      return {
+        title: `🔥 ${name} yanıyor!`,
+        lines: [
+          { ok: false, text: `${FIRE.days - t.fire + 1} gün içinde söndürülmezse bina yıkılır.` },
+          { text: 'İtfaiyenin kapsadığı yerlerde yangın kendiliğinden söner.' },
+        ],
+        actions: [{ label: `🚒 Söndür (💰${FIRE.cost})`, enabled: city.money >= FIRE.cost, primary: true, run: () => act.extinguish(i) }],
+      };
+    }
+    if (t.damaged) {
+      const parts = (Object.entries(QUAKE.repair) as [MatId, number][]).map(([m, n]) => `${MATERIALS[m].icon}${Math.min(city.storage[m], n)}/${n}`);
+      return {
+        title: `🔧 ${name} hasarlı`,
+        lines: [{ ok: false, text: 'Depremde hasar gördü. Onarılana kadar kimse yaşamaz.' }],
+        actions: [{ label: `🔧 Onar  ${parts.join('  ')}`, enabled: city.hasMaterials(QUAKE.repair), primary: true, run: () => act.repair(i) }],
+      };
+    }
     const lack = city.lacking.get(i);
     const served = connected && !lack;
     const lines: InfoCard['lines'] = [];
-    if (isRes) lines.push({ text: `👥 ${served ? fmt(RES_LEVELS[t.level - 1].pop) : 0} kişi yaşıyor` });
+    if (isRes) {
+      lines.push({ text: `👥 ${served ? fmt(RES_LEVELS[t.level - 1].pop) : 0} kişi yaşıyor  ·  ${mood(city.happy[i])} ${pct(city.happy[i])} mutlu` });
+      if (city.polluted(i)) lines.push({ ok: false, text: 'Yakında fabrika ya da santral var (kirlilik)' });
+    }
     else lines.push({ text: `💼 ${served ? fmt(COM_LEVELS[t.level - 1].jobs) : 0} kişi çalışıyor` });
     lines.push(road);
     lines.push({ ok: !lack?.power, text: lack?.power ? 'Elektrik yok' : 'Elektrik var' });

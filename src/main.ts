@@ -5,7 +5,8 @@ import {
   type Tool, type BuildTool, type MatId,
 } from './config';
 import { City, isUtility, isService, isIndustry, serviceArea } from './city';
-import { describeTile, describeStorage, type CardActions } from './info';
+import { describeTile, describeStorage, describeQuests, describeHall, type CardActions } from './info';
+import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic } from './traffic';
@@ -71,7 +72,7 @@ function loadCity(): City {
     raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
       const data = JSON.parse(raw) as Parameters<typeof City.load>[0];
-      if (data?.v === 1 || data?.v === 2 || data?.v === 3) return City.load(data);
+      if (City.canLoad(data)) return City.load(data);
     }
   } catch {
     // Aşağıda yedeklenip yeni şehirle başlanır
@@ -109,6 +110,8 @@ const updateStats = () =>
     service: city.service,
     level: city.levelProgress,
     storage: { used: city.storageUsed, cap: city.storageCap },
+    happiness: city.happiness,
+    questsReady: city.quests.filter(q => questDone(city, q)).length,
   });
 
 // Seviye atlanınca kutla ve yeni açılanları göster
@@ -131,8 +134,30 @@ function floatStorage(mats: MatId[]) {
   setTimeout(() => el.remove(), 1200);
 }
 
+// Yangın, hırsızlık, deprem gibi olayları ekranda göster
+let shake = 0;
+function showEvents() {
+  for (const e of city.events.splice(0)) {
+    if (e.type === 'fire') {
+      toast('🔥 Yangın çıktı! Yanan eve dokunup söndür ya da yakına itfaiye kur.', 'error');
+      play('error', 0.5);
+    } else if (e.type === 'fireOut') toast('🚒 İtfaiye yangını söndürdü.');
+    else if (e.type === 'collapse') {
+      toast('💥 Söndürülmeyen yangın yüzünden bir bina yıkıldı!', 'error');
+      play('remove', 0.6);
+    } else if (e.type === 'crime') {
+      toast(`🚨 Hırsızlık! Polisin olmadığı mahallede 💰${fmt(e.amount)} çalındı.`, 'error');
+      play('error', 0.5);
+    } else if (e.type === 'quake') {
+      toast(`🌋 Deprem! ${e.tiles.length} bina hasar gördü. Dokunup onar.`, 'error');
+      play('remove', 0.8);
+      shake = 1.6;
+    }
+  }
+}
+
 // --- Bilgi kartı (binaya dokununca) ---
-let openCard: number | 'storage' | null = null;
+let openCard: number | 'storage' | 'quests' | null = null;
 
 const cardActions: CardActions = {
   upgrade(i) {
@@ -155,11 +180,49 @@ const cardActions: CardActions = {
     } else play('click', 0.4);
     afterChange();
   },
+  collect() {
+    const got = city.collectTaxes();
+    if (got > 0) {
+      floatIncome(got);
+      play('place', 0.6);
+    }
+    afterChange();
+  },
+  extinguish(i) {
+    const err = city.extinguish(i);
+    if (err) toast(err, 'error');
+    else {
+      toast('🚒 Yangın söndürüldü!');
+      view.refresh([i], false);
+      play('click', 0.5);
+    }
+    afterChange();
+  },
+  repair(i) {
+    const err = city.repair(i);
+    if (err) toast(err, 'error');
+    else {
+      toast('🔧 Bina onarıldı!');
+      view.refresh([i], true);
+      play('grow', 0.5);
+    }
+    afterChange();
+  },
+  claim(n) {
+    if (city.claimQuest(n)) {
+      play('grow', 0.6);
+      toast('🎁 Görev ödülü alındı!');
+    }
+    afterChange();
+  },
 };
 
 function renderCard() {
   if (openCard === null) return showInfo(null);
-  const card = openCard === 'storage' ? describeStorage(city) : describeTile(city, openCard, cardActions);
+  const card =
+    openCard === 'storage' ? describeStorage(city)
+    : openCard === 'quests' ? describeQuests(city, cardActions)
+    : describeTile(city, openCard, cardActions);
   if (!card) openCard = null;
   showInfo(card);
 }
@@ -171,6 +234,7 @@ function openTile(cell: number | null) {
 
 // Bir şey değişince her yeri güncelle ve kaydet
 function afterChange() {
+  showEvents();
   checkLevelUps();
   view.updateIcons();
   renderCard();
@@ -201,6 +265,12 @@ function warnShortages() {
   if (hasHouse && !hasFactory && city.day - lastWarned.factory >= 20) {
     lastWarned.factory = city.day;
     toast('🏭 Evleri büyütmek için Sanayi menüsünden fabrika kur ve metal, odun üret.');
+    return;
+  }
+  // Belediyede çok vergi birikmişse hatırlat
+  if (city.hall !== null && city.treasury > Math.max(200, city.dailyTax * 15) && city.day - lastWarned.factory >= 20) {
+    lastWarned.factory = city.day;
+    toast('🏛️ Belediyede vergi birikti! Belediyeye dokunup topla.');
   }
 }
 
@@ -301,6 +371,17 @@ document.getElementById('storage')!.addEventListener('click', () => {
   renderCard();
   play('click', 0.3);
 });
+document.getElementById('quests')!.addEventListener('click', () => {
+  openCard = openCard === 'quests' ? null : 'quests';
+  renderCard();
+  play('click', 0.3);
+});
+document.getElementById('happy')!.addEventListener('click', () => {
+  const hall = city.hall;
+  openCard = hall === null || openCard === hall ? null : hall;
+  renderCard();
+  play('click', 0.3);
+});
 
 // Ses ve sıfırlama düğmeleri
 const soundBtn = document.getElementById('sound')!;
@@ -378,12 +459,11 @@ function frame() {
   dayTimer += dt;
   if (dayTimer >= DAY_SECONDS) {
     dayTimer -= DAY_SECONDS;
-    const { income, changed } = city.nextDay();
+    const { changed } = city.nextDay();
     if (changed.length) {
       view.refresh(changed, true);
       play('grow', 0.35);
     }
-    floatIncome(income);
     warnShortages();
     afterChange();
   }
@@ -405,7 +485,15 @@ function frame() {
 
   view.update(dt);
   traffic.update(dt);
+  // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
+  const jolt = new THREE.Vector3();
+  if (shake > 0) {
+    shake = Math.max(0, shake - dt);
+    jolt.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(shake * 0.25);
+  }
+  camera.position.add(jolt);
   renderer.render(scene, camera);
+  camera.position.sub(jolt);
 }
 
 loadModels(ALL_MODELS)

@@ -83,6 +83,8 @@ export interface Stats {
   service: Service;
   level: { level: number; xp: number; need: number; max: boolean };
   storage: { used: number; cap: number };
+  happiness: number;
+  questsReady: number;
 }
 
 export function setStats(s: Stats) {
@@ -99,6 +101,11 @@ export function setStats(s: Stats) {
   }
   $('storage-v').textContent = `${fmt(s.storage.used)}/${fmt(s.storage.cap)}`;
   $('storage').classList.toggle('short', s.storage.used >= s.storage.cap);
+  const h = s.happiness;
+  $('happy-v').textContent = `${h >= 0.75 ? '😄' : h >= 0.5 ? '🙂' : h >= 0.3 ? '😐' : '😟'} %${Math.round(h * 100)}`;
+  const badge = $('quests-badge');
+  badge.textContent = String(s.questsReady);
+  badge.hidden = s.questsReady === 0;
 }
 
 let toastTimer = 0;

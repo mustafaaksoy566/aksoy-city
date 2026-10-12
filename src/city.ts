@@ -3,17 +3,27 @@ import {
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
+  HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type MatId,
 } from './config';
+import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
 
-export type Kind = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind;
+export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | UtilKind | ServiceKind | IndustryKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
   facing: number; // binanın kapısının baktığı yön
   variant: number; // rastgele sayı: model, renk ve park çeşidi bundan seçilir
   locked?: boolean;
+  fire?: number; // kaç gündür yanıyor
+  damaged?: boolean; // depremde hasar gördü
 }
+
+// Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
+export type CityEvent =
+  | { type: 'fire' | 'fireOut' | 'collapse'; i: number }
+  | { type: 'crime'; amount: number }
+  | { type: 'quake'; tiles: number[] };
 
 // Fabrikada ya da hırdavatçıda üretilen bir malzeme; end = bitiş zamanı (Date.now() cinsinden)
 export interface Job {
@@ -30,7 +40,7 @@ export const isZone = (k: Kind | undefined): k is 'res' | 'com' => k === 'res' |
 export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k && k in UTILITIES;
 export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
 export const isIndustry = (k: Kind | string | undefined): k is IndustryKind => !!k && k in INDUSTRY;
-const KINDS: string[] = ['road', 'res', 'com', 'park', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS];
+const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS];
 
 // Bir hizmet binasının kapsadığı kareler (daire şeklinde)
 export function serviceArea(i: number, kind: ServiceKind): number[] {
@@ -48,22 +58,29 @@ export function serviceArea(i: number, kind: ServiceKind): number[] {
 const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Record<MatId, number>;
 
-type TileRow = [number, Kind, number, number, number];
+// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?]
+type TileRow = [number, Kind, number, number, number, number?, number?];
 export interface SaveData {
-  v: 3;
+  v: 4;
   money: number;
   day: number;
   xp: number;
   st: Partial<Record<MatId, number>>;
   t: TileRow[];
   j: [number, [MatId, number][]][];
+  tr: number; // belediyede bekleyen vergi
+  ss: CityStats;
+  q: Quest[];
 }
-// Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu
+// Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu, v3'te belediye ve görev yoktu
 interface OldSaveData {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
   money: number;
   day: number;
+  xp?: number;
+  st?: Partial<Record<MatId, number>>;
   t: [number, string, number, number, number][];
+  j?: [number, [MatId, number][]][];
 }
 
 export interface Service {
@@ -79,6 +96,11 @@ export class City {
   storage = emptyStorage();
   jobs = new Map<number, Job[]>(); // fabrika ve hırdavatçıların üretimleri
   levelUps: number[] = []; // yeni atlanan seviyeler (ekranda kutlamak için)
+  events: CityEvent[] = [];
+  treasury = 0; // belediyede toplanmayı bekleyen vergi
+  stats: CityStats = emptyStats();
+  quests: Quest[] = [];
+  happy = new Float32Array(SIZE * SIZE); // her evin mutluluğu (0..1)
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
@@ -90,7 +112,41 @@ export class City {
     for (let x = 0; x < ENTRANCE_LEN; x++) {
       this.tiles[idx(x, ENTRANCE_Z)] = { kind: 'road', level: 0, facing: 0, variant: 0, locked: true };
     }
+    this.placeHall();
     this.refresh();
+    this.fillQuests();
+  }
+
+  // Belediye binası: şehir girişinin yanına (doluysa yola bağlı ilk boş kareye) kurulur, yıkılamaz
+  private placeHall() {
+    if (this.tiles.some(t => t?.kind === 'hall')) return;
+    this.updateReach();
+    const near = [idx(1, ENTRANCE_Z - 1), idx(1, ENTRANCE_Z + 1), idx(2, ENTRANCE_Z - 1), idx(2, ENTRANCE_Z + 1), idx(0, ENTRANCE_Z - 1)];
+    const free = (i: number) => !this.tiles[i] && this.isConnected(i);
+    const spot = near.find(free) ?? this.tiles.findIndex((_, i) => free(i));
+    if (spot < 0) return;
+    this.tiles[spot] = { kind: 'hall', level: 0, facing: this.facingFor(spot), variant: 0, locked: true };
+  }
+
+  get hall() {
+    const i = this.tiles.findIndex(t => t?.kind === 'hall');
+    return i < 0 ? null : i;
+  }
+
+  // --- Görevler ---
+
+  private fillQuests() {
+    while (this.quests.length < 3) this.quests.push(newQuest(this, this.quests));
+  }
+
+  claimQuest(n: number): boolean {
+    const q = this.quests[n];
+    if (!q || !questDone(this, q)) return false;
+    this.money += q.money;
+    this.addXp(q.xp);
+    this.quests.splice(n, 1);
+    this.fillQuests();
+    return true;
   }
 
   get(x: number, z: number) {
@@ -150,6 +206,38 @@ export class City {
     this.updateReach();
     this.updateService();
     this.updateCoverage();
+    this.updateHappiness();
+  }
+
+  // Fabrika ya da santral yakınında mı? (kirlilik)
+  polluted(i: number) {
+    return this.near(i % SIZE, Math.floor(i / SIZE), POLLUTION_RADIUS, n => n.kind === 'factory' || n.kind === 'plant');
+  }
+
+  // Her evin mutluluğu: hizmetler, park, dükkan artırır; kirlilik azaltır
+  private updateHappiness() {
+    this.happy.fill(0);
+    this.tiles.forEach((t, i) => {
+      if (t?.kind !== 'res' || t.level === 0) return;
+      let h = HAPPY.base;
+      for (const k of SERVICE_KINDS) if (this.isCovered(i, k)) h += HAPPY.service;
+      if (this.parkNear(i)) h += HAPPY.park;
+      if (this.shopNear(i)) h += HAPPY.shop;
+      if (this.polluted(i)) h += HAPPY.pollution;
+      this.happy[i] = Math.min(1, Math.max(0, h));
+    });
+  }
+
+  // Şehrin ortalama mutluluğu (nüfusa göre ağırlıklı)
+  get happiness() {
+    let sum = 0, pop = 0;
+    this.tiles.forEach((t, i) => {
+      if (t?.kind !== 'res' || t.level === 0 || !this.isServed(i)) return;
+      const p = RES_LEVELS[t.level - 1].pop;
+      sum += this.happy[i] * p;
+      pop += p;
+    });
+    return pop ? sum / pop : 0;
   }
 
   // Yola bağlı hizmet binalarının kapsama alanlarını işaretle
@@ -238,9 +326,10 @@ export class City {
     return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && this.reach.has(idx(x + dx, z + dz)));
   }
 
-  // Bina yola bağlı ve elektriği, suyu var mı?
+  // Bina yola bağlı, elektriği, suyu var, yanmıyor ve hasarsız mı?
   isServed(i: number) {
-    return this.isConnected(i) && !this.lacking.has(i);
+    const t = this.tiles[i];
+    return this.isConnected(i) && !this.lacking.has(i) && !t?.fire && !t?.damaged;
   }
 
   private sumOf(kind: 'res' | 'com', value: (level: number) => number) {
@@ -270,8 +359,47 @@ export class City {
     return sum;
   }
 
+  // Günlük vergi: mutlu evler daha çok öder (x0.5 ile x1.5 arası)
+  get dailyTax() {
+    let tax = this.jobsTotal * TAX_PER_JOB;
+    this.tiles.forEach((t, i) => {
+      if (t?.kind === 'res' && t.level > 0 && this.isServed(i)) tax += RES_LEVELS[t.level - 1].pop * TAX_PER_PERSON * (0.5 + this.happy[i]);
+    });
+    return tax;
+  }
+
   get dailyIncome() {
-    return Math.round(this.population * TAX_PER_PERSON + this.jobsTotal * TAX_PER_JOB - this.upkeep);
+    return Math.round(this.dailyTax - this.upkeep);
+  }
+
+  collectTaxes() {
+    const amount = Math.floor(this.treasury);
+    this.money += amount;
+    this.treasury -= amount;
+    this.stats.taxes += amount;
+    return amount;
+  }
+
+  // Yangını parayla söndür
+  extinguish(i: number): string | null {
+    const t = this.tiles[i];
+    if (!t?.fire) return 'Burada yangın yok';
+    if (this.money < FIRE.cost) return 'Yeterli para yok';
+    this.money -= FIRE.cost;
+    t.fire = 0;
+    this.refresh();
+    return null;
+  }
+
+  // Deprem hasarını malzemeyle onar
+  repair(i: number): string | null {
+    const t = this.tiles[i];
+    if (!t?.damaged) return 'Bu bina hasarlı değil';
+    if (!this.hasMaterials(QUAKE.repair)) return 'Depoda yeterli malzeme yok';
+    this.take(QUAKE.repair);
+    t.damaged = false;
+    this.refresh();
+    return null;
   }
 
   // Hiç bölge çizilmiş mi? (oyuncuya elektrik/su ipucu vermek için)
@@ -368,7 +496,8 @@ export class City {
     t.facing = this.facingFor(i);
     t.variant = Math.floor(Math.random() * 1000);
     this.addXp(XP.upgrade[t.level]);
-    this.updateService();
+    this.stats.upgrades++;
+    this.refresh();
     return null;
   }
 
@@ -408,6 +537,7 @@ export class City {
       for (const job of list) {
         if (job.end <= now && this.storageUsed < this.storageCap) {
           this.storage[job.mat]++;
+          this.stats.produced[job.mat] = (this.stats.produced[job.mat] ?? 0) + 1;
           this.addXp(MATERIALS[job.mat].maker === 'factory' ? XP.raw : XP.crafted);
           got.push(job.mat);
         } else keep.push(job);
@@ -476,12 +606,14 @@ export class City {
     return { done: ok, error: null };
   }
 
-  // Bir gün geçer: vergi toplanır, arsalara bina yapılır, dükkanlar büyür.
-  // (Konutlar artık kendiliğinden büyümez, malzemeyle yükseltilir.)
+  // Bir gün geçer: vergi belediyede birikir, bakım ödenir, arsalara bina yapılır, dükkanlar büyür,
+  // bazen olaylar (yangın, hırsızlık, deprem) olur. Konutlar malzemeyle yükseltilir.
   nextDay(): { income: number; changed: number[] } {
     this.day++;
     const income = this.dailyIncome;
-    this.money += income;
+    if (this.hall !== null) this.treasury += this.dailyTax;
+    else this.money += this.dailyTax;
+    this.money -= this.upkeep;
 
     const changed: number[] = [];
     let jobRoom = this.population * JOBS_PER_PERSON - this.jobsTotal;
@@ -506,10 +638,60 @@ export class City {
       t.facing = this.facingFor(i);
       t.variant = Math.floor(Math.random() * 1000);
       this.addXp(XP.build);
+      this.stats.builds++;
       changed.push(i);
     });
-    if (changed.length) this.updateService();
+    changed.push(...this.dailyEvents());
+    if (changed.length) this.refresh();
     return { income, changed };
+  }
+
+  // Yangın, hırsızlık ve deprem. Değişen kareleri döndürür.
+  private dailyEvents(): number[] {
+    const changed: number[] = [];
+    const built = this.tiles.map((t, i) => (t?.kind === 'res' && t.level > 0 && this.isConnected(i) ? i : -1)).filter(i => i >= 0);
+    // Süren yangınlar: itfaiye kapsıyorsa söner, yoksa birkaç gün sonra bina yıkılır
+    for (const i of built) {
+      const t = this.tiles[i]!;
+      if (!t.fire) continue;
+      if (this.isCovered(i, 'fire')) {
+        t.fire = 0;
+        this.events.push({ type: 'fireOut', i });
+      } else if (++t.fire > FIRE.days) {
+        t.fire = 0;
+        t.level = 0;
+        this.events.push({ type: 'collapse', i });
+      }
+      changed.push(i);
+    }
+    // Yeni yangın: itfaiyenin kapsamadığı bir evde
+    const unsafe = built.filter(i => !this.isCovered(i, 'fire') && !this.tiles[i]!.fire && this.tiles[i]!.level > 0);
+    if (unsafe.length && Math.random() < FIRE.chance) {
+      const i = unsafe[Math.floor(Math.random() * unsafe.length)];
+      this.tiles[i]!.fire = 1;
+      this.events.push({ type: 'fire', i });
+      changed.push(i);
+    }
+    // Hırsızlık: polisin kapsamadığı evlerde çok insan yaşıyorsa
+    const unguarded = built
+      .filter(i => !this.isCovered(i, 'police') && this.tiles[i]!.level > 0)
+      .reduce((sum, i) => sum + RES_LEVELS[this.tiles[i]!.level - 1].pop, 0);
+    if (unguarded >= CRIME.minPop && Math.random() < CRIME.chance) {
+      const amount = Math.min(Math.max(0, this.money), Math.round(unguarded * 0.8));
+      if (amount > 0) {
+        this.money -= amount;
+        this.events.push({ type: 'crime', amount });
+      }
+    }
+    // Deprem: nadiren, birkaç bina hasar görür
+    const standing = built.filter(i => this.tiles[i]!.level > 0);
+    if (this.level >= QUAKE.minLevel && standing.length && Math.random() < QUAKE.chance) {
+      const hit = [...standing].sort(() => Math.random() - 0.5).slice(0, QUAKE.damaged);
+      for (const i of hit) this.tiles[i]!.damaged = true;
+      this.events.push({ type: 'quake', tiles: hit });
+      changed.push(...hit);
+    }
+    return changed;
   }
 
   // --- Kaydetme ---
@@ -517,33 +699,57 @@ export class City {
   serialize(): SaveData {
     const t: TileRow[] = [];
     this.tiles.forEach((tile, i) => {
-      if (tile && !tile.locked) t.push([i, tile.kind, tile.level, tile.facing, tile.variant]);
+      if (!tile || (tile.locked && tile.kind === 'road')) return;
+      const row: TileRow = [i, tile.kind, tile.level, tile.facing, tile.variant];
+      if (tile.fire || tile.damaged) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0);
+      t.push(row);
     });
     const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => [job.mat, job.end] as [MatId, number])]);
     const st: SaveData['st'] = {};
     for (const m of MAT_IDS) if (this.storage[m]) st[m] = this.storage[m];
-    return { v: 3, money: this.money, day: this.day, xp: this.xp, st, t, j };
+    return { v: 4, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests };
+  }
+
+  static readonly VERSION = 4;
+
+  // Bu kaydı okuyabilir miyiz? (sürüm kontrolü tek yerde)
+  static canLoad(data: unknown): data is SaveData | OldSaveData {
+    const v = (data as { v?: unknown } | null)?.v;
+    return typeof v === 'number' && v >= 1 && v <= City.VERSION && Array.isArray((data as { t?: unknown }).t);
   }
 
   static load(data: SaveData | OldSaveData): City {
     const c = new City();
+    // Yeni şehrin otomatik belediyesini kaldır; kayıttaki (ya da uygun yerdeki) kullanılacak
+    c.tiles = c.tiles.map(t => (t?.kind === 'hall' ? null : t));
+    c.quests = [];
     c.money = data.money;
     c.day = data.day;
-    for (const [i, rawKind, rawLevel, facing, variant] of data.t) {
+    for (const [i, rawKind, rawLevel, facing, variant, fire, damaged] of data.t as TileRow[]) {
       let kind = rawKind as Kind;
       let level = rawLevel;
-      if (data.v === 1 && rawKind === 'house') {
+      if (data.v === 1 && (rawKind as string) === 'house') {
         kind = 'res';
         level = Math.min(rawLevel, RES_LEVELS.length);
       }
       if (!KINDS.includes(kind)) continue;
-      if (i >= 0 && i < c.tiles.length && !c.tiles[i]) c.tiles[i] = { kind, level, facing, variant };
+      if (i >= 0 && i < c.tiles.length && !c.tiles[i]) {
+        c.tiles[i] = { kind, level, facing, variant };
+        if (kind === 'hall') c.tiles[i]!.locked = true;
+        if (fire) c.tiles[i]!.fire = fire;
+        if (damaged) c.tiles[i]!.damaged = true;
+      }
     }
-    if (data.v === 3) {
-      c.xp = data.xp;
-      for (const m of MAT_IDS) c.storage[m] = data.st[m] ?? 0;
-      for (const [i, list] of data.j) {
+    if (data.v === 3 || data.v === 4) {
+      c.xp = data.xp ?? 0;
+      for (const m of MAT_IDS) c.storage[m] = data.st?.[m] ?? 0;
+      for (const [i, list] of data.j ?? []) {
         if (isIndustry(c.tiles[i]?.kind)) c.jobs.set(i, list.filter(([m]) => m in MATERIALS).map(([mat, end]) => ({ mat, end })));
+      }
+      if (data.v === 4) {
+        c.treasury = data.tr ?? 0;
+        c.stats = { ...emptyStats(), ...data.ss };
+        c.quests = (data.q ?? []).filter(q => q && q.type);
       }
     } else {
       // Eski şehirler: mevcut binalar için XP verilsin ki seviye baştan başlamasın
@@ -553,7 +759,9 @@ export class City {
         if (t.kind === 'res') for (let l = 2; l <= t.level; l++) c.xp += XP.upgrade[l];
       }
     }
+    c.placeHall();
     c.refresh();
+    c.fillQuests();
     return c;
   }
 }
