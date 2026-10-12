@@ -6,6 +6,7 @@ import { makeAirliner } from './planes';
 import { mergeStatic } from './batcher';
 import { SEA_Y } from './water';
 import { HISTORIC } from './historic';
+import { lake, hill, volley, casino, observatory } from './extras';
 
 // Simge yapılar: çeşme ve heykel hazır model, dönme dolap ve stadyum basit şekillerden.
 
@@ -858,6 +859,11 @@ export function makeDecor(kind: DecorKind): THREE.Object3D {
   if (kind === 'airport') return airport();
   if (kind === 'busstop') return busStop();
   if (kind === 'parking') return parkingLot();
+  if (kind === 'lake' || kind === 'biglake') return lake(kind === 'biglake');
+  if (kind === 'hill') return hill();
+  if (kind === 'volley') return volley();
+  if (kind === 'casino') return casino();
+  if (kind === 'observatory') return observatory();
   if (kind === 'station') return station();
   if (kind === 'wheel') return ferrisWheel();
   const g = new THREE.Group();
