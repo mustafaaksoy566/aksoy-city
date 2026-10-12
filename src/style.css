@@ -520,6 +520,11 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 .quest { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; padding: 9px 10px; border-radius: 14px; background: #f4f8fb; }
 .quest.done { background: #e9f7ec; }
 .quest .qt { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.quest .qp { grid-column: 1; display: flex; flex-wrap: wrap; gap: 5px; }
+.quest .qi { display: flex; align-items: center; gap: 2px; padding: 1px 7px 1px 2px; border-radius: 11px; background: #e3f4e6; color: #1d7a33; font-size: 12px; font-weight: 600; }
+.quest .qi.no { background: #fde3e0; color: #c62828; }
+.quest .qi .qpic { width: 28px; height: 28px; object-fit: contain; }
+.quest .qi .qpic.emo { width: auto; height: auto; font-size: 18px; }
 .quest .qbar { display: block; height: 8px; border-radius: 4px; background: #e1e8ee; overflow: hidden; }
 .quest .qbar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #7bd88a, #34a853); }
 .quest .qn { font-size: 11.5px; color: var(--muted); }

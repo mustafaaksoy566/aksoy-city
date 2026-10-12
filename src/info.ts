@@ -19,7 +19,7 @@ export interface InfoCard {
   cost?: { text: string; ok: boolean }[]; // yükseltme malzemeleri (eldeki/gereken)
   jobs?: { text: string; progress: number }[]; // üretimdeki malzemeler
   tiles?: { icon: string; name: string; sub: string; note?: string; section?: string; enabled: boolean; run: () => void }[];
-  quests?: { text: string; progress: number; count: string; reward: string; done: boolean; button?: string; run: () => void }[];
+  quests?: { text: string; pics?: string; progress: number; count: string; reward: string; done: boolean; button?: string; run: () => void }[];
   actions?: { label: string; enabled: boolean; primary?: boolean; run: () => void }[];
 }
 
@@ -323,9 +323,11 @@ export function describePort(city: City, act: CardActions, now = Date.now()): In
       const have = items.reduce((s, [m, k]) => s + Math.min(city.storage[m], k), 0);
       const need = items.reduce((s, [, k]) => s + k, 0);
       return {
-        text: `${o.from}: ${items.map(([m, k]) => `${MATERIALS[m].icon}${k}`).join('  ')}`,
+        text: `🏙️ ${o.from}`,
+        // İstenen mallar resimleriyle: depoda olan / istenen
+        pics: items.map(([m, k]) => `<span class="qi${city.storage[m] >= k ? '' : ' no'}">${productPic(m, 'qpic')}<b>${Math.min(city.storage[m], k)}/${k}</b></span>`).join(''),
         progress: have / need,
-        count: `Elinde: ${items.map(([m, k]) => `${MATERIALS[m].icon}${Math.min(city.storage[m], k)}/${k}`).join('  ')}`,
+        count: `${items.map(([m, k]) => `${MATERIALS[m].name} ${k}`).join(' · ')}`,
         reward: `💰${fmt(o.money)}\n⭐${o.xp}`,
         done: city.orderBlocker(n, now) === null,
         button: 'Gönder',

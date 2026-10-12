@@ -423,7 +423,7 @@ export function showInfo(card: InfoCard | null) {
     tilesHtml += `<button class="tile" data-n="${n}"><span class="ti">${t.icon}</span><b>${esc(t.name)}</b><small>${esc(t.sub)}</small>${t.note ? `<span class="tn">${esc(t.note)}</span>` : ''}</button>`;
   });
   const questHtml = (card.quests ?? [])
-    .map((q, n) => `<div class="quest"><span class="qt"></span><span class="qbar"><i></i></span><span class="qn"></span><button class="claim" data-n="${n}"></button></div>`)
+    .map((q, n) => `<div class="quest"><span class="qt"></span>${q.pics !== undefined ? '<span class="qp"></span>' : ''}<span class="qbar"><i></i></span><span class="qn"></span><button class="claim" data-n="${n}"></button></div>`)
     .join('');
   el.innerHTML = `
     <div class="card-head" style="--c:${card.tone ?? '#3d8bff'}">
@@ -481,6 +481,11 @@ function update(el: HTMLElement, card: InfoCard) {
     const q = card.quests![n];
     d.classList.toggle('done', q.done);
     d.querySelector('.qt')!.textContent = q.text;
+    const qp = d.querySelector<HTMLElement>('.qp');
+    if (qp && q.pics !== undefined && qp.dataset.h !== q.pics) {
+      qp.dataset.h = q.pics;
+      qp.innerHTML = q.pics;
+    }
     (d.querySelector('.qbar i') as HTMLElement).style.width = `${Math.round(q.progress * 100)}%`;
     d.querySelector('.qn')!.textContent = q.count;
     const b = d.querySelector<HTMLButtonElement>('.claim')!;
