@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { CAR_MODELS } from './config';
-import { makeModel, ROAD_COLORS } from './assets';
-import { mergeStatic, bakeTextured } from './batcher';
+import { ROAD_COLORS } from './assets';
+import { mergeStatic } from './batcher';
+import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint } from './cars';
 import { HW, SKI_ROAD, riverAt } from './terrain';
 import { part, mat } from './utilities';
 
@@ -363,6 +363,7 @@ interface Car {
   s: number;
   speed: number;
   type: number;
+  paint: THREE.Color;
   v: number; // şu anki hız
   pos: THREE.Vector3;
   h: number;
@@ -381,7 +382,7 @@ export class HighwayTraffic {
   readonly root = new THREE.Group();
   private routes: Route[] = [];
   private cars: Car[] = [];
-  private meshes: THREE.InstancedMesh[] = [];
+  private set: CarSet | null = null;
   private tmp = new THREE.Object3D();
 
   init() {
@@ -424,19 +425,12 @@ export class HighwayTraffic {
       this.routes.push({ lane, slow: new Float32Array(cc), fadeIn: !!def.fadeIn, fadeOut: !!def.fadeOut });
       const r = this.routes.length - 1;
       for (let k = 0; k < def.cars; k++) {
-        this.cars.push({ route: r, s: ((k + Math.random() * 0.4) / def.cars) * lane.length, speed: 0.85 + Math.random() * 0.3, type: 0, v: 0, pos: new THREE.Vector3(), h: 0, fade: 1 });
+        const type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
+        this.cars.push({ route: r, s: ((k + Math.random() * 0.4) / def.cars) * lane.length, speed: 0.85 + Math.random() * 0.3, type, paint: carPaint(CAR_KINDS[type]), v: 0, pos: new THREE.Vector3(), h: 0, fade: 1 });
       }
     }
-    for (const path of CAR_MODELS) {
-      const baked = bakeTextured(makeModel(path));
-      if (!baked) continue;
-      const m = new THREE.InstancedMesh(baked.geo, baked.mat, this.cars.length);
-      m.count = 0;
-      m.frustumCulled = false;
-      this.meshes.push(m);
-      this.root.add(m);
-    }
-    for (const c of this.cars) c.type = Math.floor(Math.random() * this.meshes.length);
+    this.set = new CarSet(CAR_KINDS, this.cars.length);
+    this.root.add(this.set.root);
   }
 
   // Yolun o noktasındaki hız sınırı
@@ -455,9 +449,10 @@ export class HighwayTraffic {
   }
 
   update(dt: number) {
-    if (!this.meshes.length) return;
+    const set = this.set;
+    if (!set) return;
     for (const c of this.cars) c.h = this.routes[c.route].lane.at(c.s, c.pos);
-    const counts = this.meshes.map(() => 0);
+    set.begin();
     this.cars.forEach((car, ci) => {
       const route = this.routes[car.route];
       let v = this.cap(route, car.s) * car.speed;
@@ -484,11 +479,8 @@ export class HighwayTraffic {
       this.tmp.rotation.y = route.lane.at(car.s, this.tmp.position);
       this.tmp.scale.setScalar(CAR_SCALE * car.fade);
       this.tmp.updateMatrix();
-      this.meshes[car.type].setMatrixAt(counts[car.type]++, this.tmp.matrix);
+      set.put(car.type, this.tmp.matrix, car.paint);
     });
-    this.meshes.forEach((m, n) => {
-      m.count = counts[n];
-      m.instanceMatrix.needsUpdate = true;
-    });
+    set.end();
   }
 }

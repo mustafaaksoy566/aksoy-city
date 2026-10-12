@@ -72,30 +72,62 @@ const LEAVES: Record<TreeType, [string, string]> = {
 };
 const GRAY: [string, string] = ['#7a7a7a', '#ffffff'];
 
+// Gövde ve dallar: gövdeden yapraklara uzanan birkaç eğik dal
+function branches(h: number, r: number, list: [number, number, number][]) {
+  const parts = [trunk(r, h)];
+  for (const [x, y, z] of list) {
+    const len = Math.hypot(x, y - h * 0.7, z);
+    const g = new THREE.CylinderGeometry(r * 0.28, r * 0.5, len, 5, 1, true).toNonIndexed();
+    g.translate(0, len / 2, 0);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x, y - h * 0.7, z).normalize());
+    g.applyQuaternion(q);
+    g.translate(0, h * 0.7, 0);
+    g.deleteAttribute('uv');
+    parts.push(g);
+  }
+  return merge(parts);
+}
+
 // Ağacın yaprakları ve gövdesi (gövde yoksa null). detail: toparlak kısımların inceliği
 export function treeParts(type: TreeType, detail: number, gray = false) {
   const [lo, hi] = (gray ? GRAY : LEAVES[type]).map(c => new THREE.Color(c));
   let crown: THREE.BufferGeometry;
   let wood: THREE.BufferGeometry | null = null;
   if (type === 'pine') {
-    crown = paint(merge([cone(0.17, 0.27, 0.27), cone(0.135, 0.23, 0.41), cone(0.095, 0.2, 0.54)]), lo, hi, 0.15, 0.64, 2);
-    wood = trunk(0.034, 0.17);
+    // Kat kat sarkan dallar: alttan üste daralan beş kat, her kat biraz döndürülmüş
+    const tiers = [0, 1, 2, 3, 4].map(k => cone(0.2 - k * 0.034, 0.2 - k * 0.012, 0.22 + k * 0.088, 9).rotateY(k * 0.5));
+    crown = paint(merge(tiers), lo, hi, 0.12, 0.66, 2);
+    wood = trunk(0.034, 0.2);
   } else if (type === 'cypress') {
-    crown = paint(merge([blob(0.1, detail, 0, 0.37, 0, 2.7, 0.18)]), lo, hi, 0.1, 0.64, 3);
+    crown = paint(merge([blob(0.1, detail, 0, 0.32, 0, 2.3, 0.16), blob(0.075, detail, 0, 0.56, 0, 2.0, 0.16), blob(0.045, detail, 0, 0.72, 0, 1.8, 0.1)]), lo, hi, 0.1, 0.78, 3);
     wood = trunk(0.03, 0.12);
   } else if (type === 'bush') {
-    crown = paint(merge([blob(0.11, detail, 0, 0.075, 0, 0.75), blob(0.085, detail, 0.085, 0.06, 0.03, 0.75), blob(0.075, detail, -0.07, 0.055, 0.045, 0.75)]), lo, hi, 0, 0.16, 4);
-  } else {
     crown = paint(
       merge([
-        blob(0.165, detail, 0, 0.4, 0),
-        blob(0.125, detail, 0.1, 0.33, 0.05),
-        blob(0.12, detail, -0.09, 0.35, -0.05),
-        blob(0.1, detail, 0.01, 0.52, -0.01),
+        blob(0.11, detail, 0, 0.08, 0, 0.78),
+        blob(0.085, detail, 0.09, 0.065, 0.03, 0.78),
+        blob(0.08, detail, -0.075, 0.06, 0.05, 0.78),
+        blob(0.07, detail, 0.02, 0.06, -0.085, 0.78),
+        blob(0.06, detail, -0.03, 0.13, -0.01, 0.8),
       ]),
-      lo, hi, 0.22, 0.6, type === 'blossom' ? 5 : 1,
+      lo, hi, 0, 0.18, 4,
     );
-    wood = trunk(0.042, 0.28);
+  } else {
+    // Dolgun, katmanlı taç: ortada büyük, çevresinde ve üstünde küçük yaprak kümeleri
+    crown = paint(
+      merge([
+        blob(0.15, detail, 0, 0.42, 0),
+        blob(0.12, detail, 0.115, 0.36, 0.04),
+        blob(0.115, detail, -0.105, 0.37, -0.05),
+        blob(0.11, detail, 0.025, 0.355, -0.115),
+        blob(0.105, detail, -0.04, 0.345, 0.115),
+        blob(0.1, detail, 0.06, 0.53, 0.035),
+        blob(0.085, detail, -0.065, 0.52, -0.03),
+        blob(0.07, detail, 0.005, 0.61, 0),
+      ]),
+      lo, hi, 0.24, 0.66, type === 'blossom' ? 5 : 1,
+    );
+    wood = branches(0.3, 0.042, [[0.09, 0.36, 0.03], [-0.08, 0.37, -0.04], [0.02, 0.38, -0.09]]);
   }
   if (wood) paint(wood, new THREE.Color('#5e3d26'), new THREE.Color('#8a5c39'), 0, 0.3, 7);
   return { crown, wood };

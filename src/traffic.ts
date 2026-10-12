@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { SIZE, CAR_MODELS, EMERGENCY_CARS, ROAD_GRADES, ENTRANCE_Z } from './config';
+import { SIZE, ROAD_GRADES, ENTRANCE_Z } from './config';
+import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint, type CarKind } from './cars';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
 import { bakeTextured, bakeModel, vertexColorMat } from './batcher';
@@ -193,6 +194,7 @@ interface Spot {
 }
 interface Parked {
   type: number;
+  paint?: THREE.Color;
   noseIn: boolean; // burnu içeride (ileri girip park etti)
   leaving?: boolean; // sahibi yürüyerek geliyor
 }
@@ -234,6 +236,7 @@ interface Vehicle extends Mover {
   id?: number;
   stuck?: number; // önü kapalı bekleme süresi
   type: number; // araba modeli (otobüste -1)
+  paint?: THREE.Color; // boyası
   wide: number; // caddede hangi şerit (0 iç, 1 dış)
   trip: number; // kaç kare daha gezecek; bitince hedefine gider
   dest?: Dest;
@@ -250,8 +253,7 @@ export class Traffic {
   readonly root = new THREE.Group();
   private cars: Vehicle[] = [];
   private buses: Vehicle[] = [];
-  private meshes: THREE.InstancedMesh[] = [];
-  private paths: string[] = [];
+  private set: CarSet | null = null;
   private busMesh: THREE.InstancedMesh | null = null;
   private lengths: number[] = []; // her araba modelinin boyu (kare)
   private widths: number[] = [];
@@ -288,21 +290,10 @@ export class Traffic {
       this.busMesh.frustumCulled = false;
       this.root.add(this.busMesh);
     }
-    for (const path of new Set([...CAR_MODELS, ...Object.values(EMERGENCY_CARS)])) {
-      const baked = bakeTextured(makeModel(path));
-      if (!baked) continue;
-      this.paths.push(path);
-      baked.geo.computeBoundingBox();
-      const bb = baked.geo.boundingBox!;
-      this.lengths.push(Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * CAR_SCALE);
-      this.widths.push(Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * CAR_SCALE);
-      const mesh = new THREE.InstancedMesh(baked.geo, baked.mat, MAX_INSTANCES);
-      mesh.castShadow = false;
-      mesh.count = 0;
-      mesh.frustumCulled = false;
-      this.meshes.push(mesh);
-      this.root.add(mesh);
-    }
+    this.set = new CarSet(CAR_KINDS, MAX_INSTANCES);
+    this.root.add(this.set.root);
+    this.lengths.push(...this.set.lengths.map(l => l * CAR_SCALE));
+    this.widths.push(...this.set.widths.map(w => w * CAR_SCALE));
   }
 
   setCity(city: City) {
@@ -317,9 +308,7 @@ export class Traffic {
 
   // Normal araba modeli (polis, ambulans ve itfaiye kendi binalarından çıkar)
   private pickType() {
-    const special = Object.values(EMERGENCY_CARS) as string[];
-    const normal = this.paths.filter(p => !special.includes(p));
-    return this.paths.indexOf(normal[Math.floor(Math.random() * normal.length)]);
+    return CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
   }
 
   private laneOf(v: Vehicle) {
@@ -397,7 +386,11 @@ export class Traffic {
         }
         if (old) Object.assign(old, spot);
         else {
-          const bays = BAYS.map(() => (Math.random() < 0.67 ? { type: this.pickType(), noseIn: false } : null));
+          const bays = BAYS.map(() => {
+            if (Math.random() >= 0.67) return null;
+            const type = this.pickType();
+            return { type, noseIn: false, paint: carPaint(CAR_KINDS[type]) };
+          });
           this.lots.set(i, { ...spot, bays, reserved: BAYS.map(() => false) });
         }
       } else if (t.kind === 'res' && t.level >= 5) {
@@ -539,7 +532,7 @@ export class Traffic {
   private pullOut(lot: Lot, bay: number) {
     const p = lot.bays[bay];
     if (!p) return;
-    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, wide: Math.random() < 0.5 ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
+    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
     const { dir, pt } = this.exitTo(lot, v);
     const f = fwd(lot.face), r = right(lot.face);
     const b = this.bayPos(lot, bay);
@@ -561,7 +554,7 @@ export class Traffic {
 
   // Binanın (garajın) içinden yola çık
   private driveOut(spot: Spot, type: number, home?: Spot) {
-    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, wide: Math.random() < 0.5 ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
+    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
     const { dir, pt } = this.exitTo(spot, v);
     const f = fwd(spot.face);
     const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.12);
@@ -615,7 +608,8 @@ export class Traffic {
     }
     const entrance = idx(0, ENTRANCE_Z);
     if (isRoadTile(this.city, entrance)) {
-      this.cars.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 0, type: this.pickType(), wide: Math.random() < 0.5 ? 0 : 1, trip: 12 + Math.floor(Math.random() * 30) });
+      const type = this.pickType();
+      this.cars.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 12 + Math.floor(Math.random() * 30) });
     }
   }
 
@@ -667,8 +661,8 @@ export class Traffic {
       const emergency = this.cars.filter(c => c.home).length;
       if (this.stations.length && emergency < Math.min(5, Math.ceil(this.stations.length / 3)) && Math.random() < 0.25) {
         const s = this.stations[Math.floor(Math.random() * this.stations.length)];
-        const path = s.kind === 'health' ? EMERGENCY_CARS.health : s.kind === 'fire' ? EMERGENCY_CARS.fire : EMERGENCY_CARS.police;
-        const type = this.paths.indexOf(path);
+        const kind: CarKind = s.kind === 'health' ? 'ambulance' : s.kind === 'fire' ? 'fire' : 'police';
+        const type = CAR_KINDS.indexOf(kind);
         if (type >= 0) this.driveOut(s, type, s);
       }
       // Otobüsler: her durak için bir tane (en fazla 12), şehre otoyoldan girer
@@ -747,19 +741,19 @@ export class Traffic {
     };
     this.cars = this.cars.filter(move);
     this.buses = this.buses.filter(move);
-    if (!this.meshes.length) return;
+    const set = this.set;
+    if (!set) return;
 
-    const counts = this.meshes.map(() => 0);
-    const put = (type: number, m: THREE.Matrix4) => {
-      if (counts[type] < MAX_INSTANCES) this.meshes[type].setMatrixAt(counts[type]++, m);
-    };
+    set.begin();
+    const white = new THREE.Color('#ffffff');
+    const put = (type: number, m: THREE.Matrix4, paint?: THREE.Color) => set.put(type, m, paint ?? white);
     this.boxes = [];
     const remember = (v: Vehicle) => {
       if (v.fade < 0.3) return;
       this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0 });
     };
     for (const car of this.cars) {
-      put(car.type, this.place(car, CAR_Y));
+      put(car.type, this.place(car, CAR_Y), car.paint);
       remember(car);
     }
     // Otoparkta duran arabalar
@@ -771,13 +765,10 @@ export class Traffic {
         this.tmp.rotation.set(0, Math.atan2(DIRS[lot.face][0], DIRS[lot.face][1]) + (p.noseIn ? Math.PI : 0), 0);
         this.tmp.scale.setScalar(CAR_SCALE);
         this.tmp.updateMatrix();
-        put(p.type, this.tmp.matrix);
+        put(p.type, this.tmp.matrix, p.paint);
       });
     }
-    this.meshes.forEach((m, n) => {
-      m.count = counts[n];
-      m.instanceMatrix.needsUpdate = true;
-    });
+    set.end();
     if (this.busMesh) {
       this.buses.forEach((b, n) => {
         this.busMesh!.setMatrixAt(n, this.place(b, 0.03));
@@ -813,7 +804,7 @@ export class Traffic {
       // Park etti: sürücü inip evine yürür
       m.lot.reserved[m.bay!] = false;
       if (!m.lot.bays[m.bay!]) {
-        m.lot.bays[m.bay!] = { type: v.type, noseIn: true };
+        m.lot.bays[m.bay!] = { type: v.type, noseIn: true, paint: v.paint };
         const path = this.walkPath(m.lot, m.bay!);
         if (path && this.walkers) this.walkers.addTrip(path.reverse(), false, true);
       }
