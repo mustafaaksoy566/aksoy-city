@@ -6,6 +6,9 @@ import { makeModel } from './assets';
 // Kenney'nin sade, renkli tarzına uysun diye düz renkler kullanılıyor.
 
 export const mat = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
+// Gece ışığı yanan cam (DayNight 'window' adlı malzemeleri yakar)
+export const windowMat = new THREE.MeshStandardMaterial({ color: '#9fd3ea', roughness: 0.3, metalness: 0.1 });
+windowMat.name = 'window';
 const M = {
   pad: mat('#b9bec4'),
   white: mat('#f4f4f2'),

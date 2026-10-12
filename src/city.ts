@@ -4,7 +4,7 @@ import {
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
-  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -348,6 +348,12 @@ export class City {
       const bit = 1 << SERVICE_KINDS.indexOf(t.kind);
       for (const c of serviceArea(i, t.kind, t.fp ?? 1)) this.covered[c] |= bit;
     });
+    // Hizmet de veren simge yapılar (üniversite = okul)
+    this.tiles.forEach((t, i) => {
+      if (!t || !isDecor(t.kind) || !DECOR[t.kind].covers || !this.isConnected(i)) return;
+      const bit = 1 << SERVICE_KINDS.indexOf(DECOR[t.kind].covers!);
+      for (const c of areaAround(i, DECOR[t.kind].radius, t.fp ?? 1)) this.covered[c] |= bit;
+    });
   }
 
   isCovered(i: number, kind: ServiceKind) {
@@ -476,13 +482,27 @@ export class City {
     return sum;
   }
 
-  // Günlük vergi: mutlu evler daha çok öder (x0.5 ile x1.5 arası)
-  get dailyTax() {
-    let tax = this.jobsTotal * TAX_PER_JOB;
+  // Havalimanı gibi yapıların getirdiği turist parası (günlük)
+  get tourism() {
+    let sum = 0;
+    this.tiles.forEach((t, i) => {
+      if (t && isDecor(t.kind) && DECOR[t.kind].income && this.isConnected(i)) sum += DECOR[t.kind].income!;
+    });
+    return sum;
+  }
+
+  // Konutlardan gelen vergi (mutlu evler daha çok öder: x0.5 ile x1.5 arası)
+  get residentTax() {
+    let tax = 0;
     this.tiles.forEach((t, i) => {
       if (t?.kind === 'res' && t.level > 0 && this.isServed(i)) tax += RES_LEVELS[t.level - 1].pop * TAX_PER_PERSON * (0.5 + this.happy[i]);
     });
     return tax;
+  }
+
+  // Günlük toplam vergi: konut + iş yeri + turizm
+  get dailyTax() {
+    return this.residentTax + this.jobsTotal * TAX_PER_JOB + this.tourism;
   }
 
   get dailyIncome() {
@@ -549,6 +569,7 @@ export class City {
       if (this.parkNear(i)) max++;
       if (this.shopNear(i)) max++;
       if (max === RES_BASE_MAX + 2 && this.allCovered(i)) max++;
+      if (max === RES_BASE_MAX + 3 && this.decorBonus[i] >= LUXURY_DECOR - 1e-6) max++;
       return Math.min(max, RES_LEVELS.length);
     }
     return Math.min(COM_LEVELS.length, 1 + Math.floor(this.population / POP_PER_COM_LEVEL));
@@ -613,9 +634,10 @@ export class City {
     if (t.level >= RES_LEVELS.length) return 'En üst seviyede';
     if (!this.isServed(i)) return 'Önce yol, elektrik ve su lazım';
     if (t.level >= this.maxLevel(i)) {
-      if (!this.parkNear(i) && t.level >= RES_BASE_MAX) return 'Yakında park lazım';
-      if (!this.shopNear(i) && t.level >= RES_BASE_MAX) return 'Yakında dükkan lazım';
-      return 'Dört hizmetin de kapsaması lazım';
+      if (!this.parkNear(i)) return 'Yakında park lazım';
+      if (!this.shopNear(i)) return 'Yakında dükkan lazım';
+      if (!this.allCovered(i)) return 'Dört hizmetin de kapsaması lazım';
+      return 'Yakında bir simge yapı lazım (heykel, dönme dolap, stadyum…)';
     }
     const extra = RES_LEVELS[t.level].need - RES_LEVELS[t.level - 1].need;
     if (extra > this.spareUtility) return 'Şehre daha fazla elektrik ve su lazım';
@@ -653,7 +675,7 @@ export class City {
     if (!this.isConnected(i)) return 'Bina yola bağlı değil';
     const list = this.jobs.get(i) ?? [];
     if (t.kind === 'factory' && list.length >= FACTORY_SLOTS) return 'Bütün üretim yerleri dolu';
-    if (t.kind === 'store' && list.length >= STORE_QUEUE) return 'Sıra dolu';
+    if (t.kind !== 'factory' && list.length >= STORE_QUEUE) return 'Sıra dolu';
     if (m.needs && !this.hasMaterials(m.needs)) return 'Depoda yeterli malzeme yok';
     return null;
   }
@@ -665,7 +687,7 @@ export class City {
     const list = this.jobs.get(i) ?? [];
     if (m.needs) this.take(m.needs);
     // Fabrikada hepsi aynı anda, hırdavatçıda bir öncekinin bitmesini bekler
-    const start = m.maker === 'store' && list.length ? Math.max(now, list[list.length - 1].end) : now;
+    const start = m.maker !== 'factory' && list.length ? Math.max(now, list[list.length - 1].end) : now;
     list.push({ mat, end: start + m.seconds * 1000 });
     this.jobs.set(i, list);
     return null;
@@ -724,6 +746,7 @@ export class City {
     if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
     const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
     if (tool === 'busstop' && !nearRoad) return 'Durak yol kenarına kurulmalı';
+    if (isDecor(tool) && DECOR[tool].road && !nearRoad) return 'Bu yapı yol kenarına kurulmalı';
     if (tool === 'station' && !cells.some(c => this.railMask(c % SIZE, Math.floor(c / SIZE)) !== 0)) {
       return 'İstasyon tren yolunun yanına kurulmalı';
     }

@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
-  type Tool, type BuildTool, type MatId,
+  SIZE, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  LEVEL_REWARD, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
-import { City, isUtility, isService, isIndustry, isDecor, serviceArea, sizeOf, block } from './city';
-import { describeTile, describeStorage, describeQuests, describeHall, type CardActions } from './info';
+import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
+import {
+  describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, type CardActions,
+} from './info';
 import { Sky } from './sky';
+import { Weather } from './weather';
 import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
@@ -17,7 +20,7 @@ import { railPiece } from './rails';
 import { DayNight, CYCLE_DAYS } from './daynight';
 import { renderThumbs } from './thumbs';
 import { makeUtility } from './utilities';
-import { makeService } from './services';
+import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
 import { makeModel, loadSkins } from './assets';
@@ -25,24 +28,44 @@ import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
-  buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, celebrateLevel, setThumbs, fmt,
+  buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
+  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, fmt, type Quality,
 } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
+const QUALITY_KEY = 'aksoy-city-quality';
+const RAIN_KEY = 'aksoy-city-rain';
+
+const readPref = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writePref = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // gizli sekmede kaydedilemeyebilir
+  }
+};
 
 // --- Sahne, kamera, ışık ---
 const container = document.getElementById('app')!;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-// Çözünürlük: telefon zorlanırsa kendiliğinden düşürülür (bkz. adaptQuality)
-let pixelRatio = Math.min(window.devicePixelRatio, 2);
+// Çözünürlük: grafik ayarına göre; telefon zorlanırsa kendiliğinden düşürülür (bkz. adaptQuality)
+let quality: Quality = (readPref(QUALITY_KEY) as Quality) || 'high';
+const maxRatio = () => (quality === 'high' ? Math.min(window.devicePixelRatio, 2) : quality === 'mid' ? Math.min(window.devicePixelRatio, 1.5) : 1);
+let pixelRatio = maxRatio();
 renderer.setPixelRatio(pixelRatio);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = quality !== 'low';
 renderer.shadowMap.type = THREE.PCFShadowMap;
 // Gölgeler her karede değil, sadece şehir değişince yeniden hesaplanır
 renderer.shadowMap.autoUpdate = false;
-// Daha canlı ve gerçekçi renkler için ışık ayarı (film tonlaması + ortam yansıması)
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+// Canlı renkler için ışık ayarı (renkleri soldurmayan tonlama + ortam yansıması)
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -66,7 +89,7 @@ const hemi = new THREE.HemisphereLight('#ffffff', '#7a9a5a', 1.0);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff6e0', 2.2);
 sun.position.set(-12, 30, 18);
-sun.castShadow = true;
+sun.castShadow = quality !== 'low';
 sun.shadow.mapSize.set(2048, 2048);
 const half = SIZE / 2 + 2;
 Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 80 });
@@ -75,7 +98,7 @@ scene.add(sun);
 
 // Şehrin çimen zemini. Yolların asfaltı y=0'da olduğu için zemin biraz aşağıda,
 // yoksa çimen yolun içinden titreyerek görünüyor.
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshStandardMaterial({ color: '#7cc05c' }));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshStandardMaterial({ color: '#56a03a' }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.02;
 ground.receiveShadow = true;
@@ -99,22 +122,12 @@ function loadCity(): City {
     // Aşağıda yedeklenip yeni şehirle başlanır
   }
   // Kayıt okunamadıysa üstüne yazmadan önce yedeğini al
-  if (raw) {
-    try {
-      localStorage.setItem(`${SAVE_KEY}-yedek-${Date.now()}`, raw);
-    } catch {
-      // yer yoksa yapacak bir şey yok
-    }
-  }
+  if (raw) writePref(`${SAVE_KEY}-yedek-${Date.now()}`, raw);
   return new City();
 }
 
 function save() {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(city.serialize()));
-  } catch {
-    // Gizli sekmede kayıt yapılamayabilir
-  }
+  writePref(SAVE_KEY, JSON.stringify(city.serialize()));
 }
 
 let city = loadCity();
@@ -126,8 +139,11 @@ const walkers = new Walkers(city);
 scene.add(walkers.root);
 const trains = new Trains(city);
 scene.add(trains.root);
-const sky = new Sky();
+const sky = new Sky(city);
 scene.add(sky.root);
+const weather = new Weather();
+weather.enabled = readPref(RAIN_KEY) !== '0';
+scene.add(weather.root);
 const dayNight = new DayNight(scene, hemi, sun);
 
 const updateStats = () =>
@@ -146,8 +162,10 @@ const updateStats = () =>
 function checkLevelUps() {
   while (city.levelUps.length) {
     const level = city.levelUps.shift()!;
-    const tools = (Object.entries(UNLOCK) as [BuildTool, number][]).filter(([, l]) => l === level).map(([t]) => `${TOOL_INFO[t].icon} ${TOOL_INFO[t].label}`);
-    const mats = MAT_IDS.filter(m => MATERIALS[m].unlock === level).map(m => `${MATERIALS[m].icon} ${MATERIALS[m].name}`);
+    const tools = (Object.entries(UNLOCK) as [BuildTool, number][])
+      .filter(([, l]) => l === level)
+      .map(([t]) => ({ key: t as string, icon: TOOL_INFO[t].icon, label: TOOL_INFO[t].label }));
+    const mats = MAT_IDS.filter(m => MATERIALS[m].unlock === level).map(m => ({ icon: MATERIALS[m].icon, label: MATERIALS[m].name }));
     celebrateLevel(level, LEVEL_REWARD * level, [...tools, ...mats]);
     play('grow', 0.6);
   }
@@ -155,11 +173,7 @@ function checkLevelUps() {
 
 // Depo düğmesinin yanında küçük "+🔩" yazısı uçsun
 function floatStorage(mats: MatId[]) {
-  const el = document.createElement('div');
-  el.className = 'float';
-  el.textContent = '+' + mats.map(m => MATERIALS[m].icon).join('');
-  document.getElementById('storage')!.appendChild(el);
-  setTimeout(() => el.remove(), 1200);
+  floatText('storage', '+' + mats.map(m => MATERIALS[m].icon).join(''));
 }
 
 // Yangın, hırsızlık, deprem gibi olayları ekranda göster
@@ -184,8 +198,9 @@ function showEvents() {
   }
 }
 
-// --- Bilgi kartı (binaya dokununca) ---
-let openCard: number | 'storage' | 'quests' | null = null;
+// --- Bilgi kartı (binaya ya da göstergelere dokununca) ---
+type CardKey = number | 'storage' | 'quests' | 'budget' | 'city' | 'power' | 'water' | 'hall';
+let openCard: CardKey | null = null;
 
 const cardActions: CardActions = {
   upgrade(i) {
@@ -271,6 +286,11 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  openCatalog(group) {
+    openTile(null);
+    catalog.open(group);
+    play('click', 0.3);
+  },
 };
 
 function renderCard() {
@@ -278,14 +298,43 @@ function renderCard() {
   const card =
     openCard === 'storage' ? describeStorage(city)
     : openCard === 'quests' ? describeQuests(city, cardActions)
+    : openCard === 'budget' ? describeBudget(city, cardActions)
+    : openCard === 'city' ? describeCity(city)
+    : openCard === 'power' || openCard === 'water' ? describeUtility(city, openCard, cardActions)
+    : openCard === 'hall' ? describeHall(city, cardActions)
     : describeTile(city, openCard, cardActions);
   if (!card) openCard = null;
   showInfo(card);
 }
 
-function openTile(cell: number | null) {
+function openTile(cell: CardKey | null) {
   openCard = cell;
   renderCard();
+  highlight();
+}
+onInfoClose(() => {
+  openCard = null;
+  highlight();
+});
+
+// Kartı açık binanın (ya da satılık arazinin) altını işaretle
+function highlight() {
+  if (tool !== 'pan') return;
+  if (typeof openCard !== 'number' || openCard < 0) return view.showSelection([]);
+  if (!city.isOwned(openCard) && city.tiles[openCard]?.kind !== 'road') {
+    const p = city.plotOf(openCard);
+    const x0 = (p % PLOTS) * PLOT, z0 = Math.floor(p / PLOTS) * PLOT;
+    return view.showSelection(block(x0, z0, PLOT) ?? []);
+  }
+  view.showSelection(city.tiles[openCard] ? city.cellsOf(openCard) : []);
+}
+
+// Üstteki göstergeye dokununca kartını aç; tekrar dokununca kapat
+function toggleCard(key: CardKey) {
+  if (tool !== 'pan') pickTool('pan');
+  catalog.close();
+  openTile(openCard === key ? null : key);
+  play('click', 0.3);
 }
 
 // Bir şey değişince her yeri güncelle ve kaydet
@@ -303,8 +352,8 @@ const lastWarned = { power: -99, water: -99, factory: -99 };
 function warnShortages() {
   if (!city.hasZones) return;
   const texts = {
-    power: ['⚡ Elektrik yok! Altyapı menüsünden rüzgar türbini kur.', '⚡ Elektrik yetmiyor! Yeni türbin ya da santral kur.'],
-    water: ['💧 Su yok! Altyapı menüsünden su kulesi kur.', '💧 Su yetmiyor! Yeni su kulesi ya da pompa kur.'],
+    power: ['⚡ Elektrik yok! İnşa Et → Altyapı\'dan rüzgar türbini kur.', '⚡ Elektrik yetmiyor! Yeni türbin ya da santral kur.'],
+    water: ['💧 Su yok! İnşa Et → Altyapı\'dan su kulesi kur.', '💧 Su yetmiyor! Yeni su kulesi ya da pompa kur.'],
   };
   for (const k of ['power', 'water'] as const) {
     const { supply, demand } = city.service[k];
@@ -320,7 +369,7 @@ function warnShortages() {
   const hasFactory = city.tiles.some(t => t?.kind === 'factory');
   if (hasHouse && !hasFactory && city.day - lastWarned.factory >= 20) {
     lastWarned.factory = city.day;
-    toast('🏭 Evleri büyütmek için Sanayi menüsünden fabrika kur ve metal, odun üret.');
+    toast('🏭 Evleri büyütmek için İnşa Et → Sanayi\'den fabrika kur.');
     return;
   }
   // Belediyede çok vergi birikmişse hatırlat
@@ -332,7 +381,6 @@ function warnShortages() {
 
 // --- Araçlar ---
 let tool: Tool = 'pan';
-const hinted = new Set<Tool>();
 
 function applyControls() {
   const build = tool !== 'pan';
@@ -342,26 +390,36 @@ function applyControls() {
   controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 }
 
+// Bu araç hangi hizmetin alanını kaplıyor? (üniversite = okul)
+function coverKind(t: Tool): ServiceKind | null {
+  if (isService(t)) return t;
+  if (isDecor(t) && DECOR[t].covers) return DECOR[t].covers!;
+  return null;
+}
+
 // Hizmet binası seçiliyken o hizmetin kapsadığı alanı haritada renklendir
 function showCoverage(candidate?: number) {
-  if (!isService(tool)) return view.showCoverage([], '#fff');
-  const cells = new Set(city.coverageOf(tool));
-  if (candidate !== undefined) for (const c of serviceArea(candidate, tool, sizeOf(tool))) cells.add(c);
-  view.showCoverage([...cells], SERVICES[tool].color);
+  const kind = coverKind(tool);
+  if (!kind) return view.showCoverage([], '#fff');
+  const cells = new Set(city.coverageOf(kind));
+  if (candidate !== undefined) {
+    const r = isService(tool) ? SERVICES[tool].radius : DECOR[tool as keyof typeof DECOR].radius;
+    for (const c of areaAround(candidate, r, sizeOf(tool as BuildTool))) cells.add(c);
+  }
+  view.showCoverage([...cells], SERVICES[kind].color);
 }
 
 // Aracın kilidi hangi seviyede açılıyor (açıksa null)
 const lockedAt = (t: Tool) => (t === 'pan' || city.isUnlocked(t) ? null : city.unlockLevel(t));
 
 function pickTool(t: Tool) {
-  // Seçili araca tekrar basınca araç bırakılır
-  if (t === tool) t = 'pan';
   const lock = lockedAt(t);
   if (lock) {
     toast(`🔒 Şehir seviyesi ${lock}'te açılır`, 'error');
     play('error', 0.3);
     return;
   }
+  catalog.close();
   tool = t;
   openCard = null;
   input.cancelDrag();
@@ -369,13 +427,9 @@ function pickTool(t: Tool) {
   showInfo(null);
   showCoverage();
   setChip(null);
-  setActiveTool(t);
+  setMode(t);
   applyControls();
   play('click', 0.4);
-  if (t !== 'pan' && !hinted.has(t)) {
-    hinted.add(t);
-    toast(TOOL_INFO[t].hint);
-  }
 }
 
 const input = new TileInput(renderer.domElement, camera, {
@@ -392,9 +446,9 @@ const input = new TileInput(renderer.domElement, camera, {
     }
     view.showPreview(items);
     const n = items.filter(c => c.ok).length;
-    if (isService(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
+    if (coverKind(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
     if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
-      setChip(`${TOOL_INFO[tool].label} · 💰${fmt(COST[tool])}${size > 1 ? ` · ${size}x${size} kare` : ''}`);
+      setChip(`${TOOL_INFO[tool].label} · 💰${fmt(COST[tool])}${size > 1 ? ` · ${size}×${size} kare` : ''}`);
     } else if (cells.length > 1) {
       const okCells = items.filter(c => c.ok).map(c => c.i);
       setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(city.costOf(tool, okCells))}`);
@@ -429,45 +483,78 @@ const input = new TileInput(renderer.domElement, camera, {
   },
 });
 
-buildToolbar(pickTool, lockedAt);
-setActiveTool(tool);
+const catalog = buildCatalog(t => pickTool(t), lockedAt, () => city.money);
+setMode(tool);
 applyControls();
 setupAudioUnlock();
 renderer.domElement.addEventListener('pointerdown', () => openTile(null));
-document.getElementById('storage')!.addEventListener('click', () => {
-  openCard = openCard === 'storage' ? null : 'storage';
-  renderCard();
-  play('click', 0.3);
-});
-document.getElementById('quests')!.addEventListener('click', () => {
-  openCard = openCard === 'quests' ? null : 'quests';
-  renderCard();
-  play('click', 0.3);
-});
-document.getElementById('happy')!.addEventListener('click', () => {
-  const hall = city.hall;
-  openCard = hall === null || openCard === hall ? null : hall;
-  renderCard();
-  play('click', 0.3);
-});
 
-// Ses ve sıfırlama düğmeleri
-const soundBtn = document.getElementById('sound')!;
-soundBtn.textContent = isMuted() ? '🔇' : '🔊';
-soundBtn.addEventListener('click', () => {
-  setMuted(!isMuted());
-  soundBtn.textContent = isMuted() ? '🔇' : '🔊';
+// Ana düğmeler
+document.getElementById('build')!.addEventListener('click', () => {
+  if (tool !== 'pan') pickTool('pan');
+  openTile(null);
+  catalog.open();
+  play('click', 0.4);
 });
-document.getElementById('reset')!.addEventListener('click', () => {
-  if (!confirm('Şehrin tamamen silinip baştan başlansın mı?')) return;
+document.getElementById('bulldoze')!.addEventListener('click', () => pickTool(tool === 'bulldoze' ? 'pan' : 'bulldoze'));
+document.querySelector('#mode .mode-done')!.addEventListener('click', () => pickTool('pan'));
+
+// Üstteki göstergeler
+const cardButtons: [string, CardKey][] = [
+  ['storage', 'storage'], ['quests', 'quests'], ['money', 'budget'], ['pop', 'city'], ['lvl', 'city'],
+  ['power', 'power'], ['water', 'water'], ['happy', 'hall'],
+];
+for (const [id, key] of cardButtons) document.getElementById(id)!.addEventListener('click', () => toggleCard(key));
+
+// --- Ayarlar ---
+function applyQuality(q: Quality) {
+  quality = q;
+  writePref(QUALITY_KEY, q);
+  pixelRatio = maxRatio();
+  renderer.setPixelRatio(pixelRatio);
+  resize();
+  const shadows = q !== 'low';
+  if (renderer.shadowMap.enabled !== shadows) {
+    renderer.shadowMap.enabled = shadows;
+    sun.castShadow = shadows;
+    // Gölge açılıp kapanınca malzemelerin yeniden derlenmesi gerekir
+    scene.traverse(o => {
+      const m = (o as THREE.Mesh).material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach(x => (x.needsUpdate = true));
+    });
+    renderer.shadowMap.needsUpdate = true;
+  }
+}
+
+async function resetCity() {
+  const ok = await confirmDialog('Yeni şehir', 'Şehrin tamamen silinip baştan başlansın mı? Bu geri alınamaz.', 'Sil, baştan başla');
+  if (!ok) return;
   city = new City();
   openCard = null;
+  pickTool('pan');
   view.setCity(city);
   traffic.setCity(city);
   walkers.setCity(city);
   trains.setCity(city);
+  sky.setCity(city);
   afterChange();
   toast('Yeni şehir kuruldu!');
+}
+
+document.getElementById('settings')!.addEventListener('click', () => {
+  play('click', 0.3);
+  openSettings(
+    { sound: !isMuted(), quality, rain: weather.enabled },
+    {
+      sound: on => setMuted(!on),
+      quality: applyQuality,
+      rain: on => {
+        weather.enabled = on;
+        writePref(RAIN_KEY, on ? '1' : '0');
+      },
+      reset: resetCity,
+    },
+  );
 });
 
 // --- Kamera döndürme (90 derece, yumuşak geçişle) ---
@@ -483,6 +570,11 @@ document.getElementById('rot-right')!.addEventListener('click', () => rotateCame
 window.addEventListener('keydown', e => {
   if (e.key === 'q' || e.key === 'Q') rotateCamera(-1);
   if (e.key === 'e' || e.key === 'E') rotateCamera(1);
+  if (e.key === 'Escape') {
+    pickTool('pan');
+    catalog.close();
+    openTile(null);
+  }
 });
 
 function stepTurn(dt: number) {
@@ -538,7 +630,7 @@ function frame() {
     afterChange();
   }
 
-  // Fabrika ve hırdavatçı üretimlerini yarım saniyede bir kontrol et
+  // Fabrika ve dükkan üretimlerini yarım saniyede bir kontrol et
   prodTimer += dt;
   if (prodTimer >= 0.5) {
     prodTimer = 0;
@@ -563,7 +655,8 @@ function frame() {
   walkers.update(dt);
   trains.update(dt);
   sky.update(dt);
-  dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt);
+  weather.update(dt, controls.target);
+  dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
   if (shake > 0) {
@@ -590,17 +683,18 @@ function adaptQuality(dt: number) {
 
 // Menü düğmeleri için her binanın küçük resmini çiz
 function makeMenuPictures() {
-  const items: [Tool, THREE.Object3D][] = [
+  const items: [string, THREE.Object3D][] = [
     ['road', makeModel('kaykit/road_junction')],
     ['rail', railPiece(0b0110)],
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
     ['park', makeModel('kenney/models/grass-trees-tall')],
+    ['hall', makeHall()],
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
-  for (const k of ['factory', 'store', 'depot', 'trade'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['factory', 'store', 'market', 'furniture', 'depot', 'trade'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -608,11 +702,7 @@ function makeMenuPictures() {
   }
 }
 
-const loadingEl = document.getElementById('loading')!;
-Promise.all([
-  loadModels(ALL_MODELS, (done, total) => (loadingEl.textContent = `Aksoy City yükleniyor… %${Math.round((done / total) * 100)}`)),
-  loadSkins(SKINS),
-])
+Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), loadSkins(SKINS)])
   .then(() => {
     scene.add(buildSurroundings());
     traffic.init();
@@ -625,12 +715,12 @@ Promise.all([
     if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
     afterChange();
     hideLoading();
-    if (!city.hasZones) toast('Hoş geldin! Önce yol çiz, sonra Bölge menüsünden konut koy.');
+    if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, controls, city: () => city, weather, view, sky, open: openTile, pick: pickTool, refresh: afterChange } });
   })
   .catch(err => {
     console.error(err);
-    document.getElementById('loading')!.textContent = 'Oyun yüklenemedi. Sayfayı yenilemeyi dene.';
+    loadFailed();
   });

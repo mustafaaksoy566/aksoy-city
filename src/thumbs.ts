@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import type { Tool } from './config';
 
 // Menüler için küçük resimler: her aracın 3D modelini bir kere çizip resme çeviriyoruz.
-export function renderThumbs(items: [Tool, THREE.Object3D][], size = 160): Map<Tool, string> {
-  const out = new Map<Tool, string>();
+export function renderThumbs(items: [string, THREE.Object3D][], size = 160): Map<string, string> {
+  const out = new Map<string, string>();
   let renderer: THREE.WebGLRenderer;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });

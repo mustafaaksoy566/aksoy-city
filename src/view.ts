@@ -76,7 +76,7 @@ function roadPiece(mask: number) {
 }
 
 // Binaların kapısı modelde güneye bakıyor; istenen yöne çevirmek için kaç tur
-const FACING_TURNS = [2, 1, 0, 3];
+export const FACING_TURNS = [2, 1, 0, 3];
 
 export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - SIZE / 2 + 0.5);
 
@@ -288,6 +288,25 @@ function bridge(mask: number) {
   // Köprü ayağı ve gövde
   add(0.98, 0.04, 0.98, 0, -0.01, 0, pillarMat);
   add(0.16, 0.12, 0.16, 0, -0.06, 0, pillarMat);
+  return g;
+}
+
+// Lüks kulenin tepesi: altın taç, anten ve gece yanan uyarı ışığı
+const crownMat = new THREE.MeshStandardMaterial({ color: '#e0b84c', metalness: 0.6, roughness: 0.35 });
+const beaconMat = new THREE.MeshStandardMaterial({ color: '#ff5252', emissive: '#ff5252', emissiveIntensity: 0 });
+beaconMat.name = 'lamp';
+function crown(top: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.y = y;
+    mesh.castShadow = true;
+    g.add(mesh);
+  };
+  add(new THREE.CylinderGeometry(0.13, 0.17, 0.08, 8), crownMat, top + 0.04);
+  add(new THREE.CylinderGeometry(0.07, 0.11, 0.1, 8), crownMat, top + 0.13);
+  add(new THREE.CylinderGeometry(0.008, 0.012, 0.42, 6), crownMat, top + 0.39);
+  add(new THREE.SphereGeometry(0.022, 8, 6), beaconMat, top + 0.61);
   return g;
 }
 
@@ -555,6 +574,12 @@ export class CityView {
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
     if (Math.floor(variant / 11) % 2) b.scale.x *= -1;
     group.add(b);
+    if (kind === 'res' && level >= 6) {
+      // Lüks kule: daha yüksek ve tepesinde taç
+      b.scale.y *= 1.3;
+      b.updateMatrixWorld(true);
+      group.add(crown(new THREE.Box3().setFromObject(b).max.y + 0.05));
+    }
     if (folder === 'kenney-sub') {
       // Banliyö evi: arka bahçede çalı ve ağaç (yönü binayla aynı dönsün)
       const yard = new THREE.Group();
@@ -644,8 +669,13 @@ export class CityView {
     }
   }
 
-  showPreview(cells: { i: number; ok: boolean }[]) {
-    const okColor = new THREE.Color('#4caf50');
+  // Seçili binanın altını sarı renkle işaretle
+  showSelection(cells: number[]) {
+    this.showPreview(cells.map(i => ({ i, ok: true })), '#ffd54a');
+  }
+
+  showPreview(cells: { i: number; ok: boolean }[], color = '#4caf50') {
+    const okColor = new THREE.Color(color);
     const badColor = new THREE.Color('#e53935');
     cells.forEach(({ i, ok }, n) => {
       this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.08);

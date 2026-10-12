@@ -7,6 +7,7 @@ export const CYCLE_DAYS = 30;
 const SKY_DAY = new THREE.Color('#9fd8f0');
 const SKY_DUSK = new THREE.Color('#f4a26b');
 const SKY_NIGHT = new THREE.Color('#16223f');
+const SKY_RAIN = new THREE.Color('#8d99a6');
 const SUN_DAY = new THREE.Color('#fff6e0');
 const SUN_DUSK = new THREE.Color('#ffae6b');
 const WINDOW_GLOW = new THREE.Color('#ffd27a');
@@ -44,7 +45,8 @@ export class DayNight {
     });
   }
 
-  update(tod: number, dt: number) {
+  // gloom: yağmurun şiddeti (0..1); gökyüzü grileşir, güneş zayıflar
+  update(tod: number, dt: number, gloom = 0) {
     this.scanTimer -= dt;
     if (this.scanTimer <= 0) {
       this.scanTimer = 2;
@@ -53,11 +55,11 @@ export class DayNight {
     }
     const { night, dusk } = phase(tod);
     const sky = this.scene.background as THREE.Color;
-    sky.copy(SKY_DAY).lerp(SKY_DUSK, dusk * 0.6).lerp(SKY_NIGHT, night);
+    sky.copy(SKY_DAY).lerp(SKY_DUSK, dusk * 0.6).lerp(SKY_RAIN, gloom * 0.75).lerp(SKY_NIGHT, night);
     (this.scene.fog as THREE.Fog).color.copy(sky);
-    this.sun.intensity = THREE.MathUtils.lerp(2.2, 0.25, night);
+    this.sun.intensity = THREE.MathUtils.lerp(2.2, 0.25, night) * (1 - 0.5 * gloom);
     this.sun.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk);
-    this.hemi.intensity = THREE.MathUtils.lerp(1.0, 0.35, night);
+    this.hemi.intensity = THREE.MathUtils.lerp(1.0, 0.35, night) * (1 - 0.2 * gloom);
     // Ortam yansıması da gece kısılsın (yoksa gece aydınlık kalıyor)
     this.scene.environmentIntensity = THREE.MathUtils.lerp(0.55, 0.1, night);
     // Pencereler yalnızca gece değeri belirgin değiştiğinde güncellensin

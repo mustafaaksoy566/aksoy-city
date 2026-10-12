@@ -6,50 +6,84 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Aksoy City" />
-    <meta name="theme-color" content="#9fd8f0" />
+    <meta name="theme-color" content="#5bb8ec" />
     <title>Aksoy City</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app"></div>
 
-    <header id="top">
-      <div class="pill" id="lvl"><span class="star">⭐<b id="lvl-v">1</b></span><span class="bar"><i id="xp-bar"></i></span></div>
-      <div class="pill" id="money">💰 <b id="money-v">0</b><small id="income-v"></small></div>
-      <div class="pill">👥 <b id="pop-v">0</b></div>
+    <!-- Üst bilgi: seviye, nüfus, para -->
+    <header id="hud">
+      <button id="lvl" aria-label="Şehir seviyesi">
+        <span class="lvl-star"><span data-icon="star"></span><b id="lvl-v">1</b></span>
+        <span class="lvl-info"><small>Seviye</small><span class="xp"><i id="xp-bar"></i></span></span>
+      </button>
+      <button id="pop" class="cap" aria-label="Nüfus"><span class="cap-ic" data-icon="people"></span><b id="pop-v">0</b></button>
       <span class="spacer"></span>
-      <button class="pill icon" id="quests" aria-label="Görevler">📋<span id="quests-badge" class="badge" hidden>0</span></button>
-      <button class="pill icon" id="sound" aria-label="Ses">🔊</button>
-      <button class="pill icon" id="reset" aria-label="Yeni şehir">🗑️</button>
+      <button id="money" class="cap money" aria-label="Bütçe">
+        <span class="cap-ic" data-icon="coin"></span>
+        <span class="mv"><b id="money-v">0</b><small id="income-v"></small></span>
+      </button>
     </header>
-    <div id="utils">
-      <div class="pill" id="power">⚡ <b id="power-v">0/0</b></div>
-      <div class="pill" id="water">💧 <b id="water-v">0/0</b></div>
-      <button class="pill" id="storage">📦 <b id="storage-v">0/20</b></button>
-      <button class="pill" id="happy"><b id="happy-v">🙂 %0</b></button>
+
+    <!-- Elektrik, su ve mutluluk -->
+    <div id="res">
+      <button id="power" class="seg" aria-label="Elektrik"><span class="seg-ic" data-icon="bolt"></span><b id="power-v">0/0</b></button>
+      <button id="water" class="seg" aria-label="Su"><span class="seg-ic" data-icon="drop"></span><b id="water-v">0/0</b></button>
+      <button id="happy" class="seg" aria-label="Mutluluk"><span class="seg-ic" data-icon="smile"></span><b id="happy-v">%0</b></button>
     </div>
 
-    <div id="cam">
-      <button class="pill icon" id="rot-left" aria-label="Sola döndür">↺</button>
-      <button class="pill icon" id="rot-right" aria-label="Sağa döndür">↻</button>
+    <!-- Sağ kenar düğmeleri -->
+    <div id="side">
+      <button id="quests" class="rbtn" aria-label="Görevler"><span data-icon="quests"></span><span id="quests-badge" class="badge" hidden>0</span></button>
+      <button id="storage" class="rbtn" aria-label="Depo"><span data-icon="box"></span><small id="storage-v" class="rlabel">0/20</small></button>
+      <button id="settings" class="rbtn" aria-label="Ayarlar"><span data-icon="gear"></span></button>
     </div>
+
+    <!-- Kamera döndürme -->
+    <div id="cam">
+      <button id="rot-left" class="rbtn sm" aria-label="Sola döndür"><span data-icon="rotateLeft"></span></button>
+      <button id="rot-right" class="rbtn sm" aria-label="Sağa döndür"><span data-icon="rotateRight"></span></button>
+    </div>
+
+    <!-- Ana düğmeler: yık ve inşa et -->
+    <div id="actions">
+      <button id="bulldoze" class="abtn red" aria-label="Yık"><span data-icon="bulldozer"></span><em>Yık</em></button>
+      <button id="build" class="abtn big" aria-label="İnşa et"><span data-icon="build"></span><em>İnşa Et</em></button>
+    </div>
+
+    <!-- Seçili araç çubuğu -->
+    <div id="mode" hidden>
+      <span class="mode-pic"></span>
+      <span class="mode-txt"><b></b><small></small></span>
+      <button class="mode-done"><span data-icon="check"></span>Tamam</button>
+    </div>
+
+    <!-- İnşa paneli -->
+    <section id="catalog" hidden>
+      <button class="cat-close" aria-label="Kapat"><span data-icon="close"></span></button>
+      <div class="tabs"></div>
+      <div class="cards"></div>
+    </section>
 
     <div id="chip" hidden></div>
     <div id="toast"></div>
-    <div id="submenu" hidden></div>
     <div id="info" hidden></div>
-    <nav id="tools"></nav>
+    <div id="levelup" hidden></div>
+    <div id="dialog" hidden></div>
 
-    <div id="levelup" hidden>
-      <div class="box">
-        <h2></h2>
-        <p class="reward"></p>
-        <p class="unlocks"></p>
-        <button>Harika!</button>
+    <div id="loading">
+      <div class="load-sky">
+        <div class="load-logo"><span>Aksoy</span><b>City</b></div>
+        <div class="load-bar"><i id="load-bar"></i></div>
+        <small id="load-text">Şehir yükleniyor…</small>
       </div>
+      <svg class="load-skyline" viewBox="0 0 400 120" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+        <path fill="#3f8fc9" d="M0 120V70h22V48h18v22h14V30h26v40h12V56h20v64zM112 120V40h10V22h14v18h10v80zM156 120V62h30v-14h22v72zM212 120V34l18-12 18 12v86zM256 120V58h16V44h24v76zM304 120V26h28v94zM340 120V64h20V50h18v14h22v56z"/>
+        <path fill="#2b74ab" d="M0 120V92h40V80h30v40zM70 120V86h44v34zM120 120V96h30V84h36v36zM190 120V90h40v30zM236 120V82h24V70h30v50zM296 120V94h46v26zM346 120V84h54v36z"/>
+      </svg>
     </div>
-
-    <div id="loading">Aksoy City yükleniyor…</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

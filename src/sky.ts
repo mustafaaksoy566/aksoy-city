@@ -2,11 +2,17 @@ import * as THREE from 'three';
 import { SIZE, BOAT_MODELS } from './config';
 import { makeModel } from './assets';
 import { mat, part } from './utilities';
+import { makeAirliner } from './planes';
+import { RUNWAY } from './landmarks';
+import { FACING_TURNS, tileCenter } from './view';
+import type { City } from './city';
 
-// Şehrin üstü ve çevresi: süzülen bulutlar, arada geçen uçak, denizde gemiler.
+// Şehrin üstü ve çevresi: süzülen bulutlar, uçaklar, denizde gemiler.
+// Havalimanı varsa uçaklar pistten kalkıp iner; yoksa arada bir şehrin üstünden geçer.
 // Hepsi sadece görüntü; oyunu etkilemez.
 
 const HALF = SIZE / 2;
+const UP = new THREE.Vector3(0, 1, 0);
 
 // --- Basit modeller ---
 
@@ -29,31 +35,6 @@ export function makeBus(): THREE.Object3D {
       g.add(w);
     }
   }
-  return g;
-}
-
-function makePlane() {
-  const g = new THREE.Group();
-  const white = mat('#f4f6f8');
-  const red = mat('#d9363e');
-  const glass = mat('#2b3440');
-  const body = part(new THREE.CylinderGeometry(0.22, 0.18, 3, 12), white, 0, 0, 0);
-  body.rotation.x = Math.PI / 2;
-  g.add(body);
-  const nose = part(new THREE.SphereGeometry(0.22, 12, 8), white, 0, 0, 1.5);
-  nose.scale.z = 1.4;
-  g.add(nose);
-  g.add(part(new THREE.BoxGeometry(0.3, 0.06, 0.05), glass, 0, 0.12, 1.62));
-  g.add(part(new THREE.BoxGeometry(3.2, 0.05, 0.55), white, 0, -0.04, 0.1)); // kanatlar
-  g.add(part(new THREE.BoxGeometry(1.1, 0.04, 0.3), white, 0, 0.05, -1.35)); // kuyruk kanatları
-  g.add(part(new THREE.BoxGeometry(0.05, 0.6, 0.4), red, 0, 0.3, -1.35)); // dikey kuyruk
-  g.add(part(new THREE.BoxGeometry(0.46, 0.04, 2.6), red, 0, -0.02, 0)); // kırmızı şerit
-  for (const x of [-0.8, 0.8]) {
-    const eng = part(new THREE.CylinderGeometry(0.1, 0.1, 0.4, 10), white, x, -0.14, 0.25);
-    eng.rotation.x = Math.PI / 2;
-    g.add(eng);
-  }
-  g.traverse(o => ((o as THREE.Mesh).castShadow = false));
   return g;
 }
 
@@ -80,6 +61,35 @@ interface Flyer {
   limit: number;
 }
 
+// Havalimanındaki bir uçuş: pist başı (a), yön (dir), pist uzunluğu (len), s = pist başından uzaklık
+interface Flight {
+  obj: THREE.Object3D;
+  kind: 'takeoff' | 'landing';
+  a: THREE.Vector3;
+  dir: THREE.Vector3;
+  len: number;
+  s: number;
+  v: number;
+  wait: number;
+}
+
+const PLANE_SCALE = 0.4; // pistteki uçak boyu ~1.2 kare
+const CRUISE = 15; // uçuş yüksekliği
+
+// Havalimanının pisti (dünya koordinatında): baş, yön ve uzunluk
+export function runwayOf(city: City, i: number) {
+  const t = city.tiles[i]!;
+  const n = t.fp ?? 4;
+  const x = i % SIZE, z = Math.floor(i / SIZE);
+  const center = tileCenter(x + (n - 1) / 2, z + (n - 1) / 2);
+  const rot = (FACING_TURNS[t.facing] * Math.PI) / 2;
+  const s = n * 0.96;
+  const world = (lx: number) => new THREE.Vector3(lx * s, 0, RUNWAY.z * s).applyAxisAngle(UP, rot).add(center);
+  const a = world(RUNWAY.x0), b = world(RUNWAY.x1);
+  const len = a.distanceTo(b);
+  return { a, dir: b.sub(a).normalize(), len };
+}
+
 export class Sky {
   readonly root = new THREE.Group();
   private clouds: Flyer[] = [];
@@ -87,6 +97,24 @@ export class Sky {
   private plane: Flyer | null = null;
   private planeTimer = 8;
   private time = 0;
+  private flights = new Map<number, Flight | null>(); // havalimanı karesi -> şu anki uçuş
+  private airportWait = new Map<number, number>();
+  private nextKind = new Map<number, 'takeoff' | 'landing'>();
+  private livery = 0;
+  private pool: THREE.Object3D[] = []; // biten uçuşların uçakları tekrar kullanılır (bellek dolmasın)
+
+  constructor(private city: City) {}
+
+  setCity(city: City) {
+    this.city = city;
+    for (const f of this.flights.values()) if (f) this.release(f.obj);
+    this.flights.clear();
+  }
+
+  private release(obj: THREE.Object3D) {
+    this.root.remove(obj);
+    this.pool.push(obj);
+  }
 
   init() {
     // Bulutlar: şehrin çevresinde, ufukta geniş bir halka halinde yavaşça döner (görüşü kapatmasın)
@@ -110,6 +138,83 @@ export class Sky {
     });
   }
 
+  private airports() {
+    const out: number[] = [];
+    this.city.tiles.forEach((t, i) => {
+      if (t?.kind === 'airport' && out.length < 2) out.push(i);
+    });
+    return out;
+  }
+
+  // Havuzdan bir uçak al (yoksa yenisini yap)
+  private takePlane(scale: number) {
+    const p = this.pool.pop() ?? makeAirliner(this.livery++);
+    p.rotation.set(0, 0, 0, 'YXZ');
+    p.scale.setScalar(scale);
+    this.root.add(p);
+    return p;
+  }
+
+  // Havalimanı uçuşları: sırayla bir kalkış, bir iniş
+  private updateAirports(dt: number) {
+    const list = this.airports();
+    // Yıkılan havalimanlarının uçaklarını kaldır
+    for (const [i, f] of this.flights) {
+      if (!list.includes(i)) {
+        if (f) this.release(f.obj);
+        this.flights.delete(i);
+      }
+    }
+    for (const i of list) {
+      let f = this.flights.get(i) ?? null;
+      if (!f) {
+        const wait = (this.airportWait.get(i) ?? 3) - dt;
+        this.airportWait.set(i, wait);
+        if (wait > 0) continue;
+        const { a, dir, len } = runwayOf(this.city, i);
+        const kind = this.nextKind.get(i) ?? 'takeoff';
+        this.nextKind.set(i, kind === 'takeoff' ? 'landing' : 'takeoff');
+        f = { obj: this.takePlane(PLANE_SCALE), kind, a, dir, len, s: kind === 'takeoff' ? 0.4 : -70, v: kind === 'takeoff' ? 0 : 6, wait: 0 };
+        this.flights.set(i, f);
+      }
+      if (this.stepFlight(f, dt)) {
+        this.release(f.obj);
+        this.flights.set(i, null);
+        this.airportWait.set(i, 6 + Math.random() * 8);
+      }
+    }
+  }
+
+  // Uçağı bir adım ilerlet; uçuş bittiyse true
+  private stepFlight(f: Flight, dt: number) {
+    const lift = f.len * 0.62; // kalkışta tekerlerin yerden kesildiği yer
+    const touch = f.len * 0.15; // inişte piste değdiği yer
+    let y = 0;
+    let pitch = 0;
+    if (f.kind === 'takeoff') {
+      f.v = Math.min(8, f.v + dt * (f.s < lift ? 1.2 : 1.6));
+      f.s += f.v * dt;
+      y = Math.min(CRUISE, Math.max(0, f.s - lift) * 0.28);
+      pitch = f.s > lift && y < CRUISE ? -0.2 : 0;
+      if (f.s > f.len + 85) return true;
+    } else {
+      if (f.s < touch) f.v = Math.max(2.4, Math.min(6, 2.4 + (touch - f.s) * 0.05));
+      else f.v = Math.max(0, f.v - dt * 1.1);
+      f.s += f.v * dt;
+      y = Math.min(CRUISE, Math.max(0, touch - f.s) * 0.2);
+      pitch = y > 0.05 ? -0.06 : 0;
+      if (f.v === 0) {
+        f.wait += dt;
+        if (f.wait > 1.5) return true;
+      }
+    }
+    f.obj.position.copy(f.a).addScaledVector(f.dir, f.s);
+    f.obj.position.y = 0.24 + y; // pist yüzeyi + tekerlek yüksekliği
+    f.obj.rotation.y = Math.atan2(f.dir.x, f.dir.z);
+    f.obj.rotation.x = THREE.MathUtils.lerp(f.obj.rotation.x, pitch, Math.min(1, dt * 3));
+    return false;
+  }
+
   update(dt: number) {
     this.time += dt;
     const move = (f: Flyer) => {
@@ -129,23 +234,23 @@ export class Sky {
       b.obj.position.y = -0.33 + Math.sin(this.time * 1.5 + k) * 0.03; // dalgada sallanma
     });
 
-    // Uçak: arada bir şehrin üstünden geçer
+    this.updateAirports(dt);
+
+    // Havalimanı yoksa: arada bir şehrin üstünden bir uçak geçer
     if (!this.plane) {
       this.planeTimer -= dt;
-      if (this.planeTimer <= 0) {
-        const obj = makePlane();
+      if (this.planeTimer <= 0 && this.flights.size === 0) {
+        const obj = this.takePlane(0.55);
         const z = -20 + Math.random() * 40;
         const dir = new THREE.Vector3(1, 0, (Math.random() - 0.5) * 0.4).normalize();
-        obj.position.set(-90, 15, z);
+        obj.position.set(-90, CRUISE + 6, z);
         obj.rotation.y = Math.atan2(dir.x, dir.z);
-        obj.scale.setScalar(0.8);
-        this.root.add(obj);
         this.plane = { obj, speed: 9, dir, limit: 90 };
-      }
+      } else if (this.planeTimer <= 0) this.planeTimer = 20;
     } else {
       this.plane.obj.position.addScaledVector(this.plane.dir, this.plane.speed * dt);
       if (this.plane.obj.position.x > this.plane.limit) {
-        this.root.remove(this.plane.obj);
+        this.release(this.plane.obj);
         this.plane = null;
         this.planeTimer = 25 + Math.random() * 25;
       }

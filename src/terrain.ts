@@ -52,8 +52,8 @@ export function heightAt(x: number, z: number) {
 
 const COLORS = {
   sand: new THREE.Color('#e9d8a6'),
-  grass: new THREE.Color('#78bf55'),
-  forest: new THREE.Color('#58a043'),
+  grass: new THREE.Color('#56a03a'),
+  forest: new THREE.Color('#4a9638'),
   rock: new THREE.Color('#9a9488'),
   snow: new THREE.Color('#f5f5f2'),
   seabed: new THREE.Color('#d6c48c'),
