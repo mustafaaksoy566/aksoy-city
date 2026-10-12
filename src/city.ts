@@ -1114,6 +1114,50 @@ export class City {
     return [2, 1, 3, 0].find(side) ?? 2;
   }
 
+  // --- Binayı taşıma: basılı tut, sürükle, bırak ---
+  canMove(i: number) {
+    const t = this.tiles[this.anchorOf(i)];
+    return !!t && !t.locked && !t.fire && t.kind !== 'road' && t.kind !== 'rail' && t.kind !== 'part';
+  }
+
+  // Bina sol üst karesi (x, z) olacak şekilde taşınabilir mi? Kendi eski yeri boş sayılır.
+  moveCheck(from: number, x: number, z: number): string | null {
+    const a = this.anchorOf(from);
+    const t = this.tiles[a];
+    if (!t || !this.canMove(a)) return 'Bu yapı taşınamaz';
+    const old = this.cellsOf(a);
+    const saved = old.map(c => this.tiles[c]);
+    for (const c of old) this.tiles[c] = null;
+    const err = this.check(t.kind as BuildTool, x, z);
+    old.forEach((c, k) => (this.tiles[c] = saved[k]));
+    return err;
+  }
+
+  // Binayı taşı (seviyesi, modeli ve üretimleri aynı kalır). Değişen kareleri döndürür.
+  moveBuilding(from: number, x: number, z: number): { error: string | null; cells: number[] } {
+    const a = this.anchorOf(from);
+    const to = idx(x, z);
+    if (to === a) return { error: null, cells: [] };
+    const err = this.moveCheck(a, x, z);
+    if (err) return { error: err, cells: [] };
+    const t = this.tiles[a]!;
+    const n = t.fp ?? 1;
+    const old = this.cellsOf(a);
+    const jobs = this.jobs.get(a);
+    for (const c of old) {
+      this.tiles[c] = null;
+      this.jobs.delete(c);
+    }
+    const area = block(x, z, n)!;
+    this.tiles[to] = t;
+    for (const c of area) if (c !== to) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: to };
+    if (jobs) this.jobs.set(to, jobs);
+    const side = t.kind === 'station' ? 'rail' : NEEDS_WATER.includes(t.kind as BuildTool) ? 'water' : 'road';
+    t.facing = this.facingFor(to, n, side);
+    this.refresh();
+    return { error: null, cells: [...old, ...area] };
+  }
+
   // Seçilen karelere uygula. Yapılan kareleri ya da hata mesajını döndürür.
   apply(tool: BuildTool, cells: number[]): { done: number[]; error: string | null } {
     let firstError: string | null = null;

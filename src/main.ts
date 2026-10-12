@@ -698,8 +698,56 @@ function makeHousePictures() {
   requestAnimationFrame(step);
 }
 
+// --- Binayı taşıma: basılı tut → bina kalkar, sürükle → yeni yeri yeşil/kırmızı görünür, bırak → yerleşir ---
+let moving: { from: number; n: number; to: number | null } | null = null;
 const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
+  lift(cell) {
+    if (tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
+    const a = city.anchorOf(cell);
+    moving = { from: a, n: city.tiles[a]!.fp ?? 1, to: null };
+    rig.releaseGrab();
+    openTile(null);
+    view.startMove(a);
+    view.showPreview(city.cellsOf(a).map(i => ({ i, ok: true })));
+    setChip('🚚 Sürükle, bırakınca yeni yerine yerleşir');
+    play('click', 0.5);
+    navigator.vibrate?.(25);
+    return true;
+  },
+  moveTo(cell) {
+    if (!moving || cell === null) return;
+    // Parmak binanın ortasında: büyük binada sol üst kare biraz geride
+    const off = Math.floor((moving.n - 1) / 2);
+    const x = Math.max(0, Math.min(SIZE - moving.n, (cell % SIZE) - off));
+    const z = Math.max(0, Math.min(ROWS - moving.n, Math.floor(cell / SIZE) - off));
+    moving.to = idx(x, z);
+    const err = moving.to === moving.from ? null : city.moveCheck(moving.from, x, z);
+    view.showPreview((block(x, z, moving.n) ?? []).map(i => ({ i, ok: err === null })));
+    view.moveLifted(x + (moving.n - 1) / 2, z + (moving.n - 1) / 2);
+    setChip(err ? `⛔ ${err}` : '✅ Bırakınca buraya yerleşir');
+  },
+  drop() {
+    if (!moving) return;
+    const m = moving;
+    moving = null;
+    view.showPreview([]);
+    setChip(null);
+    if (m.to !== null && m.to !== m.from) {
+      const res = city.moveBuilding(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+      if (!res.error) {
+        view.endMove(true);
+        view.refresh(res.cells, true);
+        play('place', 0.6);
+        toast('🚚 Bina yeni yerine taşındı');
+        afterChange();
+        return;
+      }
+      toast(res.error, 'error');
+      play('error', 0.3);
+    }
+    view.endMove(false);
+  },
   preview(cells) {
     if (tool === 'pan') return;
     const build = tool as Exclude<Tool, 'pan'>;

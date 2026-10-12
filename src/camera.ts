@@ -129,6 +129,12 @@ export class CameraRig {
     else this.startTwo();
   }
 
+  // Bu parmak artık haritayı kaydırmasın (ör. bina taşınırken)
+  releaseGrab() {
+    this.grab = null;
+    this.velocity.set(0, 0);
+  }
+
   private startTwo() {
     this.grab = null;
     const [a, b] = [...this.pointers.values()];

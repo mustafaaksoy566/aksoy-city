@@ -8,13 +8,21 @@ interface Handlers {
   commit(cells: number[]): void;
   cancel(): void;
   tap(cell: number | null): void; // Gez modunda kısa dokunuş (bilgi kartı için)
+  // Gez modunda binaya basılı tutunca: bina kalkar (taşınabiliyorsa true), parmakla gezer, bırakınca yerleşir
+  lift(cell: number | null): boolean;
+  moveTo(cell: number | null): void;
+  drop(cell: number | null): void;
 }
+
+const HOLD_MS = 450; // bu kadar basılı tutunca bina taşınmaya başlar
 
 // Ekrana dokunma / fare ile harita karelerini seçme
 export class TileInput {
   private pointers = new Set<number>();
   private drag: { id: number; sx: number; sz: number; cells: number[]; path: [number, number][] } | null = null;
   private tapStart: { id: number; x: number; y: number; t: number } | null = null;
+  private hold: { id: number; x: number; y: number; timer: number } | null = null;
+  private moving: number | null = null; // taşınan binayı süren parmak
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -28,7 +36,7 @@ export class TileInput {
     });
   }
 
-  private tileAt(e: PointerEvent, clamp: boolean): [number, number] | null {
+  private tileAt(e: { clientX: number; clientY: number }, clamp: boolean): [number, number] | null {
     const r = this.el.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
@@ -84,10 +92,41 @@ export class TileInput {
     return path.map(([x, z]) => idx(x, z));
   }
 
+  private stopHold() {
+    if (this.hold) clearTimeout(this.hold.timer);
+    this.hold = null;
+  }
+
   private down(e: PointerEvent) {
     this.pointers.add(e.pointerId);
     this.tapStart = this.pointers.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
-    if (this.h.tool() === 'pan') return;
+    this.stopHold();
+    // İkinci parmak gelince taşıma biter (bina eski yerine döner)
+    if (this.pointers.size > 1 && this.moving !== null) {
+      this.moving = null;
+      this.h.drop(null);
+    }
+    if (this.h.tool() === 'pan') {
+      if (this.pointers.size === 1 && (e.pointerType !== 'mouse' || e.button === 0)) {
+        const id = e.pointerId;
+        this.hold = {
+          id,
+          x: e.clientX,
+          y: e.clientY,
+          timer: window.setTimeout(() => {
+            const h = this.hold;
+            this.hold = null;
+            if (!h || h.id !== id || !this.pointers.has(id) || this.pointers.size > 1) return;
+            const t = this.tileAt({ clientX: h.x, clientY: h.y }, false);
+            if (this.h.lift(t ? idx(t[0], t[1]) : null)) {
+              this.moving = id;
+              this.tapStart = null;
+            }
+          }, HOLD_MS),
+        };
+      }
+      return;
+    }
     // İkinci parmak gelirse çizimi bırak, kullanıcı kaydırıyor/yakınlaştırıyor
     if (this.pointers.size > 1) return this.cancelDrag();
     if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -99,6 +138,15 @@ export class TileInput {
   }
 
   private move(e: PointerEvent) {
+    if (this.hold && this.hold.id === e.pointerId) {
+      // Parmak kaydıysa harita kaydırılıyordur: basılı tutma sayılmaz
+      if (Math.hypot(e.clientX - this.hold.x, e.clientY - this.hold.y) > 10) this.stopHold();
+    }
+    if (this.moving !== null && e.pointerId === this.moving) {
+      const t = this.tileAt(e, true);
+      this.h.moveTo(t ? idx(t[0], t[1]) : null);
+      return;
+    }
     if (this.h.tool() === 'pan') return;
     if (this.drag && e.pointerId === this.drag.id) {
       const t = this.tileAt(e, true);
@@ -114,6 +162,14 @@ export class TileInput {
 
   private up(e: PointerEvent, cancelled = false) {
     this.pointers.delete(e.pointerId);
+    if (this.hold?.id === e.pointerId) this.stopHold();
+    if (this.moving !== null && e.pointerId === this.moving) {
+      this.moving = null;
+      this.tapStart = null;
+      const t = cancelled ? null : this.tileAt(e, false);
+      this.h.drop(t ? idx(t[0], t[1]) : null);
+      return;
+    }
     const tap = this.tapStart;
     this.tapStart = null;
     if (!cancelled && this.h.tool() === 'pan' && tap && tap.id === e.pointerId) {

@@ -1309,6 +1309,44 @@ export class CityView {
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
   }
 
+  // --- Bina taşınırken: birleşik bölgeden çıkar, havaya kalkar ve parmağı izler ---
+  private lifted: { i: number; obj: THREE.Object3D; pos: THREE.Vector3; wasLive: boolean } | null = null;
+  startMove(i: number) {
+    const o = this.objs.get(i);
+    if (!o) return;
+    const wasLive = this.live.has(i);
+    if (!wasLive) {
+      this.live.add(i);
+      this.root.add(o);
+      this.dirty.add(this.chunkOf(i));
+    }
+    this.lifted = { i, obj: o, pos: o.position.clone(), wasLive };
+    o.position.y += 0.3;
+    this.shadowDirty = true;
+  }
+  // cx, cz: binanın yeni ortasının kare koordinatı (büyük binada kesirli)
+  moveLifted(cx: number, cz: number) {
+    const l = this.lifted;
+    if (!l) return;
+    const p = tileCenter(cx, cz);
+    l.obj.position.set(p.x, l.pos.y + 0.3, p.z);
+    this.shadowDirty = true;
+  }
+  // moved: taşındıysa yeni yerinde yeniden çizilir (refresh); taşınmadıysa eski yerine iner
+  endMove(moved: boolean) {
+    const l = this.lifted;
+    if (!l) return;
+    this.lifted = null;
+    this.shadowDirty = true;
+    if (moved) return;
+    l.obj.position.copy(l.pos);
+    if (!l.wasLive && this.objs.get(l.i) === l.obj) {
+      this.root.remove(l.obj);
+      this.live.delete(l.i);
+      this.dirty.add(this.chunkOf(l.i));
+    }
+  }
+
   // Hizmet haritasını göster (null: kapat). area: hizmetin ulaştığı kareler; bldgs: renklendirilecek binalar
   showServiceMap(map: { area: number[]; color: string; bldgs: { i: number; ok: boolean }[] } | null) {
     this.mapVeil.visible = !!map;
