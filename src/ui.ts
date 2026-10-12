@@ -502,12 +502,14 @@ export function confirmDialog(title: string, text: string, ok: string): Promise<
 }
 
 export type Quality = 'high' | 'mid' | 'low';
-export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string }
+export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string; demo: boolean }
 export interface SettingsHandlers {
   sound(on: boolean): void;
   quality(q: Quality): void;
   rain(on: boolean): void;
   reset(): void;
+  demo(): void; // hazır şehri aç
+  restore(): void; // hazır şehirden kendi şehrine dön
   rename(name: string): void;
 }
 
@@ -520,6 +522,8 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     <div class="row">${icon(state.sound ? 'soundOn' : 'soundOff')}<span>Ses efektleri</span><button class="switch${state.sound ? ' on' : ''}" data-k="sound" aria-label="Ses"></button></div>
     <div class="row">${icon('rain')}<span>Yağmur</span><button class="switch${state.rain ? ' on' : ''}" data-k="rain" aria-label="Yağmur"></button></div>
     <div class="row">${icon('screen')}<span>Grafik</span><span class="segc">${q.map(([k, l]) => `<button data-q="${k}" class="${state.quality === k ? 'on' : ''}">${l}</button>`).join('')}</span></div>
+    <button class="demo-row">${icon('build')}${state.demo ? 'Hazır şehri yeniden aç' : 'Hazır şehri aç (örnek büyük şehir)'}</button>
+    ${state.demo ? `<button class="demo-row back">${icon('rotateLeft')}Kendi şehrime dön</button>` : ''}
     <button class="danger-row">${icon('trash')}Yeni şehir kur</button>
     <div class="btns"><button class="big-btn green" data-close>Tamam</button></div>
     <div class="credits">3D modeller: Kenney, KayKit, Quaternius (CC0) · Yazı tipi: Fredoka (OFL)</div>
@@ -548,6 +552,13 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     el.hidden = true;
     on.reset();
   });
+  el.querySelectorAll<HTMLButtonElement>('.demo-row').forEach(b =>
+    b.addEventListener('click', () => {
+      el.hidden = true;
+      if (b.classList.contains('back')) on.restore();
+      else on.demo();
+    }),
+  );
 }
 
 // --- Yükleme ekranı ---

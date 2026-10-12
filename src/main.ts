@@ -4,7 +4,7 @@ import {
   SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
-import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
+import { City, idx, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
 import {
   describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, type CardActions,
 } from './info';
@@ -177,6 +177,9 @@ const ski = new SkiResort();
 scene.add(ski.root);
 const highway = new HighwayTraffic();
 scene.add(highway.root);
+// Otobandan şehre giren ve şehirden otobana çıkan arabalar birbirine devredilir (girişte birden belirip kaybolmasınlar)
+traffic.highway = highway;
+highway.enterCity = (type, paint) => traffic.enterFromHighway(type, paint);
 const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);
@@ -445,7 +448,20 @@ function warnTraffic() {
   lastJams = jams;
 }
 
+// Şehir dışındaki yollar: şehre giren yol, girişteki yolun türüne göre çizilir (giriş yükseltilince yeniden)
+let highwayMesh: THREE.Object3D | null = null;
+let highwayGrade = -1;
+function syncHighway() {
+  const grade = city.tiles[idx(0, ENTRANCE_Z)]?.grade ?? 0;
+  if (grade === highwayGrade) return;
+  highwayGrade = grade;
+  if (highwayMesh) scene.remove(highwayMesh);
+  highwayMesh = buildHighway(grade);
+  scene.add(highwayMesh);
+}
+
 function afterChange() {
+  if (highwayMesh) syncHighway();
   warnTraffic();
   findShowSpots();
   showEvents();
@@ -688,6 +704,59 @@ function applyQuality(q: Quality) {
   }
 }
 
+// Şehri değiştir (yeni şehir, hazır şehir ya da yedekten geri dönüş)
+function swapCity(next: City) {
+  city = next;
+  openCard = null;
+  pickTool('pan');
+  view.setCity(city);
+  traffic.setCity(city);
+  walkers.setCity(city);
+  trains.setCity(city);
+  sky.setCity(city);
+  helis.setCity(city);
+  syncHighway();
+  afterChange();
+}
+
+// Hazır şehir: geliştirirken kurulan büyük örnek şehir (public/ornek-sehir.txt, sıkıştırılmış).
+// Açmadan önce oyuncunun kendi şehri yedeklenir; Ayarlar'dan geri dönülebilir.
+const BACKUP_KEY = `${SAVE_KEY}-kendi`;
+const DEMO_KEY = 'aksoy-city-hazir';
+async function openDemo() {
+  const ok = await confirmDialog('Hazır şehir', 'Gökdelenli, otoparklı, kayak merkezli hazır şehir açılsın mı? Kendi şehrin yedeklenir; Ayarlar\'dan "Kendi şehrime dön" ile geri dönebilirsin.', 'Hazır şehri aç');
+  if (!ok) return;
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}ornek-sehir.txt`);
+    const b64 = (await res.text()).trim();
+    const bin = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+    const json = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    const data = JSON.parse(json) as Parameters<typeof City.load>[0];
+    if (!City.canLoad(data)) throw new Error('kayıt açılamadı');
+    if (readPref(DEMO_KEY) !== '1') writePref(BACKUP_KEY, JSON.stringify(city.serialize()));
+    writePref(DEMO_KEY, '1');
+    swapCity(City.load(data));
+    toast('🏙️ Hazır şehir açıldı! Kendi şehrine Ayarlar\'dan dönebilirsin.');
+  } catch (err) {
+    console.warn(err);
+    toast('Hazır şehir açılamadı, internet bağlantını kontrol et.', 'error');
+  }
+}
+async function restoreOwn() {
+  const raw = readPref(BACKUP_KEY);
+  if (!raw) return;
+  const ok = await confirmDialog('Kendi şehrin', 'Hazır şehirden çıkıp kendi şehrine dönülsün mü?', 'Kendi şehrime dön');
+  if (!ok) return;
+  try {
+    const data = JSON.parse(raw) as Parameters<typeof City.load>[0];
+    swapCity(City.canLoad(data) ? City.load(data) : new City());
+    writePref(DEMO_KEY, '0');
+    toast('🏠 Kendi şehrine döndün!');
+  } catch {
+    toast('Yedek açılamadı.', 'error');
+  }
+}
+
 async function resetCity() {
   const ok = await confirmDialog('Yeni şehir', 'Şehrin tamamen silinip baştan başlansın mı? Bu geri alınamaz.', 'Sil, baştan başla');
   if (!ok) return;
@@ -707,7 +776,7 @@ async function resetCity() {
 document.getElementById('settings')!.addEventListener('click', () => {
   play('click', 0.3);
   openSettings(
-    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName },
+    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName, demo: readPref(DEMO_KEY) === '1' && !!readPref(BACKUP_KEY) },
     {
       sound: on => setMuted(!on),
       quality: applyQuality,
@@ -716,6 +785,8 @@ document.getElementById('settings')!.addEventListener('click', () => {
         writePref(RAIN_KEY, on ? '1' : '0');
       },
       reset: resetCity,
+      demo: openDemo,
+      restore: restoreOwn,
       rename: name => {
         cityName = name;
         writePref(NAME_KEY, name);
@@ -750,12 +821,19 @@ window.addEventListener('keydown', e => {
 
 // --- Ekran boyutu ve oyun döngüsü ---
 function resize() {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const el = renderer.domElement;
+  const w = el.clientWidth || window.innerWidth, h = el.clientHeight || window.innerHeight;
+  if (!w || !h) return;
+  // Tuvalin boyutu CSS'ten gelir (ekranın tamamı); sadece çizim çözünürlüğü ayarlanır
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
   rig.apply();
 }
 window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 350));
+window.visualViewport?.addEventListener('resize', resize);
+if ('ResizeObserver' in window) new ResizeObserver(() => resize()).observe(renderer.domElement);
 resize();
 
 const clock = new THREE.Clock();
@@ -881,7 +959,8 @@ function makeMenuPictures() {
 
 Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), loadSkins(SKINS)])
   .then(() => {
-    scene.add(buildSurroundings(), buildHighway());
+    scene.add(buildSurroundings());
+    syncHighway();
     highway.init();
     ski.init();
     traffic.init();

@@ -648,6 +648,9 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 .dlg .btns .big-btn { flex: 1; margin: 0; padding: 12px 8px; font-size: 16px; }
 .dlg .danger-row { margin-top: 14px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px; border-radius: 14px; background: #fdecea; color: #c62828; font-size: 15px; font-weight: 600; }
 .dlg .danger-row .ic { width: 22px; height: 22px; }
+.dlg .demo-row { margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px; border-radius: 14px; background: #e3f2fd; color: #1565c0; font-size: 15px; font-weight: 600; }
+.dlg .demo-row.back { background: #e8f5e9; color: #2e7d32; }
+.dlg .demo-row .ic { width: 22px; height: 22px; }
 .credits { margin-top: 12px; font-size: 11px; color: var(--muted); line-height: 1.4; text-align: center; }
 
 /* ---------------- Mesajlar ---------------- */

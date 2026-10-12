@@ -16,9 +16,10 @@ const MW = 0.92; // otobanın yarı genişliği
 const LANES = [0.24, 0.6]; // otobanda şeritler (yol ortasından; sağdan gidiş)
 const SMALL = 0.45; // iki şeritli yolun yarı genişliği
 const SMALL_LANE = 0.2;
+const CITY_LANE = 0.26; // şehre giren yolda (cadde ve bulvarda da şeridin ortası)
 const TUNNEL_END = -60; // arabalar dağın içinde (tünelde) başlar/biter
 const { ring } = HW;
-const CITY_X = -24.2; // şehrin girişi
+const CITY_X = -23.92; // şehrin girişi (şehirdeki ilk yol karesinin içine kadar)
 
 type V2 = THREE.Vector2;
 const v2 = (x: number, z: number) => new THREE.Vector2(x, z);
@@ -201,33 +202,132 @@ function smallRoad(pts: V2[]) {
   return g;
 }
 
-// Göbek kavşak: halka yol, ortada çimenli ada, çiçekler ve bayrak direkleri
+// Dünya koordinatında (x, z) verilen çokgen: düz yüzey ya da yükseltilmiş (depth > 0)
+function poly(points: V2[], m: THREE.Material, y: number, depth = 0) {
+  const shape = new THREE.Shape(points.map(p => new THREE.Vector2(p.x, -p.y)));
+  const geo = depth > 0 ? new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }) : new THREE.ShapeGeometry(shape);
+  geo.rotateX(-Math.PI / 2);
+  const o = mesh(geo, m);
+  o.position.y = y;
+  if (depth > 0) o.castShadow = true;
+  return o;
+}
+
+// Kavşağın kolları: açı (haritada doğu 0, kuzey π/2), yolun yarı genişliği, otoban mı
+const MOUTHS = [
+  { a: Math.PI, w: MW, big: true }, // batı: tünelden gelen otoban
+  { a: (3 * Math.PI) / 2, w: MW, big: true }, // güney otoban
+  { a: 0, w: SMALL, big: false }, // doğu: şehre giden yol
+  { a: Math.PI / 2, w: SMALL, big: false }, // kuzey: kayak yolu
+];
+const FLARE = 0.5; // kol kavşağa girerken bu kadar genişler
+
+// Şehre giren yol: şehrin girişindeki yolla aynı türde (0 yol, 1 bulvar, 2 cadde) çizilir ki sınırda birden değişmesin
+function cityRoad(pts: V2[], grade: number) {
+  if (grade === 0) return smallRoad(pts);
+  const g = new THREE.Group();
+  g.add(mesh(strip(pts, -SMALL, SMALL, Y), M.asphalt));
+  for (const s of [-1, 1]) {
+    g.add(mesh(wall(pts, s * (SMALL + 0.02), 0.04, Y - 0.02, Y + 0.014), M.curb));
+    g.add(mesh(strip(pts, s * 0.39 - 0.01, s * 0.39 + 0.01, Y + 0.001), M.line));
+  }
+  if (grade === 2) {
+    // Cadde: ortada beton bariyer ve sarı çizgiler, şeritler arasında kesik çizgi
+    g.add(mesh(wall(pts.slice(2), 0, 0.035, Y, Y + 0.03), M.concrete));
+    for (const s of [-1, 1]) {
+      g.add(mesh(strip(pts, s * 0.035 - 0.008, s * 0.035 + 0.008, Y + 0.001), M.yellow));
+      g.add(mesh(strip(pts, s * 0.2 - 0.008, s * 0.2 + 0.008, Y + 0.001, [0.16, 0.17]), M.line));
+    }
+  } else {
+    // Bulvar: ortada çimenli refüj
+    g.add(mesh(wall(pts.slice(2), 0, 0.12, Y, Y + 0.02), M.curb));
+    g.add(mesh(strip(pts.slice(2), -0.05, 0.05, Y + 0.0205), M.grass));
+  }
+  return g;
+}
+
+// Göbek kavşak: halka yol, kollar kavşağa yaklaşırken kavisle genişleyip halkaya birleşir.
+// Girişlerde "yol ver" çizgisi, gidiş ile geliş arasında ayırıcı adacık; ortada çimenli ada, çiçekler, bayraklar.
 function roundabout() {
   const g = new THREE.Group();
+  const C = v2(ring.x, ring.z);
   const flat = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
     const o = mesh(geo.rotateX(-Math.PI / 2), m);
     o.position.set(ring.x, y, ring.z);
     g.add(o);
   };
-  flat(new THREE.RingGeometry(1.55, ring.outer + 0.15, 64), M.asphalt, Y);
-  flat(new THREE.RingGeometry(1.82, 1.85, 64), M.line, Y + 0.001);
-  flat(new THREE.RingGeometry(ring.outer - 0.06, ring.outer - 0.03, 64), M.line, Y + 0.001);
+  const inner = 1.4;
+  flat(new THREE.RingGeometry(inner, ring.outer, 72), M.asphalt, Y);
+  flat(new THREE.RingGeometry(inner + 0.1, inner + 0.13, 72), M.line, Y + 0.001);
+  // Dış kenar çizgisi: kolların ağızlarında boşluk bırakır
+  const gaps = MOUTHS.map(m => ({ a: m.a, half: Math.asin(Math.min(0.99, (m.w + FLARE - (m.big ? 0.06 : 0.15)) / (ring.outer - 0.065))) })).sort((p, q) => p.a - q.a);
+  gaps.forEach((gp, k) => {
+    const next = gaps[(k + 1) % gaps.length];
+    const start = gp.a + gp.half;
+    let end = next.a - next.half;
+    if (end <= start) end += Math.PI * 2;
+    flat(new THREE.RingGeometry(ring.outer - 0.08, ring.outer - 0.05, 24, 1, start, end - start), M.line, Y + 0.001);
+  });
+  for (const mouth of MOUTHS) {
+    const u = v2(Math.cos(mouth.a), -Math.sin(mouth.a));
+    const p = v2(-u.y, u.x);
+    const at = (d: number, l: number) => C.clone().addScaledVector(u, d).addScaledVector(p, l);
+    // Genişleyen ağız: kolun ucundan halkanın içine kadar asfalt
+    // Kenar, halkanın dış çemberine değdiği yerde biter (taşmaz)
+    const d1 = ARM + 0.7;
+    const meet = Math.sqrt(Math.max(0, ring.outer * ring.outer - (mouth.w + FLARE) * (mouth.w + FLARE)));
+    const width = (d: number) => mouth.w + FLARE * Math.pow(THREE.MathUtils.clamp((d1 - d) / (d1 - meet), 0, 1), 2);
+    const left: V2[] = [], right: V2[] = [];
+    for (let k = 0; k <= 14; k++) {
+      const d = d1 - ((d1 - meet) * k) / 14;
+      left.push(at(d, width(d)));
+      right.push(at(d, -width(d)));
+    }
+    g.add(poly([...left, at(1.6, 0), ...right.reverse()], M.asphalt, Y - 0.0006));
+    // Kenar çizgileri ağzın kavsini izler, halkanın çizgisine kadar
+    const edge = mouth.big ? 0.06 : 0.15;
+    for (const s of [-1, 1]) {
+      const line: V2[] = [];
+      for (let k = 0; k <= 14; k++) {
+        const d = d1 - ((d1 - meet) * k) / 14;
+        const l = width(d) - edge;
+        // Halkanın içine girmesin
+        const r = Math.hypot(d, l);
+        if (r < ring.outer - 0.065) break;
+        line.push(at(d, s * l));
+      }
+      if (line.length > 1) g.add(mesh(strip(line, -0.013, 0.013, Y + 0.0012), M.line));
+    }
+    // "Yol ver" çizgisi: gelen şeritlerin önünde kesik çizgi (gelen taraf -p yönünde)
+    for (let l = 0.08; l < mouth.w - 0.05; l += 0.13) {
+      const q = at(ring.outer + 0.04, -l);
+      const dash = part(new THREE.BoxGeometry(0.07, 0.003, 0.035), M.line, q.x, Y + 0.0015, q.y);
+      dash.rotation.y = Math.atan2(u.x, u.y);
+      g.add(dash);
+    }
+    // Ayırıcı adacık: gidiş ile gelişin arasında, kavşağa doğru genişleyen üçgen
+    const base = mouth.big ? 0.19 : 0.11, len = mouth.big ? 1.5 : 0.9;
+    const tri = [at(ring.outer + 0.14, base), at(ring.outer + 0.14 + len, 0), at(ring.outer + 0.14, -base)];
+    g.add(poly(tri, M.curb, Y - 0.005, 0.04));
+    const triIn = [at(ring.outer + 0.2, base * 0.6), at(ring.outer + 0.08 + len * 0.85, 0), at(ring.outer + 0.2, -base * 0.6)];
+    g.add(poly(triIn, M.grass, Y + 0.036, 0.004));
+  }
   // Ada: bordür, çimen, çiçek tarhı ve bayraklar
   const island = new THREE.Group();
   island.position.set(ring.x, 0, ring.z);
   g.add(island);
-  island.add(part(new THREE.CylinderGeometry(1.55, 1.55, 0.06, 48), M.curb, 0, 0.03, 0));
-  island.add(part(new THREE.CylinderGeometry(1.48, 1.48, 0.065, 48), M.grass, 0, 0.035, 0));
+  island.add(part(new THREE.CylinderGeometry(inner, inner, 0.06, 48), M.curb, 0, 0.03, 0));
+  island.add(part(new THREE.CylinderGeometry(inner - 0.07, inner - 0.07, 0.065, 48), M.grass, 0, 0.035, 0));
   const flowers = ['#ff5c8a', '#ffd23f', '#ffffff', '#c77dff'];
-  for (let k = 0; k < 24; k++) {
-    const a = (k / 24) * Math.PI * 2;
-    island.add(part(new THREE.IcosahedronGeometry(0.05, 0), mat(flowers[k % 4]), Math.cos(a) * 1.25, 0.09, Math.sin(a) * 1.25));
+  for (let k = 0; k < 22; k++) {
+    const t = (k / 22) * Math.PI * 2;
+    island.add(part(new THREE.IcosahedronGeometry(0.045, 0), mat(flowers[k % 4]), Math.cos(t) * (inner - 0.25), 0.09, Math.sin(t) * (inner - 0.25)));
   }
-  island.add(part(new THREE.CylinderGeometry(0.5, 0.55, 0.08, 24), mat('#d8d2c4'), 0, 0.08, 0));
+  island.add(part(new THREE.CylinderGeometry(0.45, 0.5, 0.08, 24), mat('#d8d2c4'), 0, 0.08, 0));
   const flagColors = ['#e53935', '#1e88e5', '#43a047'];
   for (let k = 0; k < 3; k++) {
-    const a = (k / 3) * Math.PI * 2 + 0.4;
-    const x = Math.cos(a) * 0.3, z = Math.sin(a) * 0.3;
+    const t = (k / 3) * Math.PI * 2 + 0.4;
+    const x = Math.cos(t) * 0.28, z = Math.sin(t) * 0.28;
     island.add(part(new THREE.CylinderGeometry(0.01, 0.012, 0.9, 6), M.pole, x, 0.53, z));
     island.add(part(new THREE.BoxGeometry(0.004, 0.14, 0.22), mat(flagColors[k]), x, 0.88, z + 0.11));
   }
@@ -287,14 +387,14 @@ function gantry(x: number, z: number) {
   return g;
 }
 
-export function buildHighway() {
+export function buildHighway(entranceGrade = 0) {
   const parts: THREE.Object3D[] = [];
   parts.push(motorway(ROUTES.west, { skipMedian: 0 }));
   parts.push(motorway(ROUTES.south, { skipMedian: 1.5 }));
   const branch = motorway(ROUTES.branch, { skipMedian: 6, lamps: false });
   branch.position.y = -0.002;
   parts.push(branch);
-  parts.push(smallRoad(ROUTES.city), smallRoad(ROUTES.ski), roundabout());
+  parts.push(cityRoad(ROUTES.city, entranceGrade), smallRoad(ROUTES.ski), roundabout());
   // Otobanın kavşağa açılan ucunda, ortadaki bariyerin başında sarı-siyah uyarı bloğu
   const portal = tunnelPortal();
   portal.position.set(HW.portal, 0, HW.z0);
@@ -374,6 +474,7 @@ interface Route {
   slow: Float32Array; // her noktada en yüksek hız (kavşakta yavaş)
   fadeIn: boolean;
   fadeOut: boolean;
+  gate?: 'toCity' | 'fromCity'; // şehre giren / şehirden çıkan yol: araba şehir trafiğine devredilir
 }
 
 // Otobanda ve kavşakta akan trafik: tünelden çıkan, şehre giren, şehirden çıkıp otobana katılan,
@@ -384,11 +485,19 @@ export class HighwayTraffic {
   private cars: Car[] = [];
   private set: CarSet | null = null;
   private tmp = new THREE.Object3D();
+  private exits: { type: number; paint: THREE.Color }[] = [];
+  // Şehrin trafiği: girişe gelen arabayı alır (yol doluysa false, araba bekler)
+  enterCity: ((type: number, paint: THREE.Color) => boolean) | null = null;
+
+  // Şehirden çıkan araba aynı renk ve modelle otobana devam eder
+  leaveCity(type: number, paint: THREE.Color) {
+    if (this.exits.length < 12) this.exits.push({ type, paint });
+  }
 
   init() {
     const rev = (p: V2[]) => [...p].reverse();
     const W = ROUTES.west, S = ROUTES.south, B = path([[HW.x, HW.z0 + ARM], [HW.x, HW.south]]);
-    const defs: { parts: { pts: V2[]; v: number }[]; fadeIn?: boolean; fadeOut?: boolean; cars: number }[] = [];
+    const defs: { parts: { pts: V2[]; v: number }[]; fadeIn?: boolean; fadeOut?: boolean; gate?: Route['gate']; cars: number }[] = [];
     for (const o of LANES) {
       const k = LANES.indexOf(o);
       // Tünel <-> güney/doğu
@@ -399,8 +508,8 @@ export class HighwayTraffic {
       defs.push({ cars: 2 + k, parts: [{ pts: offset(rev(B), o), v: 3 }, { pts: ringPath(ARMS.south, ARMS.west, o, o), v: 1.1 }, { pts: offset(rev(W), o), v: 3 }] });
     }
     // Tünelden şehre ve şehirden otobana; kayak merkezine gidip gelenler
-    defs.push({ cars: 3, fadeOut: true, parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.east, LANES[1], SMALL_LANE), v: 1.1 }, { pts: offset(ROUTES.city, SMALL_LANE), v: 1.3 }] });
-    defs.push({ cars: 3, fadeIn: true, parts: [{ pts: offset(rev(ROUTES.city), SMALL_LANE), v: 1.3 }, { pts: ringPath(ARMS.east, ARMS.south, SMALL_LANE, LANES[1]), v: 1.1 }, { pts: offset(S, LANES[1]), v: 3 }] });
+    defs.push({ cars: 5, gate: 'toCity', parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.east, LANES[1], CITY_LANE), v: 1.1 }, { pts: offset(ROUTES.city, CITY_LANE), v: 1.3 }] });
+    defs.push({ cars: 0, gate: 'fromCity', parts: [{ pts: offset(rev(ROUTES.city), CITY_LANE), v: 1.3 }, { pts: ringPath(ARMS.east, ARMS.south, CITY_LANE, LANES[1]), v: 1.1 }, { pts: offset(S, LANES[1]), v: 3 }] });
     defs.push({ cars: 2, fadeOut: true, parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.north, LANES[1], SMALL_LANE), v: 1.1 }, { pts: offset(ROUTES.ski, SMALL_LANE), v: 1.3 }] });
     defs.push({ cars: 2, fadeIn: true, parts: [{ pts: offset(rev(ROUTES.ski), SMALL_LANE), v: 1.3 }, { pts: ringPath(ARMS.north, ARMS.west, SMALL_LANE, LANES[1]), v: 1.1 }, { pts: offset(rev(W), LANES[1]), v: 3 }] });
 
@@ -422,14 +531,14 @@ export class HighwayTraffic {
         }
       });
       const lane = new Lane(clean);
-      this.routes.push({ lane, slow: new Float32Array(cc), fadeIn: !!def.fadeIn, fadeOut: !!def.fadeOut });
+      this.routes.push({ lane, slow: new Float32Array(cc), fadeIn: !!def.fadeIn, fadeOut: !!def.fadeOut, gate: def.gate });
       const r = this.routes.length - 1;
       for (let k = 0; k < def.cars; k++) {
         const type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
         this.cars.push({ route: r, s: ((k + Math.random() * 0.4) / def.cars) * lane.length, speed: 0.85 + Math.random() * 0.3, type, paint: carPaint(CAR_KINDS[type]), v: 0, pos: new THREE.Vector3(), h: 0, fade: 1 });
       }
     }
-    this.set = new CarSet(CAR_KINDS, this.cars.length);
+    this.set = new CarSet(CAR_KINDS, this.cars.length + 30);
     this.root.add(this.set.root);
   }
 
@@ -451,8 +560,15 @@ export class HighwayTraffic {
   update(dt: number) {
     const set = this.set;
     if (!set) return;
+    // Şehirden çıkan arabalar otobana katılır (yolun başı boşsa)
+    const out = this.routes.findIndex(r => r.gate === 'fromCity');
+    if (this.exits.length && out >= 0 && !this.cars.some(c => c.route === out && c.s < 0.9)) {
+      const e = this.exits.shift()!;
+      this.cars.push({ route: out, s: 0, speed: 0.85 + Math.random() * 0.3, type: e.type, paint: e.paint, v: 1, pos: new THREE.Vector3(), h: 0, fade: 1 });
+    }
     for (const c of this.cars) c.h = this.routes[c.route].lane.at(c.s, c.pos);
     set.begin();
+    const gone = new Set<Car>();
     this.cars.forEach((car, ci) => {
       const route = this.routes[car.route];
       let v = this.cap(route, car.s) * car.speed;
@@ -472,7 +588,22 @@ export class HighwayTraffic {
       }
       car.v += (v - car.v) * Math.min(1, dt * 3);
       car.s += car.v * dt;
-      if (car.s > route.lane.length) car.s = 0;
+      if (car.s > route.lane.length) {
+        if (route.gate === 'toCity') {
+          // Şehrin girişine geldi: şehir trafiğine geçer, tünelden yeni araba gelir (giriş doluysa bekler)
+          if (!this.enterCity || this.enterCity(car.type, car.paint)) {
+            car.s = 0;
+            car.type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
+            car.paint = carPaint(CAR_KINDS[car.type]);
+          } else {
+            car.s = route.lane.length;
+            car.v = 0;
+          }
+        } else if (route.gate === 'fromCity') {
+          gone.add(car);
+          return;
+        } else car.s = 0;
+      }
       const fadeIn = route.fadeIn ? THREE.MathUtils.smoothstep(car.s, 0, 1.2) : 1;
       const fadeOut = route.fadeOut ? THREE.MathUtils.smoothstep(route.lane.length - car.s, 0, 1.2) : 1;
       car.fade = Math.min(fadeIn, fadeOut);
@@ -481,6 +612,7 @@ export class HighwayTraffic {
       this.tmp.updateMatrix();
       set.put(car.type, this.tmp.matrix, car.paint);
     });
+    if (gone.size) this.cars = this.cars.filter(c => !gone.has(c));
     set.end();
   }
 }

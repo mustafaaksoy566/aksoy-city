@@ -79,7 +79,7 @@ export const HW = {
   z1: ZS + 4.5, // şehrin güneyinden doğuya giden otoban
   east: 118,
   south: 110,
-  ring: { x: -30.5, z: ENTRANCE_Z - Z0 + 0.5, r: 2.4, outer: 3.1 }, // göbek kavşak
+  ring: { x: -30.5, z: ENTRANCE_Z - Z0 + 0.5, r: 2.05, outer: 2.75 }, // göbek kavşak (r: arabaların döndüğü çember)
 };
 // Kayak merkezine çıkan yol (kavşağın kuzeyinden dağın eteğine)
 export const SKI_ROAD: [number, number][] = [[HW.x, HW.z0 - HW.ring.outer], [HW.x, -6.5], [-34, -9.5], [-42.2, -12.2]];

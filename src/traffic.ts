@@ -270,6 +270,8 @@ export class Traffic {
   private waiting: { lot: Lot; bay: number }[] = []; // sahibi geldi, yola çıkmayı bekliyor
   private pending = 0; // sahibi arabasına yürüyor
   private walkers: Walkers | null = null;
+  // Otoban: şehirden çıkan arabalar ona devredilir
+  highway: { leaveCity(type: number, paint: THREE.Color): void } | null = null;
 
   constructor(private city: City) {}
 
@@ -503,12 +505,18 @@ export class Traffic {
   }
 
   // Yolda bu noktanın yakınında araba var mı (otoparktan çıkarken bekle)
-  private busyAt(p: THREE.Vector3) {
+  // dir verilirse sadece o yöne giden araçlara bakılır (karşı şeritten gelenler engel sayılmaz)
+  private busyAt(p: THREE.Vector3, dir?: THREE.Vector3) {
     const q = new THREE.Vector3();
     for (const v of [...this.cars, ...this.buses]) {
-      if (v.man) bez(v.man.segs[v.man.k].p, Math.min(1, v.man.u), q);
-      else lanePos(this.city, v, this.laneOf(v), CAR_Y, q);
-      if (q.distanceToSquared(p) < 0.6 * 0.6) return true;
+      let h: number;
+      if (v.man) {
+        bez(v.man.segs[v.man.k].p, Math.min(1, v.man.u), q);
+        h = bezDir(v.man.segs[v.man.k].p, Math.min(1, v.man.u));
+      } else h = lanePos(this.city, v, this.laneOf(v), CAR_Y, q);
+      if (q.distanceToSquared(p) >= 0.6 * 0.6) continue;
+      if (dir && Math.sin(h) * dir.x + Math.cos(h) * dir.z < 0.3) continue;
+      return true;
     }
     return false;
   }
@@ -607,10 +615,23 @@ export class Traffic {
       if (this.driveOut(g, this.pickType())) return;
     }
     const entrance = idx(0, ENTRANCE_Z);
-    if (isRoadTile(this.city, entrance)) {
+    // Otoban bağlıysa şehre arabalar otobandan gelir (enterFromHighway)
+    if (!this.highway && isRoadTile(this.city, entrance)) {
       const type = this.pickType();
       this.cars.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 12 + Math.floor(Math.random() * 30) });
     }
+  }
+
+  // Otobandan şehrin girişine gelen araba şehirde yoluna devam eder; giriş doluysa false (araba otobanda bekler)
+  enterFromHighway(type: number, paint: THREE.Color) {
+    const entrance = idx(0, ENTRANCE_Z);
+    if (!isRoadTile(this.city, entrance) || this.cars.length >= MAX_CARS + 15) return false;
+    const v: Vehicle = { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 1, type, paint, wide: 1, trip: 10 + Math.floor(Math.random() * 30) };
+    const p = new THREE.Vector3();
+    lanePos(this.city, v, this.laneOf(v), CAR_Y, p);
+    if (this.busyAt(p, new THREE.Vector3(1, 0, 0))) return false;
+    this.cars.push(v);
+    return true;
   }
 
   // Otoparkın yanındaki (aynı kaldırımdaki) bir evden arabaya yürüyüş yolu
@@ -670,7 +691,9 @@ export class Traffic {
       const busWanted = Math.min(12, stops);
       const activeBuses = this.buses.filter(b => !b.out);
       const entrance = idx(0, ENTRANCE_Z);
-      if (activeBuses.length < busWanted && isRoadTile(this.city, entrance)) {
+      const busStart = new THREE.Vector3();
+      lanePos(this.city, { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0, fade: 1 }, () => WIDE_LANES[1], CAR_Y, busStart);
+      if (activeBuses.length < busWanted && isRoadTile(this.city, entrance) && !this.busyAt(busStart)) {
         this.buses.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.55, fade: 0, type: -1, wide: 1, trip: 1e9 });
       } else if (activeBuses.length > busWanted) activeBuses[0].trip = 0;
     }
@@ -723,6 +746,12 @@ export class Traffic {
         if (v.stuck < 6) go = 0;
       } else v.stuck = 0;
       const alive = advance(this.city, v, go, true, Math.max(v.t, limit), m => this.choose(m as Vehicle));
+      // Şehirden çıkan araba otobana geçer (aynı renk ve model)
+      if (v.out && v.type >= 0 && !v.home && this.highway && v.paint) {
+        this.highway.leaveCity(v.type, v.paint);
+        this.release(v);
+        return false;
+      }
       if (!alive) {
         this.release(v);
         return false;
