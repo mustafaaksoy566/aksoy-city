@@ -19,12 +19,23 @@ export const UTILITIES: Record<UtilKind, { power: number; water: number; upkeep:
 };
 export const UTIL_KINDS = Object.keys(UTILITIES) as UtilKind[];
 
-export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | 'bulldoze';
+// Hizmet binaları: çevrelerindeki kareleri kapsar. Evler 5. seviyeye çıkmak için dördüne de muhtaç.
+export type ServiceKind = 'police' | 'fire' | 'health' | 'school';
+export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; color: string; name: string }> = {
+  police: { radius: 6, upkeep: 6, color: '#3b6fd8', name: 'Polis' },
+  fire: { radius: 6, upkeep: 6, color: '#e53935', name: 'İtfaiye' },
+  health: { radius: 7, upkeep: 10, color: '#ec407a', name: 'Hastane' },
+  school: { radius: 6, upkeep: 8, color: '#ffa000', name: 'Okul' },
+};
+export const SERVICE_KINDS = Object.keys(SERVICES) as ServiceKind[];
+
+export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
   road: 10, res: 20, com: 30, park: 60, bulldoze: 0,
   wind: 300, plant: 1500, tower: 250, pump: 1200,
+  police: 500, fire: 500, health: 800, school: 600,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -38,6 +49,10 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   plant: { icon: '🏭', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
   tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: az su, ucuz. Yol kenarına kur.' },
   pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası: çok su verir ama pahalı.' },
+  police: { icon: '🚓', label: 'Polis', hint: 'Polis merkezi renkli alandaki evleri korur.' },
+  fire: { icon: '🚒', label: 'İtfaiye', hint: 'İtfaiye renkli alandaki evleri yangından korur.' },
+  health: { icon: '🏥', label: 'Hastane', hint: 'Hastane renkli alandaki evlere sağlık hizmeti verir.' },
+  school: { icon: '🏫', label: 'Okul', hint: 'Okul renkli alandaki çocuklara eğitim verir.' },
 };
 
 // Alt çubuk: tek araçlar ve açılır gruplar
@@ -47,7 +62,7 @@ export const TOOLBAR: ToolbarItem[] = [
   'road',
   { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'plant', 'tower', 'pump'] },
-  'park',
+  { group: 'services', icon: '🏛️', label: 'Hizmet', tools: ['police', 'fire', 'health', 'school', 'park'] },
   'bulldoze',
 ];
 
@@ -61,6 +76,7 @@ export const RES_LEVELS = [
   { pop: 14, need: 2, models: [k('building-small-b'), k('building-small-c'), c('small-building-1'), c('small-building-2'), c('small-building-4'), c('small-building-6')] },
   { pop: 30, need: 4, models: [c('large-building-1'), c('large-building-3'), c('large-building-5'), c('low-wide-1'), c('low-wide-2')] },
   { pop: 60, need: 7, models: [c('skyscraper-3'), c('skyscraper-6'), c('large-building-4')] },
+  { pop: 100, need: 12, models: [c('skyscraper-1'), c('skyscraper-2'), c('skyscraper-4'), c('skyscraper-5')] },
 ];
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
@@ -71,6 +87,7 @@ export const COM_LEVELS = [
 ];
 
 export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviyeye çıkar
+// park +1, dükkan +1 seviye; dört hizmetin hepsi kapsıyorsa bir seviye daha (5. seviye)
 export const PARK_RADIUS = 3; // park bu kadar kare yakındaysa +1 seviye
 export const SHOP_RADIUS = 4; // dükkan bu kadar kare yakındaysa +1 seviye
 export const POP_PER_COM_LEVEL = 150; // ticaret her bu kadar nüfusta bir seviye daha çıkabilir

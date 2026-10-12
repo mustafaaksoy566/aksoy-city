@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
-import { SIZE, DAY_SECONDS, COST, TOOL_INFO, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
-import { City, isUtility } from './city';
+import { SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
+import { City, isUtility, isService, serviceArea } from './city';
+import { describeTile } from './info';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic } from './traffic';
 import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
-import { buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, fmt } from './ui';
+import { buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, fmt } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
 
@@ -119,10 +120,20 @@ function applyControls() {
   controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 }
 
+// Hizmet binası seçiliyken o hizmetin kapsadığı alanı haritada renklendir
+function showCoverage(candidate?: number) {
+  if (!isService(tool)) return view.showCoverage([], '#fff');
+  const cells = new Set(city.coverageOf(tool));
+  if (candidate !== undefined) for (const c of serviceArea(candidate, tool)) cells.add(c);
+  view.showCoverage([...cells], SERVICES[tool].color);
+}
+
 function pickTool(t: Tool) {
   tool = t;
   input.cancelDrag();
   view.showPreview([]);
+  showInfo(null);
+  showCoverage();
   setChip(null);
   setActiveTool(t);
   applyControls();
@@ -140,6 +151,7 @@ const input = new TileInput(renderer.domElement, camera, {
     const items = cells.map(i => ({ i, ok: city.check(tool as Exclude<Tool, 'pan'>, i % SIZE, Math.floor(i / SIZE)) === null }));
     view.showPreview(items);
     const n = items.filter(c => c.ok).length;
+    if (isService(tool)) showCoverage(items[0]?.ok ? items[0].i : undefined);
     if (cells.length > 1 || isUtility(tool)) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
   },
   commit(cells) {
@@ -147,6 +159,7 @@ const input = new TileInput(renderer.domElement, camera, {
     setChip(null);
     if (tool === 'pan') return;
     const res = city.apply(tool, cells);
+    showCoverage();
     if (res.error) {
       toast(res.error, 'error');
       play('error', 0.3);
@@ -163,6 +176,12 @@ const input = new TileInput(renderer.domElement, camera, {
   cancel() {
     view.showPreview([]);
     setChip(null);
+    showCoverage();
+  },
+  tap(cell) {
+    const card = cell === null ? null : describeTile(city, cell);
+    showInfo(card);
+    if (card) play('click', 0.3);
   },
 });
 
@@ -170,6 +189,7 @@ buildToolbar(pickTool);
 setActiveTool(tool);
 applyControls();
 setupAudioUnlock();
+renderer.domElement.addEventListener('pointerdown', () => showInfo(null));
 
 // Ses ve sıfırlama düğmeleri
 const soundBtn = document.getElementById('sound')!;

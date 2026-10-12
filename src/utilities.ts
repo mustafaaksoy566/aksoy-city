@@ -4,7 +4,7 @@ import type { UtilKind } from './config';
 // Elektrik ve su yapıları: hazır model bulamadığımız için basit şekillerden kendimiz yapıyoruz.
 // Kenney'nin sade, renkli tarzına uysun diye düz renkler kullanılıyor.
 
-const mat = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
+export const mat = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
 const M = {
   pad: mat('#b9bec4'),
   white: mat('#f4f4f2'),
@@ -18,7 +18,7 @@ const M = {
   pale: mat('#d7e6f0'),
 };
 
-function part(geo: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) {
+export function part(geo: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) {
   const m = new THREE.Mesh(geo, material);
   m.position.set(x, y, z);
   m.castShadow = true;
@@ -26,7 +26,7 @@ function part(geo: THREE.BufferGeometry, material: THREE.Material, x: number, y:
   return m;
 }
 
-const pad = () => part(new THREE.BoxGeometry(0.92, 0.04, 0.92), M.pad, 0, 0.02, 0);
+export const pad = () => part(new THREE.BoxGeometry(0.92, 0.04, 0.92), M.pad, 0, 0.02, 0);
 
 function windTurbine() {
   const g = new THREE.Group();

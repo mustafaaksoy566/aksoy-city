@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from './config';
-import { City, DIRS, idx, inBounds, isUtility, isZone } from './city';
+import { City, DIRS, idx, inBounds, isUtility, isService, isZone } from './city';
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
+import { makeService, animateService } from './services';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
@@ -95,7 +96,8 @@ export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
   private icons = new Map<string, THREE.Sprite>();
-  private utilities = new Set<THREE.Object3D>();
+  private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
+  private coverage: THREE.InstancedMesh;
   private pops: { obj: THREE.Object3D; t: number }[] = [];
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
@@ -108,6 +110,16 @@ export class CityView {
     this.preview.count = 0;
     this.preview.renderOrder = 1;
     this.root.add(this.preview);
+
+    // Hizmet binalarının kapsama alanı (renkli, yarı saydam kareler)
+    this.coverage = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.22, depthWrite: false }),
+      SIZE * SIZE,
+    );
+    this.coverage.count = 0;
+    this.coverage.renderOrder = 1;
+    this.root.add(this.coverage);
   }
 
   setCity(city: City) {
@@ -137,7 +149,7 @@ export class CityView {
     const old = this.objs.get(i);
     if (!old) return;
     this.root.remove(old);
-    this.utilities.delete(old);
+    this.animated.delete(old);
     this.objs.delete(i);
   }
 
@@ -158,7 +170,11 @@ export class CityView {
     } else if (isUtility(t.kind)) {
       o = makeUtility(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
-      this.utilities.add(o);
+      this.animated.add(o);
+    } else if (isService(t.kind)) {
+      o = makeService(t.kind);
+      o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
+      this.animated.add(o);
     } else if (t.level === 0) {
       o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
       o.position.y = 0.015;
@@ -239,6 +255,19 @@ export class CityView {
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
   }
 
+  showCoverage(cells: number[], color: string) {
+    const c = new THREE.Color(color);
+    cells.forEach((i, n) => {
+      this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.07);
+      this.tmp.updateMatrix();
+      this.coverage.setMatrixAt(n, this.tmp.matrix);
+      this.coverage.setColorAt(n, c);
+    });
+    this.coverage.count = cells.length;
+    this.coverage.instanceMatrix.needsUpdate = true;
+    if (this.coverage.instanceColor) this.coverage.instanceColor.needsUpdate = true;
+  }
+
   update(dt: number) {
     this.time += dt;
     // Yeni binalar "zıplayarak" ortaya çıksın
@@ -252,6 +281,9 @@ export class CityView {
     for (const s of this.icons.values()) {
       s.position.y = s.userData.y + Math.sin(this.time * 3 + s.userData.phase) * 0.06;
     }
-    for (const u of this.utilities) animateUtility(u, this.time, dt);
+    for (const o of this.animated) {
+      animateUtility(o, this.time, dt);
+      animateService(o, this.time);
+    }
   }
 }

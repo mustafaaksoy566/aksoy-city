@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 import { SIZE, type Tool } from './config';
-import { idx } from './city';
+import { idx, isService, isUtility } from './city';
 
 interface Handlers {
   tool(): Tool;
   preview(cells: number[]): void;
   commit(cells: number[]): void;
   cancel(): void;
+  tap(cell: number | null): void; // Gez modunda kısa dokunuş (bilgi kartı için)
 }
 
 // Ekrana dokunma / fare ile harita karelerini seçme
 export class TileInput {
   private pointers = new Set<number>();
   private drag: { id: number; sx: number; sz: number; cells: number[] } | null = null;
+  private tapStart: { id: number; x: number; y: number; t: number } | null = null;
   private ray = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -43,7 +45,10 @@ export class TileInput {
   // Yol düz bir çizgi, diğer araçlar dikdörtgen alan seçer
   private cellsBetween(sx: number, sz: number, ex: number, ez: number): number[] {
     const out: number[] = [];
-    if (this.h.tool() === 'road') {
+    const tool = this.h.tool();
+    // Hizmet ve altyapı binaları tek tek yerleşir
+    if (isService(tool) || isUtility(tool)) return [idx(ex, ez)];
+    if (tool === 'road') {
       if (Math.abs(ex - sx) >= Math.abs(ez - sz)) {
         const step = ex >= sx ? 1 : -1;
         for (let x = sx; x !== ex + step; x += step) out.push(idx(x, sz));
@@ -61,6 +66,7 @@ export class TileInput {
 
   private down(e: PointerEvent) {
     this.pointers.add(e.pointerId);
+    this.tapStart = this.pointers.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
     if (this.h.tool() === 'pan') return;
     // İkinci parmak gelirse çizimi bırak, kullanıcı kaydırıyor/yakınlaştırıyor
     if (this.pointers.size > 1) return this.cancelDrag();
@@ -87,6 +93,15 @@ export class TileInput {
 
   private up(e: PointerEvent, cancelled = false) {
     this.pointers.delete(e.pointerId);
+    const tap = this.tapStart;
+    this.tapStart = null;
+    if (!cancelled && this.h.tool() === 'pan' && tap && tap.id === e.pointerId) {
+      const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
+      if (moved < 10 && performance.now() - tap.t < 500) {
+        const t = this.tileAt(e, false);
+        this.h.tap(t ? idx(t[0], t[1]) : null);
+      }
+    }
     if (!this.drag || e.pointerId !== this.drag.id) return;
     const cells = this.drag.cells;
     this.drag = null;

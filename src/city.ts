@@ -1,10 +1,10 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
   SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_MODELS, TAX_PER_PERSON,
-  TAX_PER_JOB, UTILITIES, type BuildTool, type UtilKind,
+  TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, type BuildTool, type UtilKind, type ServiceKind,
 } from './config';
 
-export type Kind = 'road' | 'res' | 'com' | 'park' | UtilKind;
+export type Kind = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
@@ -20,7 +20,21 @@ export const idx = (x: number, z: number) => z * SIZE + x;
 export const inBounds = (x: number, z: number) => x >= 0 && z >= 0 && x < SIZE && z < SIZE;
 export const isZone = (k: Kind | undefined): k is 'res' | 'com' => k === 'res' || k === 'com';
 export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k && k in UTILITIES;
-const KINDS: string[] = ['road', 'res', 'com', 'park', ...Object.keys(UTILITIES)];
+export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
+const KINDS: string[] = ['road', 'res', 'com', 'park', ...Object.keys(UTILITIES), ...SERVICE_KINDS];
+
+// Bir hizmet binasının kapsadığı kareler (daire şeklinde)
+export function serviceArea(i: number, kind: ServiceKind): number[] {
+  const r = SERVICES[kind].radius;
+  const x0 = i % SIZE, z0 = Math.floor(i / SIZE);
+  const out: number[] = [];
+  for (let z = z0 - r; z <= z0 + r; z++) {
+    for (let x = x0 - r; x <= x0 + r; x++) {
+      if (inBounds(x, z) && (x - x0) ** 2 + (z - z0) ** 2 <= r * r + r) out.push(idx(x, z));
+    }
+  }
+  return out;
+}
 
 const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 
@@ -52,6 +66,8 @@ export class City {
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
   service: Service = { power: { supply: 0, demand: 0 }, water: { supply: 0, demand: 0 } };
+  // Her kare için hangi hizmetlerin kapsadığı (bit maskesi, SERVICE_KINDS sırasıyla)
+  private covered = new Uint8Array(SIZE * SIZE);
 
   constructor() {
     for (let x = 0; x < ENTRANCE_LEN; x++) {
@@ -81,6 +97,32 @@ export class City {
   refresh() {
     this.updateReach();
     this.updateService();
+    this.updateCoverage();
+  }
+
+  // Yola bağlı hizmet binalarının kapsama alanlarını işaretle
+  private updateCoverage() {
+    this.covered.fill(0);
+    this.tiles.forEach((t, i) => {
+      if (!t || !isService(t.kind) || !this.isConnected(i)) return;
+      const bit = 1 << SERVICE_KINDS.indexOf(t.kind);
+      for (const c of serviceArea(i, t.kind)) this.covered[c] |= bit;
+    });
+  }
+
+  isCovered(i: number, kind: ServiceKind) {
+    return (this.covered[i] & (1 << SERVICE_KINDS.indexOf(kind))) !== 0;
+  }
+
+  allCovered(i: number) {
+    return this.covered[i] === (1 << SERVICE_KINDS.length) - 1;
+  }
+
+  // Bir türdeki bütün hizmet binalarının kapsadığı kareler (haritada göstermek için)
+  coverageOf(kind: ServiceKind) {
+    const out: number[] = [];
+    for (let i = 0; i < this.covered.length; i++) if (this.isCovered(i, kind)) out.push(i);
+    return out;
   }
 
   // Girişten başlayıp birbirine değen bütün yolları bul
@@ -160,7 +202,10 @@ export class City {
 
   get upkeep() {
     let sum = 0;
-    for (const t of this.tiles) if (t && isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep;
+    for (const t of this.tiles) {
+      if (t && isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep;
+      if (t && isService(t.kind)) sum += SERVICES[t.kind].upkeep;
+    }
     return sum;
   }
 
@@ -183,13 +228,21 @@ export class City {
     return false;
   }
 
+  parkNear(i: number) {
+    return this.near(i % SIZE, Math.floor(i / SIZE), PARK_RADIUS, n => n.kind === 'park');
+  }
+
+  shopNear(i: number) {
+    return this.near(i % SIZE, Math.floor(i / SIZE), SHOP_RADIUS, n => n.kind === 'com' && n.level > 0);
+  }
+
   maxLevel(i: number) {
     const t = this.tiles[i]!;
-    const x = i % SIZE, z = Math.floor(i / SIZE);
     if (t.kind === 'res') {
       let max = RES_BASE_MAX;
-      if (this.near(x, z, PARK_RADIUS, n => n.kind === 'park')) max++;
-      if (this.near(x, z, SHOP_RADIUS, n => n.kind === 'com' && n.level > 0)) max++;
+      if (this.parkNear(i)) max++;
+      if (this.shopNear(i)) max++;
+      if (max === RES_BASE_MAX + 2 && this.allCovered(i)) max++;
       return Math.min(max, RES_LEVELS.length);
     }
     return Math.min(COM_LEVELS.length, 1 + Math.floor(this.population / POP_PER_COM_LEVEL));
@@ -205,7 +258,7 @@ export class City {
     if (t) return 'Burası dolu';
     if (tool === 'res' || tool === 'com') {
       if (this.roadMask(x, z) === 0) return 'Bölgeler yol kenarına çizilmeli';
-    } else if (isUtility(tool) && this.roadMask(x, z) === 0) {
+    } else if ((isUtility(tool) || isService(tool)) && this.roadMask(x, z) === 0) {
       return 'Bu yapı yol kenarına kurulmalı';
     }
     return null;

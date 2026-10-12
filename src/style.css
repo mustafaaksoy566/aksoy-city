@@ -135,6 +135,26 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
 #submenu .ico { font-size: 24px; line-height: 1.15; }
 #submenu small { font-size: 10px; color: #6b7c8a; font-weight: 500; }
 
+/* Bina bilgi kartı */
+#info {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  width: min(340px, calc(100% - 24px));
+  box-sizing: border-box;
+  padding: 10px 14px 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+}
+#info[hidden] { display: none; }
+#info .title { display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 800; margin-bottom: 6px; }
+#info .title button { border: 0; background: #eceff1; border-radius: 999px; width: 28px; height: 28px; font-size: 13px; }
+#info .line { padding: 2px 0; }
+#info .line.bad { color: #b71c1c; }
+
 /* Bilgi mesajları */
 #chip, #toast {
   position: fixed;

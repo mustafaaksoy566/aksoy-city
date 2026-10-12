@@ -1,5 +1,6 @@
 import { TOOLBAR, TOOL_INFO, COST, type Tool } from './config';
 import type { Service } from './city';
+import type { InfoCard } from './info';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fmt = (n: number) => n.toLocaleString('tr-TR');
@@ -42,10 +43,11 @@ export function buildToolbar(onPick: (t: Tool) => void) {
     b.dataset.label = item.label;
     b.innerHTML = `<span class="ico">${item.icon}</span><span class="lbl">${item.label}</span><small>▲</small>`;
     b.addEventListener('click', () => {
-      if (openGroup === item.group) return closeSub();
+      if (openGroup === item.group && !sub.hidden) return closeSub();
       openGroup = item.group;
       sub.replaceChildren(...item.tools.map(t => toolButton(t, pick)));
       sub.hidden = false;
+      $('info').hidden = true;
     });
     nav.appendChild(b);
   }
@@ -105,6 +107,32 @@ export function floatIncome(n: number) {
   el.textContent = `${n > 0 ? '+' : ''}${fmt(n)}`;
   $('money').appendChild(el);
   setTimeout(() => el.remove(), 1200);
+}
+
+// Binaya dokununca çıkan bilgi kartı
+export function showInfo(card: InfoCard | null) {
+  const el = $('info');
+  if (!card) {
+    el.hidden = true;
+    return;
+  }
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = card.title;
+  const close = document.createElement('button');
+  close.textContent = '✕';
+  close.setAttribute('aria-label', 'Kapat');
+  close.addEventListener('click', () => (el.hidden = true));
+  title.appendChild(close);
+  const lines = card.lines.map(l => {
+    const d = document.createElement('div');
+    d.className = 'line' + (l.ok === false ? ' bad' : '');
+    d.textContent = (l.ok === undefined ? '' : l.ok ? '✅ ' : '❌ ') + l.text;
+    return d;
+  });
+  el.replaceChildren(title, ...lines);
+  el.hidden = false;
+  $('submenu').hidden = true;
 }
 
 export function hideLoading() {
