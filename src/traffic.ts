@@ -682,6 +682,15 @@ export class Traffic {
     }
   }
 
+  // Şehrin girişi dolu mu? (otobandan gelen araba sınırın dışında bekler, kuyruktakilerin içine girmez)
+  entranceBusy() {
+    const entrance = idx(0, ENTRANCE_Z);
+    if (!isRoadTile(this.city, entrance) || this.cars.length >= MAX_CARS + 15) return true;
+    const p = new THREE.Vector3();
+    lanePos(this.city, { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0, fade: 1 }, () => (this.city.tiles[entrance]?.grade === 2 ? WIDE_LANES[1] : CAR_LANE), CAR_Y, p);
+    return this.busyAt(p, new THREE.Vector3(1, 0, 0));
+  }
+
   // Otobandan şehrin girişine gelen araba şehirde yoluna devam eder; giriş doluysa false (araba otobanda bekler)
   enterFromHighway(type: number, paint: THREE.Color) {
     const entrance = idx(0, ENTRANCE_Z);

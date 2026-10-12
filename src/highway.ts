@@ -653,6 +653,8 @@ export class HighwayTraffic {
   private exits: { type: number; paint: THREE.Color }[] = [];
   // Şehrin trafiği: girişe gelen arabayı alır (yol doluysa false, araba bekler)
   enterCity: ((type: number, paint: THREE.Color) => boolean) | null = null;
+  // Şehrin girişi dolu mu? Doluysa şehre giden araba bir araba boyu geride bekler
+  cityBusy: (() => boolean) | null = null;
 
   // Şehirden çıkan araba aynı renk ve modelle otobana devam eder
   leaveCity(type: number, paint: THREE.Color) {
@@ -783,6 +785,8 @@ export class HighwayTraffic {
         if (back > 0.02 && back < 1.2 && Math.abs(-rx * oz + rz * ox) < 0.16 && ci < this.cars.indexOf(o)) continue;
         v = Math.min(v, Math.max(0, (ahead - 0.45) * 3));
       }
+      // Şehre giden: giriş doluysa sınırın dışında bekle (şehirdeki kuyruğun içine girmesin)
+      if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.()) v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
       car.v += (v - car.v) * Math.min(1, dt * 3);
       car.s += car.v * dt;
       if (car.s > route.lane.length) {

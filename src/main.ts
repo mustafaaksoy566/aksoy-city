@@ -197,6 +197,7 @@ scene.add(highway.root);
 // Otobandan şehre giren ve şehirden otobana çıkan arabalar birbirine devredilir (girişte birden belirip kaybolmasınlar)
 traffic.highway = highway;
 highway.enterCity = (type, paint) => traffic.enterFromHighway(type, paint);
+highway.cityBusy = () => traffic.entranceBusy();
 const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);
