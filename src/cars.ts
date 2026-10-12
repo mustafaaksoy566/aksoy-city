@@ -219,3 +219,22 @@ export class CarSet {
     });
   }
 }
+
+// Binaların önünde duran araba (tek parça, hareketsiz): fabrika kamyonu, polis arabası, ambulans...
+// Boya rengi köşelere yazılır (binalar birleştirilirken malzeme rengi kaybolmasın)
+export function carModel(kind: CarKind, color?: string): THREE.Group {
+  const b = build(kind);
+  const g = new THREE.Group();
+  const paint = join(b.paint);
+  const c = new THREE.Color(color ?? FIXED[kind] ?? '#c62828');
+  const col = paint.attributes.color as THREE.BufferAttribute | undefined;
+  if (col) for (let k = 0; k < col.count; k++) col.setXYZ(k, c.r, c.g, c.b);
+  for (const [geo, m] of [[paint, trimMat], [join(b.trim), trimMat], [join(b.lights), lightMat]] as [THREE.BufferGeometry, THREE.Material][]) {
+    if (!geo.attributes.position) continue;
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.castShadow = true;
+    g.add(mesh);
+  }
+  g.scale.setScalar(0.78);
+  return g;
+}

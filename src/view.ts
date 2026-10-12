@@ -1019,13 +1019,13 @@ export class CityView {
     } else if (t.kind === 'park') {
       o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {
-      o = makeUtility(t.kind);
+      // Yükseltilmiş yapı: yeni parçalar eklenmiş model ve yıldızlı tabela
+      o = makeUtility(t.kind, t.level);
       if (t.level > 0) {
-        // Yükseltilmiş yapı: daha büyük (yukarı doğru) ve yıldızlı tabela
         const w = new THREE.Group();
-        o.scale.y *= 1 + 0.4 * t.level;
         w.add(o);
         w.add(starSign(t.level, 1 / ((t.fp ?? 1) * 0.96)));
+        w.userData = o.userData;
         o = w;
       }
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;

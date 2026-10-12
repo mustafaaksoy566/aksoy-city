@@ -943,7 +943,7 @@ export class City {
     const t = this.tiles[i]!;
     t.level++;
     t.facing = this.facingFor(i);
-    t.variant = Math.floor(Math.random() * 1000);
+    // Model sırası (renk ailesi) aynı kalır: ev aynı evin büyümüş hali gibi görünür
     this.addXp(XP.upgrade[t.level]);
     this.stats.upgrades++;
     this.refresh();

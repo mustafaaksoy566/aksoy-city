@@ -10,7 +10,7 @@ const BAY = 0.1; // bir pencerenin genişliği
 const TC = 4; // dokuda yan yana pencere
 const TR = 4; // dokuda üst üste kat
 
-type Style = 'glass' | 'dark' | 'band' | 'stone' | 'home';
+type Style = 'glass' | 'dark' | 'band' | 'stone' | 'home' | 'brick' | 'metal';
 
 // Cephe dokusu (gündüz) ve gece yanan pencereler (aynı yerlerde)
 function facade(style: Style, seed0: number) {
@@ -23,7 +23,7 @@ function facade(style: Style, seed0: number) {
   n.fillRect(0, 0, size, size);
   let seed = seed0;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const BG: Record<Style, string> = { glass: '#e6ebf0', dark: '#3c4652', band: '#eef0f3', stone: '#efe3cc', home: '#f6f2ea' };
+  const BG: Record<Style, string> = { glass: '#e6ebf0', dark: '#3c4652', band: '#eef0f3', stone: '#efe3cc', home: '#f6f2ea', brick: '#b5543c', metal: '#bcc3ca' };
   d.fillStyle = BG[style];
   d.fillRect(0, 0, size, size);
   const pane = (x: number, y: number, w: number, h: number, top: string, bottom: string) => {
@@ -63,6 +63,26 @@ function facade(style: Style, seed0: number) {
         pane(x, y + 24, cw, ch - 30, '#d2e6f7', '#5d82a6');
         d.fillStyle = '#c9cfd6';
         d.fillRect(x, y + 24, 3, ch - 30);
+      } else if (style === 'brick') {
+        // Tuğla duvar: derz çizgileri, taş lentolu beyaz çerçeveli pencereler
+        d.fillStyle = '#d7a48c';
+        for (let by = 0; by < ch; by += 8) {
+          d.fillRect(x, y + by, cw, 1);
+          for (let bx = (by / 8) % 2 ? 8 : 0; bx < cw; bx += 16) d.fillRect(x + bx, y + by, 1, 8);
+        }
+        d.fillStyle = '#e8dccb';
+        d.fillRect(x + 10, y + 9, cw - 20, 4);
+        d.fillStyle = '#f7f4ee';
+        d.fillRect(x + 13, y + 13, cw - 26, ch - 22);
+        pane(x + 16, y + 16, cw - 32, ch - 28, '#d6ecfa', '#5f86a8');
+      } else if (style === 'metal') {
+        // Oluklu sac: dikey oluklar, kat aralarında ek yeri (pencere yok)
+        for (let k = 0; k < cw; k += 6) {
+          d.fillStyle = (k / 6) % 2 ? '#aab2bb' : '#c8ced5';
+          d.fillRect(x + k, y, 3, ch);
+        }
+        d.fillStyle = '#939ba5';
+        d.fillRect(x, y, cw, 2);
       } else if (style === 'stone') {
         // Taş cephe: ayaklar arasında dar, uzun pencereler ve kat kornişleri
         d.fillStyle = '#dccdb0';
@@ -97,6 +117,8 @@ const TEX: Record<Style, ReturnType<typeof facade>> = {
   band: facade('band', 13),
   stone: facade('stone', 17),
   home: facade('home', 19),
+  brick: facade('brick', 23),
+  metal: facade('metal', 29),
 };
 const facadeMat = (style: Style, color: string, metal = 0.3, rough = 0.3) => {
   const m = new THREE.MeshStandardMaterial({ color, map: TEX[style].map, emissiveMap: TEX[style].glow, emissive: '#000000', metalness: metal, roughness: rough });
@@ -108,6 +130,8 @@ const DARK = ['#b8c7d8', '#a9c9c4'].map(c => facadeMat('dark', c, 0.4, 0.18));
 const BAND = ['#ffffff', '#e8eef5', '#f3ece0'].map(c => facadeMat('band', c, 0.2, 0.35));
 const STONE = ['#fff8ec', '#f1e2d0'].map(c => facadeMat('stone', c, 0.05, 0.7));
 const HOME = ['#ffffff', '#f2e6d8', '#e4edf3'].map(c => facadeMat('home', c, 0.05, 0.6));
+const BRICK = ['#ffffff', '#e8d2c4'].map(c => facadeMat('brick', c, 0.02, 0.85));
+const METAL = ['#ffffff', '#dfe7f0', '#f1e6d6'].map(c => facadeMat('metal', c, 0.35, 0.45));
 
 const plain = (color: string, metal = 0, rough = 0.75) => new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough });
 const T = {
@@ -343,6 +367,9 @@ export function makeTower(height: number, seed: number, type: number) {
   return g;
 }
 
+// Diğer binalar da aynı cephe dokularını ve malzemeleri kullanır (evler, fabrikalar, santraller, dükkanlar...)
+export const KIT = { facadeBox, facadeCylinder, GLASS, DARK, BAND, STONE, HOME, BRICK, METAL, T, LIGHT, FLOOR };
+
 // Menüler ve şehir için hazır kuleler: 'proc/tower-<boy>-<çeşit>'. types: hangi biçimler (sırayla)
 export const TOWER_MODELS: Record<string, () => THREE.Object3D> = {};
 // Çatısında helikopter pisti olan kuleler: pistin yerden yüksekliği (helikopterler buraya iner)
@@ -364,122 +391,5 @@ export const midrisePaths = (height: number, count: number, seed: number, types:
     const h = height * (0.92 + hash(seed + k, 9) * 0.16);
     const type = types[k % types.length];
     TOWER_MODELS[path] = () => makeTower(h, seed + k * 13, type);
-    return path;
-  });
-
-// --- Evler: kiremit çatılı villalar ve balkonlu apartmanlar (her biri farklı renkte) ---
-const WIN = new THREE.MeshStandardMaterial({ color: '#9fd3ea', roughness: 0.3, metalness: 0.1 });
-WIN.name = 'window';
-const tint = (c: string) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
-const WALLS = ['#f4ede1', '#f6d7b0', '#e8c5a8', '#dfe9f2', '#f3e3a2', '#e9d1e6', '#cfe3d4', '#f2d7b6'].map(tint);
-const ROOFS = ['#c4512d', '#b5442e', '#a8553a', '#8c3b2a'].map(tint);
-const M2 = {
-  lawn: tint('#6cbd55'),
-  path: tint('#ddd3bf'),
-  door: tint('#6b4a33'),
-  white: tint('#fafafa'),
-  rail: tint('#5d6670'),
-  hedge: tint('#4a9a3e'),
-  awning: ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa'].map(tint),
-  panel: new THREE.MeshStandardMaterial({ color: '#2b3f66', roughness: 0.3, metalness: 0.4 }),
-};
-
-function builder() {
-  const g = new THREE.Group();
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.set(x, y, z);
-    mesh.castShadow = mesh.receiveShadow = true;
-    g.add(mesh);
-    return mesh;
-  };
-  return { g, add };
-}
-
-// Kırma çatı: dört yöne eğimli (genişlik w, derinlik d, yükseklik h)
-function hipRoof(w: number, d: number, h: number) {
-  const s = Math.SQRT1_2;
-  return new THREE.ConeGeometry(0.5, h, 4, 1).rotateY(Math.PI / 4).scale(w / s, 1, d / s);
-}
-
-// Villa: bahçeli, bir ya da iki katlı, kırmızı kiremit çatı (ön yüz +z)
-export function makeVilla(seed: number, floors: number) {
-  const { g, add } = builder();
-  const wall = WALLS[Math.floor(hash(seed, 1) * WALLS.length)];
-  const roof = ROOFS[Math.floor(hash(seed, 2) * ROOFS.length)];
-  add(new THREE.BoxGeometry(0.92, 0.02, 0.92), M2.lawn, 0, 0.01, 0);
-  add(new THREE.BoxGeometry(0.12, 0.022, 0.3), M2.path, 0.05, 0.012, 0.31);
-  const w = 0.5 + hash(seed, 3) * 0.1, d = 0.4, h = floors * 0.17 + 0.04;
-  add(new THREE.BoxGeometry(w, h, d), wall, 0, h / 2 + 0.02, -0.06);
-  add(hipRoof(w + 0.08, d + 0.08, 0.2), roof, 0, h + 0.12, -0.06);
-  // Kapı, pencereler
-  add(new THREE.BoxGeometry(0.07, 0.12, 0.01), M2.door, 0.05, 0.08, d / 2 - 0.055);
-  for (let f = 0; f < floors; f++) {
-    const y = 0.11 + f * 0.17;
-    for (const x of f === 0 ? [-w / 2 + 0.1] : [-w / 2 + 0.1, w / 2 - 0.1]) add(new THREE.BoxGeometry(0.08, 0.07, 0.01), WIN, x, y, d / 2 - 0.055);
-    for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.01, 0.07, 0.08), WIN, s * (w / 2 + 0.002), y, -0.06);
-  }
-  if (floors === 2 && hash(seed, 4) < 0.6) {
-    // Ön cephede balkon
-    add(new THREE.BoxGeometry(0.24, 0.015, 0.08), M2.white, -w / 2 + 0.14, 0.2, d / 2 - 0.02);
-    add(new THREE.BoxGeometry(0.24, 0.04, 0.008), M2.white, -w / 2 + 0.14, 0.23, d / 2 + 0.018);
-  }
-  add(new THREE.BoxGeometry(0.06, 0.12, 0.06), roof, w / 2 - 0.12, h + 0.14, -0.12);
-  // Bahçe çiti ve çalılar
-  for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.03, 0.05, 0.6), M2.hedge, s * 0.43, 0.045, 0.1);
-  if (hash(seed, 5) < 0.5) add(new THREE.BoxGeometry(0.16, 0.08, 0.16), wall, -0.3, 0.06, 0.28);
-  return g;
-}
-
-// Apartman: altta dükkanlar ve tenteler, her katta balkon, çatıda güneş enerjili su ısıtıcıları
-export function makeApartment(seed: number, floors: number) {
-  const { g, add } = builder();
-  const wall = WALLS[Math.floor(hash(seed, 1) * WALLS.length)];
-  const w = 0.78, d = 0.62, fh = 0.115;
-  const h = 0.13 + floors * fh;
-  add(new THREE.BoxGeometry(0.92, 0.03, 0.92), M2.path, 0, 0.015, 0);
-  add(new THREE.BoxGeometry(w, h, d), wall, 0, h / 2 + 0.03, -0.04);
-  // Zemin kat: dükkan camları ve renkli tenteler
-  const front = d / 2 - 0.04;
-  for (const [k, x] of [-0.24, 0, 0.24].entries()) {
-    add(new THREE.BoxGeometry(0.2, 0.09, 0.01), WIN, x, 0.09, front + 0.002);
-    const a = add(new THREE.BoxGeometry(0.21, 0.012, 0.07), M2.awning[(Math.floor(hash(seed, 6) * 5) + k) % 5], x, 0.15, front + 0.035);
-    a.rotation.x = 0.3;
-  }
-  for (let f = 0; f < floors; f++) {
-    const y = 0.13 + f * fh + 0.06 + 0.03;
-    for (const x of [-0.27, -0.09, 0.09, 0.27]) {
-      add(new THREE.BoxGeometry(0.1, 0.065, 0.01), WIN, x, y, front + 0.002);
-      add(new THREE.BoxGeometry(0.1, 0.065, 0.01), WIN, x, y, -d / 2 - 0.042);
-    }
-    for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.01, 0.065, 0.1), WIN, s * (w / 2 + 0.002), y, -0.04);
-    // Balkon: çıkıntı ve korkuluk
-    add(new THREE.BoxGeometry(0.34, 0.012, 0.09), M2.white, -0.18, y - 0.045, front + 0.045);
-    add(new THREE.BoxGeometry(0.34, 0.035, 0.006), M2.rail, -0.18, y - 0.022, front + 0.088);
-    add(new THREE.BoxGeometry(0.3, 0.012, 0.09), M2.white, 0.2, y - 0.045, front + 0.045);
-    add(new THREE.BoxGeometry(0.3, 0.035, 0.006), M2.rail, 0.2, y - 0.022, front + 0.088);
-  }
-  // Çatı: korkuluk duvarı, güneş paneli ve su tankları, anten
-  const top = h + 0.03;
-  add(new THREE.BoxGeometry(w + 0.02, 0.03, d + 0.02), M2.white, 0, top + 0.015, -0.04);
-  for (const x of [-0.18, 0.12]) {
-    const p = add(new THREE.BoxGeometry(0.16, 0.008, 0.12), M2.panel, x, top + 0.07, -0.12);
-    p.rotation.x = -0.6;
-    add(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 8).rotateZ(Math.PI / 2), M2.white, x, top + 0.11, -0.19);
-  }
-  add(new THREE.CylinderGeometry(0.004, 0.004, 0.16, 4), M2.rail, 0.3, top + 0.1, 0.1);
-  return g;
-}
-
-export const villaPaths = (floors: number, count: number, seed: number) =>
-  Array.from({ length: count }, (_, k) => {
-    const path = `proc/villa-${floors}-${seed + k}`;
-    TOWER_MODELS[path] = () => makeVilla(seed + k * 17, floors);
-    return path;
-  });
-export const apartmentPaths = (floors: number, count: number, seed: number) =>
-  Array.from({ length: count }, (_, k) => {
-    const path = `proc/apt-${floors}-${seed + k}`;
-    TOWER_MODELS[path] = () => makeApartment(seed + k * 19, floors);
     return path;
   });

@@ -1,14 +1,12 @@
 import * as THREE from 'three';
-import { TOWER_MODELS } from './towers';
+import { TOWER_MODELS, KIT } from './towers';
 
-// Evler: gökdelenler gibi kodla çizilir. Her biri bir tarzda: modern (düz çatı, büyük camlar, havuz),
-// Kiklad (beyaz küpler, mavi kubbe), dağ evi (taş ve ahşap, dik çatı), Kyoto (Japon çatısı, kağıt paneller),
-// Toskana (turuncu sıva, kiremit çatı, servi), sıra evler (renkli, yan yana). Yerel ölçü: 1x1 kare, ön yüz +z.
+// Evler: konut seviye seviye büyür. 1. seviye bahçeli küçük tek katlı ev, 2. seviye garajlı iki katlı ev,
+// 3. seviye küçük apartman; sonrası apartman blokları ve gökdelenler (towers.ts).
+// Her seviyede üç model var; model sırası aynı kalır ki ev büyürken aynı renk ailesinde kalsın:
+// 0 sıcak (krem duvar, kiremit çatı), 1 serin (açık gri duvar, arduvaz çatı), 2 toprak (kum rengi duvar, kahverengi çatı).
+// Yerel ölçü: 1x1 kare, ön yüz +z, taban y = 0.
 
-const hash = (n: number, k: number) => {
-  const s = Math.sin(n * 71.3 + k * 19.7) * 43758.5453;
-  return s - Math.floor(s);
-};
 const cache = new Map<string, THREE.MeshStandardMaterial>();
 const mat = (color: string, rough = 0.8, metal = 0) => {
   const key = `${color}|${rough}|${metal}`;
@@ -16,9 +14,14 @@ const mat = (color: string, rough = 0.8, metal = 0) => {
   if (!m) cache.set(key, (m = new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal })));
   return m;
 };
-const WIN = new THREE.MeshStandardMaterial({ color: '#9fd0ee', roughness: 0.15, metalness: 0.3 });
-WIN.name = 'window';
-const pick = <T,>(list: T[], seed: number, k: number) => list[Math.floor(hash(seed, k) * list.length)];
+const WIN = new THREE.MeshStandardMaterial({ color: '#a8d4ee', roughness: 0.15, metalness: 0.3 });
+WIN.name = 'window'; // gece yanar
+
+const FAMILY = [
+  { wall: '#f3e2c2', roof: '#b4533a', trim: '#ffffff', door: '#7a4a2e', accent: '#d98c5f' },
+  { wall: '#e4ebf2', roof: '#4b5866', trim: '#ffffff', door: '#2f5f8f', accent: '#7fa7c9' },
+  { wall: '#e6c79d', roof: '#6b4a37', trim: '#f6efe4', door: '#4f6f3a', accent: '#a9864f' },
+];
 
 function builder() {
   const g = new THREE.Group();
@@ -30,213 +33,180 @@ function builder() {
     g.add(mesh);
     return mesh;
   };
+  // Kutu: y alt kenarın yüksekliği
   const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, ry = 0) => add(new THREE.BoxGeometry(w, h, d), m, x, y + h / 2, z, ry);
   return { g, add, box };
 }
+type B = ReturnType<typeof builder>;
 
-// Beşik çatı (iki eğimli): genişlik w (x), yükseklik h, derinlik d (z boyunca sırt)
-function gable(w: number, h: number, d: number) {
+// Beşik çatı: sırt x boyunca (genişlik w, derinlik d, yükseklik h), iki yanda saçak
+function gable(w: number, d: number, h: number) {
   const s = new THREE.Shape();
-  s.moveTo(-w / 2, 0);
+  s.moveTo(-d / 2, 0);
   s.lineTo(0, h);
-  s.lineTo(w / 2, 0);
-  s.lineTo(-w / 2, 0);
-  return new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: false }).translate(0, 0, -d / 2);
+  s.lineTo(d / 2, 0);
+  s.lineTo(-d / 2, 0);
+  return new THREE.ExtrudeGeometry(s, { depth: w, bevelEnabled: false }).translate(0, 0, -w / 2).rotateY(Math.PI / 2);
 }
-// Kırma çatı (dört eğimli)
+// Kırma çatı
 function hip(w: number, d: number, h: number) {
   return new THREE.ConeGeometry(Math.SQRT1_2, h, 4, 1).rotateY(Math.PI / 4).scale(w, 1, d).translate(0, h / 2, 0);
 }
-// Bahçe zemini ve çit
-function yard(b: ReturnType<typeof builder>, grass = '#6cbd55') {
-  b.box(0.94, 0.02, 0.94, mat(grass, 1), 0, 0, 0);
+// Pencere: beyaz çerçeve, cam, ortada kayıt; yüzü +z (ry ile döndürülür)
+function addWin(b: B, x: number, y: number, z: number, w: number, h: number, trim: THREE.Material, ry = 0) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(w + 0.016, h + 0.016, 0.008), trim));
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.01), WIN);
+  glass.position.z = 0.002;
+  g.add(glass);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.005, h, 0.012), trim);
+  bar.position.z = 0.003;
+  g.add(bar);
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(w + 0.03, 0.008, 0.02), trim);
+  sill.position.set(0, -h / 2 - 0.006, 0.006);
+  g.add(sill);
+  g.position.set(x, y, z);
+  g.rotation.y = ry;
+  g.traverse(o => ((o as THREE.Mesh).castShadow = true));
+  b.g.add(g);
 }
-function bush(b: ReturnType<typeof builder>, x: number, z: number, r: number, color = '#4f9f3f') {
-  b.add(new THREE.IcosahedronGeometry(r, 0), mat(color, 1), x, r * 0.8 + 0.02, z);
+function tree(b: B, x: number, z: number, s = 1, color = '#5aa845') {
+  b.add(new THREE.CylinderGeometry(0.011 * s, 0.015 * s, 0.11 * s, 6), mat('#6b4a33'), x, 0.075 * s, z);
+  b.add(new THREE.IcosahedronGeometry(0.075 * s, 1), mat(color, 1), x, 0.17 * s, z);
+  b.add(new THREE.IcosahedronGeometry(0.055 * s, 1), mat('#78c25a', 1), x + 0.035 * s, 0.215 * s, z - 0.015 * s);
 }
-function cypress(b: ReturnType<typeof builder>, x: number, z: number, h = 0.32) {
-  b.add(new THREE.CylinderGeometry(0.008, 0.01, 0.04, 5), mat('#6b4a33'), x, 0.04, z);
-  b.add(new THREE.ConeGeometry(0.045, h, 7), mat('#2f6b3a', 1), x, 0.06 + h / 2, z);
+function hedge(b: B, w: number, d: number, x: number, z: number) {
+  b.box(w, 0.04, d, mat('#4f9a3e', 1), x, 0.02, z);
+}
+function yard(b: B) {
+  b.box(0.96, 0.02, 0.96, mat('#72c05a', 1), 0, 0, 0);
 }
 
-// --- Modern ev: düz çatılı iki kutu, büyük camlar, ahşap kaplama, çatı terası, havuz ---
-export function makeModern(seed: number, floors: number) {
+// --- 1. seviye: bahçeli küçük ev ---
+export function makeCottage(model: number) {
+  const f = FAMILY[model % 3];
   const b = builder();
   yard(b);
-  const white = mat(pick(['#f5f5f2', '#ececec', '#e9e4dc'], seed, 1), 0.7);
-  const wood = mat(pick(['#9a6a43', '#b07d52', '#7d5a3c'], seed, 2), 0.7);
-  const dark = mat('#2f3640', 0.5);
-  const h1 = 0.17;
-  // Alt kat: geniş kutu, önü cam
-  b.box(0.62, h1, 0.42, white, -0.06, 0.02, -0.1);
-  b.box(0.5, 0.11, 0.01, WIN, -0.06, 0.045, 0.115);
-  b.box(0.64, 0.014, 0.44, dark, -0.06, 0.02 + h1, -0.1);
-  // Yanda ahşap kaplı kutu
-  b.box(0.22, h1, 0.3, wood, 0.32, 0.02, -0.16);
-  b.box(0.01, 0.1, 0.2, WIN, 0.432, 0.05, -0.16);
-  if (floors > 1) {
-    // Üst kat: kaydırılmış kutu, uzun pencere, çatı terası korkuluğu
-    b.box(0.46, 0.15, 0.34, wood, -0.14, 0.034 + h1, -0.18);
-    b.box(0.38, 0.09, 0.01, WIN, -0.14, 0.06 + h1, -0.005);
-    b.box(0.48, 0.012, 0.36, dark, -0.14, 0.184 + h1, -0.18);
-    b.box(0.2, 0.04, 0.008, mat('#cfe8f5', 0.1, 0.2), 0.12, 0.034 + h1, 0.11);
-  }
-  // Havuz ve güneşlenme yeri
-  b.box(0.36, 0.024, 0.18, mat('#e8e2d4'), -0.1, 0.02, 0.32);
-  b.box(0.3, 0.026, 0.12, mat('#4fb8e8', 0.1, 0.2), -0.1, 0.022, 0.32);
-  b.box(0.06, 0.012, 0.12, mat('#ffffff'), 0.18, 0.04, 0.32);
-  bush(b, 0.38, 0.32, 0.06);
-  bush(b, -0.4, -0.38, 0.05);
-  b.box(0.12, 0.022, 0.3, mat('#cfcac0'), 0.33, 0.02, 0.2);
+  const wall = mat(f.wall, 0.9), trim = mat(f.trim, 0.7), roof = mat(f.roof, 0.75);
+  const W = 0.46, D = 0.36, H = 0.15;
+  const cz = -0.08;
+  b.box(W + 0.02, 0.03, D + 0.02, mat('#b9b2a6'), 0, 0.02, cz); // temel
+  b.box(W, H, D, wall, 0, 0.05, cz);
+  // Çatı: 0 ve 2 beşik, 1 kırma
+  if (model % 3 === 1) b.add(hip(W + 0.08, D + 0.08, 0.15), roof, 0, 0.05 + H, cz);
+  else b.add(gable(W + 0.08, D + 0.1, 0.16), roof, 0, 0.05 + H, cz);
+  // Baca
+  b.box(0.05, 0.12, 0.05, mat(model % 3 === 1 ? '#8a8f96' : '#a0543c'), W / 2 - 0.1, 0.05 + H + 0.03, cz - 0.06);
+  // Ön cephe: kapı, sundurma, iki pencere
+  const front = cz + D / 2 + 0.002;
+  b.box(0.075, 0.11, 0.01, mat(f.door, 0.6), 0.02, 0.05, front);
+  b.add(new THREE.SphereGeometry(0.006, 6, 4), mat('#d4af37', 0.3, 0.6), 0.045, 0.105, front + 0.008);
+  b.box(0.16, 0.012, 0.09, roof, 0.02, 0.18, front + 0.04);
+  for (const x of [-0.07, 0.11]) b.add(new THREE.CylinderGeometry(0.006, 0.006, 0.12, 6), trim, x - 0.0, 0.12, front + 0.08);
+  addWin(b, -0.15, 0.12, front + 0.004, 0.08, 0.065, trim);
+  addWin(b, 0.17, 0.12, front + 0.004, 0.07, 0.065, trim);
+  // Yan pencereler
+  for (const s of [-1, 1]) addWin(b, s * (W / 2 + 0.004), 0.12, cz, 0.07, 0.06, trim, s * Math.PI / 2);
+  // Bahçe: yol, çit, ağaç, çiçekler, posta kutusu
+  b.box(0.08, 0.022, 0.3, mat('#d9cfbc'), 0.02, 0.012, 0.3);
+  hedge(b, 0.34, 0.04, -0.27, 0.45);
+  hedge(b, 0.34, 0.04, 0.31, 0.45);
+  tree(b, model % 2 ? -0.34 : 0.34, -0.3, 1.05);
+  for (let k = 0; k < 5; k++) b.add(new THREE.IcosahedronGeometry(0.014, 0), mat(['#ff6f91', '#ffd23f', '#ffffff', '#c77dff', '#ff8a3d'][(k + model) % 5]), -0.24 + k * 0.035, 0.035, 0.18);
+  b.box(0.012, 0.07, 0.012, mat('#5d4037'), 0.12, 0.02, 0.43);
+  b.box(0.04, 0.03, 0.025, mat(f.accent), 0.12, 0.09, 0.43);
   return b.g;
 }
 
-// --- Kiklad evi: beyaz küpler, mavi kubbe, mavi kapı ve panjurlar, dış merdiven, begonvil ---
-export function makeCycladic(seed: number, floors: number) {
-  const b = builder();
-  yard(b, '#e9e2d0');
-  const white = mat('#fbfbf8', 0.9);
-  const blue = mat(pick(['#1e5fae', '#1f7ac2', '#245fa8'], seed, 1), 0.5);
-  b.box(0.5, 0.18, 0.4, white, -0.1, 0.02, -0.12);
-  b.box(0.3, 0.14, 0.3, white, 0.25, 0.02, 0.08);
-  b.box(0.09, 0.12, 0.012, blue, -0.1, 0.02, 0.085);
-  for (const x of [-0.28, 0.08]) b.box(0.07, 0.07, 0.012, blue, x, 0.08, 0.085);
-  b.box(0.06, 0.06, 0.012, blue, 0.25, 0.07, 0.235);
-  if (floors > 1) {
-    b.box(0.3, 0.15, 0.26, white, -0.2, 0.2, -0.18);
-    b.box(0.07, 0.07, 0.012, blue, -0.2, 0.25, -0.045);
-    // Dış merdiven
-    for (let k = 0; k < 5; k++) b.box(0.08, 0.036 * (k + 1), 0.05, white, 0.07, 0.02, 0.02 - k * 0.05);
-  }
-  // Kubbe
-  const top = floors > 1 ? 0.35 : 0.2;
-  b.add(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 20), white, floors > 1 ? -0.2 : -0.1, top + 0.025, floors > 1 ? -0.18 : -0.12);
-  b.add(new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), blue, floors > 1 ? -0.2 : -0.1, top + 0.05, floors > 1 ? -0.18 : -0.12);
-  // Teras duvarı ve begonvil
-  b.box(0.3, 0.035, 0.02, white, 0.25, 0.16, 0.225);
-  bush(b, 0.38, 0.3, 0.06, '#e04a9a');
-  bush(b, 0.3, 0.36, 0.045, '#4f9f3f');
-  b.box(0.05, 0.05, 0.05, mat('#c86b3c'), -0.35, 0.02, 0.3);
-  return b.g;
-}
-
-// --- Dağ evi: taş temel, ahşap gövde, geniş saçaklı dik çatı, balkon, baca ---
-export function makeChalet(seed: number, floors: number) {
+// --- 2. seviye: garajlı iki katlı ev ---
+export function makeFamilyHouse(model: number) {
+  const f = FAMILY[model % 3];
   const b = builder();
   yard(b);
-  const stone = mat('#9e978b', 1), wood = mat(pick(['#8a5a36', '#9c6a40', '#7a4e2e'], seed, 1), 0.8);
-  const roofM = mat(pick(['#4e3426', '#3f4a54', '#6a3b2a'], seed, 2), 0.8);
-  const trim = mat('#f1e6cf');
-  b.box(0.56, 0.08, 0.44, stone, 0, 0.02, -0.06);
-  const h = 0.13 + (floors - 1) * 0.12;
-  b.box(0.54, h, 0.42, wood, 0, 0.1, -0.06);
-  const roof = b.add(gable(0.7, 0.26, 0.56), roofM, 0, 0.1 + h, -0.06);
-  roof.rotation.y = 0;
-  for (const x of [-0.16, 0.16]) {
-    b.box(0.1, 0.08, 0.012, WIN, x, 0.13, 0.155);
-    b.box(0.12, 0.012, 0.02, trim, x, 0.12, 0.16);
+  const wall = mat(f.wall, 0.9), trim = mat(f.trim, 0.7), roof = mat(f.roof, 0.75), accent = mat(f.accent, 0.8);
+  const W = 0.44, D = 0.38, H = 0.3;
+  const cx = -0.08, cz = -0.08;
+  b.box(W + 0.02, 0.03, D + 0.02, mat('#b9b2a6'), cx, 0.02, cz);
+  b.box(W, H, D, wall, cx, 0.05, cz);
+  // Kat ayrımı bandı
+  b.box(W + 0.012, 0.012, D + 0.012, trim, cx, 0.05 + 0.15, cz);
+  if (model % 3 === 1) b.add(hip(W + 0.08, D + 0.08, 0.16), roof, cx, 0.05 + H, cz);
+  else b.add(gable(W + 0.08, D + 0.1, 0.17), roof, cx, 0.05 + H, cz);
+  // Yanda tek katlı garaj
+  const gx = cx + W / 2 + 0.12;
+  b.box(0.22, 0.15, 0.32, wall, gx, 0.05, cz + 0.03);
+  b.box(0.24, 0.02, 0.34, roof, gx, 0.2, cz + 0.03);
+  b.box(0.16, 0.11, 0.01, mat('#eceff1', 0.5), gx, 0.05, cz + 0.19);
+  for (let k = 0; k < 4; k++) b.box(0.16, 0.003, 0.012, mat('#b0bec5'), gx, 0.07 + k * 0.025, cz + 0.196);
+  // Ön cephe
+  const front = cz + D / 2 + 0.002;
+  b.box(0.075, 0.12, 0.01, mat(f.door, 0.6), cx - 0.08, 0.05, front);
+  b.box(0.12, 0.012, 0.08, roof, cx - 0.08, 0.19, front + 0.035);
+  addWin(b, cx + 0.1, 0.13, front + 0.004, 0.1, 0.07, trim);
+  for (const x of [cx - 0.12, cx + 0.1]) addWin(b, x, 0.28, front + 0.004, 0.09, 0.07, trim);
+  for (const s of [-1, 1]) {
+    addWin(b, cx + s * (W / 2 + 0.004), 0.13, cz, 0.07, 0.06, trim, s * Math.PI / 2);
+    addWin(b, cx + s * (W / 2 + 0.004), 0.28, cz, 0.07, 0.06, trim, s * Math.PI / 2);
   }
-  b.box(0.08, 0.12, 0.012, mat('#5a3a22'), 0, 0.02, 0.156);
-  if (floors > 1) {
-    // Balkon ve çiçek kutuları
-    b.box(0.56, 0.012, 0.08, wood, 0, 0.23, 0.19);
-    b.box(0.56, 0.04, 0.008, trim, 0, 0.243, 0.23);
-    for (const x of [-0.2, 0, 0.2]) b.box(0.08, 0.02, 0.02, mat('#e53935'), x, 0.283, 0.228);
-    b.box(0.12, 0.08, 0.012, WIN, 0, 0.26, 0.156);
-  }
-  b.box(0.07, 0.18, 0.07, stone, 0.18, 0.1 + h + 0.06, -0.14);
-  // Odun yığını ve çam
-  b.add(new THREE.CylinderGeometry(0.02, 0.02, 0.14, 6).rotateZ(Math.PI / 2), mat('#a0703f'), -0.38, 0.04, 0.2);
-  b.add(new THREE.ConeGeometry(0.07, 0.3, 7), mat('#2f6b3a', 1), 0.38, 0.19, 0.3);
-  b.add(new THREE.ConeGeometry(0.06, 0.24, 7), mat('#37723f', 1), -0.36, 0.16, -0.36);
+  // Üst katta balkon
+  b.box(0.18, 0.012, 0.07, trim, cx + 0.1, 0.235, front + 0.035);
+  b.box(0.18, 0.035, 0.006, accent, cx + 0.1, 0.247, front + 0.07);
+  // Garaj yolu ve bahçe
+  b.box(0.18, 0.022, 0.32, mat('#c9c4b8'), gx, 0.012, 0.3);
+  b.box(0.07, 0.022, 0.3, mat('#d9cfbc'), cx - 0.08, 0.012, 0.3);
+  hedge(b, 0.3, 0.04, -0.32, 0.45);
+  tree(b, -0.38, -0.36, 1.1);
+  tree(b, 0.4, -0.38, 0.9, '#4a9a3e');
+  b.box(0.1, 0.02, 0.05, mat('#8d6e63'), -0.3, 0.02, 0.22);
   return b.g;
 }
 
-// --- Kyoto evi: ahşap iskelet, beyaz kağıt paneller, kenarları kalkık koyu çatı, veranda, taş fener, akçaağaç ---
-export function makeKyoto(seed: number) {
+// --- 3. seviye: dört katlı küçük apartman (balkonlu, altta giriş, düz çatı) ---
+export function makeSmallApartment(model: number) {
+  const f = FAMILY[model % 3];
   const b = builder();
-  yard(b, '#7fae5e');
-  const wood = mat('#5b3a26', 0.7), paper = mat('#f3eee0', 0.9), roofM = mat(pick(['#3b3f46', '#2f3a3a'], seed, 1), 0.6);
-  b.box(0.6, 0.04, 0.44, mat('#8c8478'), 0, 0.02, -0.06);
-  b.box(0.54, 0.16, 0.38, paper, 0, 0.06, -0.06);
-  // Ahşap kirişler (cephede ızgara)
-  for (const x of [-0.27, -0.09, 0.09, 0.27]) b.box(0.014, 0.16, 0.39, wood, x, 0.06, -0.06);
-  b.box(0.56, 0.014, 0.4, wood, 0, 0.14, -0.06);
-  // Veranda
-  b.box(0.6, 0.02, 0.1, wood, 0, 0.06, 0.18);
-  // Çatı: geniş kırma çatı + kalkık uçlar için üstte ikinci küçük çatı
-  b.add(hip(0.78, 0.6, 0.16), roofM, 0, 0.22, -0.06);
-  b.add(hip(0.4, 0.26, 0.1), roofM, 0, 0.34, -0.06);
-  b.box(0.42, 0.02, 0.03, roofM, 0, 0.43, -0.06);
-  // Bahçe: taş fener, yuvarlak taşlar, kızıl akçaağaç, gölet
-  b.add(new THREE.CylinderGeometry(0.015, 0.02, 0.08, 6), mat('#a39e94'), -0.34, 0.06, 0.3);
-  b.box(0.06, 0.03, 0.06, mat('#a39e94'), -0.34, 0.1, 0.3);
-  b.add(new THREE.CylinderGeometry(0.11, 0.11, 0.012, 16), mat('#4f9fd0', 0.1, 0.2), 0.25, 0.026, 0.3);
-  b.add(new THREE.CylinderGeometry(0.012, 0.016, 0.12, 6), mat('#5b3a26'), 0.36, 0.08, -0.34);
-  b.add(new THREE.IcosahedronGeometry(0.1, 0), mat('#d8452f', 1), 0.36, 0.2, -0.34);
-  for (const [x, z] of [[-0.2, 0.35], [-0.1, 0.38], [0.05, 0.36]]) b.add(new THREE.IcosahedronGeometry(0.018, 0), mat('#9a958c'), x, 0.03, z);
-  return b.g;
-}
-
-// --- Toskana evi: turuncu-pembe sıva, alçak kırma kiremit çatı, yeşil panjurlar, kemerli kapı, servi ağaçları ---
-export function makeTuscan(seed: number, floors: number) {
-  const b = builder();
-  yard(b, '#8fae5a');
-  const wall = mat(pick(['#e8b884', '#e9a777', '#f0c995', '#dca06e'], seed, 1), 0.95);
-  const roofM = mat(pick(['#b5532f', '#c0613a', '#a84a2a'], seed, 2), 0.85);
-  const green = mat('#4d6b3c');
-  const h = 0.16 + (floors - 1) * 0.15;
-  b.box(0.58, h, 0.4, wall, -0.04, 0.02, -0.08);
-  b.add(hip(0.68, 0.5, 0.13), roofM, -0.04, 0.02 + h, -0.08);
-  for (let f = 0; f < floors; f++) {
-    for (const x of [-0.24, 0.16]) {
-      b.box(0.07, 0.09, 0.012, WIN, x, 0.06 + f * 0.15, 0.126);
-      for (const s of [-1, 1]) b.box(0.035, 0.09, 0.012, green, x + s * 0.055, 0.06 + f * 0.15, 0.128);
+  b.box(0.96, 0.02, 0.96, mat('#cfd3d8', 0.9), 0, 0, 0);
+  const W = 0.72, D = 0.56, floors = 4;
+  const H = KIT.FLOOR * floors;
+  const base = 0.03;
+  const facade = model % 3 === 2 ? KIT.BRICK[0] : KIT.HOME[model % 3 === 1 ? 2 : 1];
+  b.add(KIT.facadeBox(W, H, D, base), facade, 0, base + H / 2, -0.06);
+  // Köşelerde renkli çıtalar ve kat bantları
+  const accent = mat(f.accent, 0.8), trim = mat(f.trim, 0.7);
+  for (const s of [-1, 1]) b.box(0.03, H, 0.03, accent, s * (W / 2 - 0.005), base, -0.06 + D / 2 - 0.005);
+  // Balkonlar (ön yüz, her katta iki)
+  for (let k = 1; k < floors; k++) {
+    const y = base + k * KIT.FLOOR;
+    for (const x of [-0.18, 0.18]) {
+      b.box(0.22, 0.01, 0.07, trim, x, y, -0.06 + D / 2 + 0.035);
+      b.box(0.22, 0.03, 0.005, KIT.T.rail, x, y + 0.01, -0.06 + D / 2 + 0.07);
     }
   }
-  // Kemerli kapı
-  b.box(0.08, 0.1, 0.012, mat('#6b4a33'), -0.04, 0.02, 0.127);
-  b.add(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 12, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), mat('#6b4a33'), -0.04, 0.12, 0.127);
-  // Kemerli sundurma, saksılar ve serviler
-  b.box(0.2, 0.012, 0.12, roofM, 0.3, 0.16, 0.18);
-  for (const x of [0.22, 0.38]) b.box(0.02, 0.14, 0.02, wall, x, 0.02, 0.23);
-  for (const x of [-0.38, -0.3]) b.add(new THREE.CylinderGeometry(0.025, 0.02, 0.04, 8), mat('#c06a3e'), x, 0.04, 0.3);
-  cypress(b, 0.4, -0.38, 0.38);
-  cypress(b, -0.42, -0.36, 0.3);
-  cypress(b, 0.42, 0.38, 0.26);
-  return b.g;
-}
-
-// --- Sıra evler: yan yana üç dar ev, her biri farklı renkte, üçgen alınlıklı cepheler ---
-export function makeRowHouses(seed: number) {
-  const b = builder();
-  yard(b, '#cfcac0');
-  const colors = ['#c0392b', '#2e86c1', '#f4d03f', '#27ae60', '#e67e22', '#8e44ad', '#f5f5f0', '#5d6d7e'];
-  for (let k = 0; k < 3; k++) {
-    const x = -0.29 + k * 0.29;
-    const h = 0.28 + hash(seed, k + 3) * 0.08;
-    const wall = mat(colors[Math.floor(hash(seed, k + 9) * colors.length)], 0.85);
-    b.box(0.28, h, 0.42, wall, x, 0.02, -0.1);
-    b.add(gable(0.28, 0.12, 0.42), mat('#4a3f3a'), x, 0.02 + h, -0.1);
-    for (let f = 0; f < 2; f++) for (const dx of [-0.065, 0.065]) b.box(0.05, 0.07, 0.012, WIN, x + dx, 0.08 + f * 0.12, 0.112);
-    b.box(0.06, 0.09, 0.012, mat('#3e2c22'), x, 0.02, 0.113);
-    b.box(0.08, 0.02, 0.06, mat('#d9d4cb'), x, 0.02, 0.145);
+  // Giriş: saçak, kapı, numara levhası
+  b.box(0.2, 0.012, 0.09, accent, 0, base + 0.09, -0.06 + D / 2 + 0.045);
+  b.box(0.1, 0.085, 0.01, mat('#3e4a56', 0.4, 0.3), 0, base, -0.06 + D / 2 + 0.003);
+  // Çatı: korkuluk duvarı, su deposu, güneş panelleri
+  b.box(W + 0.02, 0.03, D + 0.02, trim, 0, base + H, -0.06);
+  b.box(0.12, 0.06, 0.12, mat('#9aa3ad', 0.5, 0.3), -0.2, base + H + 0.03, -0.15);
+  for (const x of [0.05, 0.22]) {
+    const p = b.box(0.14, 0.008, 0.1, mat('#2b3f66', 0.3, 0.4), x, base + H + 0.06, -0.12);
+    p.rotation.x = -0.5;
   }
-  bush(b, -0.38, 0.35, 0.04);
-  bush(b, 0.38, 0.35, 0.04);
+  // Önde çiçeklik ve ağaçlar, yanda bisiklet park yeri
+  b.box(0.2, 0.04, 0.06, mat('#9e9e9e'), -0.3, 0.02, 0.38);
+  for (let k = 0; k < 4; k++) b.add(new THREE.IcosahedronGeometry(0.016, 0), mat(['#ff6f91', '#ffd23f', '#c77dff', '#ffffff'][k]), -0.37 + k * 0.045, 0.07, 0.38);
+  tree(b, 0.38, 0.38, 0.9);
+  tree(b, -0.42, -0.42, 0.8, '#4a9a3e');
   return b.g;
 }
 
-// Menüler ve şehir için hazır evler: 'proc/<tarz>-<kat>-<çeşit>'
-const register = (prefix: string, count: number, seed: number, make: (s: number) => THREE.Object3D) =>
-  Array.from({ length: count }, (_, k) => {
-    const path = `proc/${prefix}-${seed + k}`;
-    TOWER_MODELS[path] = () => make(seed + k * 23);
+// Menüler ve şehir için hazır evler: 'proc/<tür>-<model>'
+const register = (prefix: string, make: (model: number) => THREE.Object3D) =>
+  [0, 1, 2].map(k => {
+    const path = `proc/${prefix}-${k}`;
+    TOWER_MODELS[path] = () => make(k);
     return path;
   });
-export const modernPaths = (floors: number, count: number, seed: number) => register(`modern-${floors}`, count, seed, s => makeModern(s, floors));
-export const cycladicPaths = (floors: number, count: number, seed: number) => register(`kiklad-${floors}`, count, seed, s => makeCycladic(s, floors));
-export const chaletPaths = (floors: number, count: number, seed: number) => register(`chalet-${floors}`, count, seed, s => makeChalet(s, floors));
-export const kyotoPaths = (count: number, seed: number) => register('kyoto-1', count, seed, s => makeKyoto(s));
-export const tuscanPaths = (floors: number, count: number, seed: number) => register(`toskana-${floors}`, count, seed, s => makeTuscan(s, floors));
-export const rowPaths = (count: number, seed: number) => register('row-2', count, seed, s => makeRowHouses(s));
+export const cottagePaths = () => register('cottage', makeCottage);
+export const familyPaths = () => register('family', makeFamilyHouse);
+export const smallAptPaths = () => register('smallapt', makeSmallApartment);

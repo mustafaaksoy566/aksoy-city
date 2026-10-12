@@ -1,289 +1,321 @@
 import * as THREE from 'three';
-import { INDUSTRY_MODELS, PROPS, BASE, BOAT_MODELS, type IndustryKind } from './config';
-import { part, mat, pad, windowMat, showcaseMat } from './utilities';
+import { BOAT_MODELS, type IndustryKind } from './config';
+import { part, windowMat, showcaseMat } from './utilities';
 import { makeModel } from './assets';
+import { mergeStatic } from './batcher';
+import { KIT } from './towers';
+import { carModel } from './cars';
 
-// Fabrika ve depo: Kenney City Kit Industrial binaları (CC0) ve çevrelerinde baca, tank, konteyner.
-// Hırdavatçı: basit şekillerden yapılmış dükkan.
-// Ön yüz +z (güney) tarafında; yola bakacak şekilde döndürülüyorlar.
+// Sanayi ve dükkanlar gökdelenler gibi ayrıntılı çizilir: testere dişi çatılı fabrika, depo, tabelalı dükkanlar
+// (hırdavatçı, pazar, mobilyacı, fırın, butik) ve konteyner vinçli liman. Ön yüz +z (yola bakar).
 
+const pm = (color: string, rough = 0.8, metal = 0) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 const M = {
-  wall: mat('#c9d3dc'),
-  wallDark: mat('#8796a5'),
-  roof: mat('#5b6b80'),
-  glass: mat('#9fd3ea'),
-  dark: mat('#3c3f44'),
-  brick: mat('#b5533c'),
-  orange: mat('#f39c3d'),
-  white: mat('#f4f4f2'),
-  wood: mat('#b07a45'),
-  crate: mat('#c8955a'),
-  green: mat('#4f9a5b'),
-  asphalt: mat('#6b6f75'),
-  steel: mat('#8d99a6'),
+  asphalt: pm('#5b6170', 0.9),
+  concrete: pm('#d8d5ce', 0.95),
+  paving: pm('#cfd3d8', 0.9),
+  steel: pm('#9aa5b1', 0.4, 0.6),
+  darkSteel: pm('#55606c', 0.5, 0.5),
+  dark: pm('#2f3640', 0.5),
+  white: pm('#f6f6f4', 0.6),
+  yellow: pm('#f2c14e', 0.6),
+  wood: pm('#b07a45', 0.8),
+  crate: pm('#c8955a', 0.9),
+  grass: pm('#6cbd55', 1),
+  hedge: pm('#4f9a3e', 1),
+  roof: pm('#59636f', 0.7),
 };
+const add = (g: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+  const o = part(geo, m, x, y, z);
+  g.add(o);
+  return o;
+};
+// Kutu: y alt kenar
+const box = (g: THREE.Object3D, w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => add(g, new THREE.BoxGeometry(w, h, d), m, x, y + h / 2, z);
 
-const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-
-// Bir eşyayı kare içinde (x, z) konumuna koy
-function item(path: string, x: number, z: number, rot = 0) {
-  const o = makeModel(path);
-  o.position.set(x, 0.05, z);
+// Yazılı tabela dokusu
+function signMat(text: string, bg: string, fg = '#ffffff') {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const x = c.getContext('2d')!;
+  x.fillStyle = bg;
+  x.fillRect(0, 0, 256, 64);
+  x.fillStyle = fg;
+  x.font = 'bold 34px Fredoka, Arial, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText(text, 128, 34);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 });
+}
+// Oluklu konteyner dokusu (rengi malzemeden)
+const ribTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 16;
+  const x = c.getContext('2d')!;
+  for (let k = 0; k < 64; k += 4) {
+    x.fillStyle = (k / 4) % 2 ? '#d0d0d0' : '#ffffff';
+    x.fillRect(k, 0, 4, 16);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  return t;
+})();
+const CONTAINERS = ['#c62828', '#1565c0', '#2e7d32', '#ef6c00', '#6a1b9a', '#00838f', '#f9a825'].map(c => new THREE.MeshStandardMaterial({ color: c, map: ribTex, roughness: 0.6, metalness: 0.2 }));
+function container(g: THREE.Object3D, x: number, y: number, z: number, k: number, rot = 0) {
+  const o = add(g, new THREE.BoxGeometry(0.11, 0.05, 0.24), CONTAINERS[k % CONTAINERS.length], x, y + 0.025, z);
   o.rotation.y = rot;
   return o;
 }
-
-function factory(variant: number) {
-  const g = new THREE.Group();
-  g.add(makeModel(BASE));
-  const models = INDUSTRY_MODELS.factory;
-  const b = makeModel(models[variant % models.length], Math.floor(variant / 7) % 4);
-  b.scale.multiplyScalar(0.92);
-  b.position.set(-0.04, 0.05, -0.04);
-  g.add(b);
-  // Köşede baca, yanında tank
-  const chimney = item(variant % 2 ? PROPS.chimneyLarge : PROPS.chimney, 0.34, -0.34);
-  g.add(chimney);
-  if (variant % 3 !== 0) g.add(item(PROPS.tank, -0.34, 0.33));
-  // Bacadan duman (fabrika çalışırken görünür)
-  chimney.updateMatrixWorld(true);
-  const top = new THREE.Box3().setFromObject(chimney).max.y;
+// Testere dişi çatı: sıra sıra eğik yüzler, dik tarafları cam
+function sawtooth(g: THREE.Object3D, w: number, d: number, y: number, x0: number, z0: number, teeth: number) {
+  const step = d / teeth;
+  for (let k = 0; k < teeth; k++) {
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.lineTo(step, 0);
+    s.lineTo(step, 0.07);
+    s.lineTo(0, 0);
+    const geo = new THREE.ExtrudeGeometry(s, { depth: w, bevelEnabled: false }).rotateY(Math.PI / 2).translate(-w / 2, 0, 0);
+    add(g, geo, M.roof, x0, y, z0 - d / 2 + k * step + step);
+    add(g, new THREE.BoxGeometry(w - 0.01, 0.06, 0.006), windowMat, x0, y + 0.032, z0 - d / 2 + (k + 1) * step - 0.002);
+  }
+}
+// Bacadan duman (fabrika çalışırken görünür)
+function smoke(g: THREE.Group, base: THREE.Vector3) {
   const puffs: THREE.Mesh[] = [];
   for (let p = 0; p < 3; p++) {
-    const m = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 8, 6),
-      new THREE.MeshStandardMaterial({ color: '#e8e8e8', transparent: true, opacity: 0.8, depthWrite: false }),
-    );
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshStandardMaterial({ color: '#e8e8e8', transparent: true, opacity: 0.8, depthWrite: false }));
     m.userData.phase = p / 3;
     m.visible = false;
     puffs.push(m);
     g.add(m);
   }
-  g.userData.smoke = { puffs, base: new THREE.Vector3(0.34, top + 0.02, -0.34) };
-  return g;
+  g.userData.smoke = { puffs, base };
 }
 
-function store() {
+// --- Fabrika (2x2): üretim holü (testere dişi çatı), ofis bloğu, silolar, baca, yükleme rampası, kamyon ---
+function factory(variant: number) {
   const g = new THREE.Group();
-  g.add(pad());
-  g.add(part(box(0.66, 0.36, 0.46), M.white, 0, 0.22, -0.12));
-  g.add(part(box(0.68, 0.04, 0.48), M.wood, 0, 0.42, -0.12));
-  g.add(part(box(0.5, 0.15, 0.01), M.glass, -0.06, 0.18, 0.115));
-  g.add(part(box(0.1, 0.18, 0.01), M.dark, 0.24, 0.13, 0.115));
-  // Turuncu-beyaz çizgili tente
-  for (let k = 0; k < 6; k++) {
-    const s = part(box(0.11, 0.012, 0.14), k % 2 ? M.white : M.orange, -0.275 + k * 0.11, 0.3, 0.17);
-    s.rotation.x = 0.35;
-    g.add(s);
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, M.asphalt, 0, 0, 0);
+  for (let k = 0; k < 4; k++) box(st, 0.008, 0.002, 0.12, M.yellow, 0.12 + k * 0.08, 0.03, 0.36);
+  const wall = KIT.METAL[variant % 3];
+  // Üretim holü
+  st.add(part(KIT.facadeBox(0.6, 0.2, 0.5, 0.03), wall, -0.12, 0.13, -0.12));
+  box(st, 0.62, 0.015, 0.52, M.roof, -0.12, 0.23, -0.12);
+  sawtooth(st, 0.6, 0.5, 0.245, -0.12, -0.12, 5);
+  // Yükleme kapıları ve rampa
+  for (const x of [-0.3, -0.12, 0.06]) {
+    box(st, 0.12, 0.12, 0.008, pm('#d9dde2', 0.5, 0.3), x, 0.03, 0.135);
+    for (let k = 0; k < 5; k++) box(st, 0.12, 0.003, 0.01, M.steel, x, 0.05 + k * 0.022, 0.138);
   }
-  // Tabela: turuncu levha üstünde çekiç
-  g.add(part(box(0.36, 0.08, 0.02), M.orange, 0, 0.36, 0.12));
-  g.add(part(box(0.12, 0.03, 0.01), M.white, 0, 0.37, 0.132));
-  g.add(part(box(0.03, 0.06, 0.01), M.white, 0.04, 0.35, 0.132));
-  // Önde kalas yığını
-  for (let k = 0; k < 3; k++) g.add(part(box(0.28, 0.025, 0.06), M.wood, -0.18, 0.055 + k * 0.025, 0.32));
+  box(st, 0.5, 0.03, 0.08, M.concrete, -0.12, 0.03, 0.18);
+  // Ofis bloğu (cam bantlı, öne doğru)
+  st.add(part(KIT.facadeBox(0.22, 0.26, 0.18, 0.03), KIT.BAND[variant % 3], 0.34, 0.16, 0.24));
+  box(st, 0.23, 0.02, 0.19, M.dark, 0.34, 0.29, 0.24);
+  const logo = ['#1565c0', '#c62828', '#2e7d32'][variant % 3];
+  box(st, 0.14, 0.04, 0.008, pm(logo, 0.5), 0.34, 0.24, 0.336);
+  // Silolar ya da tanklar
+  for (let k = 0; k < 3; k++) {
+    const x = 0.24 + k * 0.1, z = -0.34;
+    add(st, new THREE.CylinderGeometry(0.045, 0.045, 0.32, 16), pm('#e3e6ea', 0.4, 0.5), x, 0.19, z);
+    add(st, new THREE.ConeGeometry(0.047, 0.05, 16), pm('#c9cfd6', 0.4, 0.5), x, 0.375, z);
+    for (const y of [0.1, 0.2, 0.3]) add(st, new THREE.CylinderGeometry(0.047, 0.047, 0.006, 16), M.steel, x, y, z);
+  }
+  // Konveyör boru silolardan hole
+  const pipe = add(st, new THREE.BoxGeometry(0.3, 0.02, 0.02), M.darkSteel, 0.12, 0.33, -0.34);
+  pipe.rotation.z = -0.2;
+  // Baca
+  const chx = -0.4, chz = -0.38, ch = 0.62;
+  add(st, new THREE.CylinderGeometry(0.03, 0.04, ch, 12), pm('#9e8e7e', 0.9), chx, 0.03 + ch / 2, chz);
+  add(st, new THREE.CylinderGeometry(0.034, 0.034, 0.03, 12), M.darkSteel, chx, 0.03 + ch - 0.015, chz);
+  // Önde kamyon ve paletler
+  const truck = carModel('truck', '#eceff1');
+  truck.position.set(0.12, 0.03, 0.3);
+  truck.rotation.y = Math.PI;
+  truck.scale.multiplyScalar(0.62);
+  st.add(truck);
+  for (let k = 0; k < 3; k++) box(st, 0.06, 0.02, 0.06, M.wood, -0.36 + k * 0.07, 0.03, 0.4);
+  box(st, 0.05, 0.04, 0.05, M.crate, -0.36, 0.05, 0.4);
+  g.add(mergeStatic([st]));
+  smoke(g, new THREE.Vector3(chx, 0.03 + ch + 0.02, chz));
   return g;
 }
 
+// --- Depo: oluklu sac depo, büyük sürgülü kapılar, yükleme rampası, konteynerler ---
 function depot(variant: number) {
-  const g = new THREE.Group();
-  g.add(makeModel(BASE));
-  const models = INDUSTRY_MODELS.depot;
-  const b = makeModel(models[variant % models.length], Math.floor(variant / 7) % 4);
-  b.scale.multiplyScalar(0.85);
-  b.position.set(0, 0.05, -0.08);
-  g.add(b);
-  // Önde konteynerler
-  const boxes = [PROPS.containerA, PROPS.containerB, PROPS.containerC];
-  g.add(item(boxes[variant % 3], -0.24, 0.33, Math.PI / 2));
-  if (variant % 2) g.add(item(boxes[(variant + 1) % 3], 0.2, 0.34, Math.PI / 2));
-  return g;
-}
-
-// Çiftçi pazarı: arkada kırmızı ambar, önde tenteli tezgahlar ve sebze kasaları
-function market() {
-  const g = new THREE.Group();
-  g.add(pad());
-  const barn = mat('#c0392b');
-  // Ambar ve beşik çatı
-  g.add(part(box(0.5, 0.26, 0.3), barn, 0, 0.17, -0.2));
-  const roofShape = new THREE.Shape([new THREE.Vector2(-0.28, 0), new THREE.Vector2(0.28, 0), new THREE.Vector2(0, 0.14)]);
-  g.add(part(new THREE.ExtrudeGeometry(roofShape, { depth: 0.34, bevelEnabled: false }), M.dark, 0, 0.3, -0.37));
-  g.add(part(box(0.14, 0.16, 0.01), M.white, 0, 0.12, -0.045));
-  g.add(part(box(0.11, 0.13, 0.012), M.wood, 0, 0.11, -0.04));
-  for (const x of [-0.16, 0.16]) g.add(part(box(0.08, 0.07, 0.01), windowMat, x, 0.2, -0.046));
-  // Tezgahlar: her birinin tentesi farklı renk
-  const awnings = ['#43a047', '#e53935', '#fbc02d'];
-  const goods = [mat('#ff8f00'), mat('#7cb342'), mat('#e53935'), mat('#8e24aa')];
-  awnings.forEach((color, k) => {
-    const x = -0.28 + k * 0.28;
-    g.add(part(box(0.22, 0.05, 0.13), M.wood, x, 0.08, 0.2));
-    for (const dx of [-0.1, 0.1]) g.add(part(box(0.012, 0.2, 0.012), M.steel, x + dx, 0.14, 0.14));
-    for (let s = 0; s < 4; s++) {
-      const strip = part(box(0.06, 0.01, 0.17), s % 2 ? M.white : mat(color), x - 0.09 + s * 0.06, 0.25, 0.19);
-      strip.rotation.x = 0.3;
-      g.add(strip);
-    }
-    // Kasalarda sebze ve meyve
-    for (let c = 0; c < 3; c++) {
-      g.add(part(box(0.06, 0.03, 0.06), M.crate, x - 0.07 + c * 0.07, 0.12, 0.2));
-      g.add(part(new THREE.SphereGeometry(0.022, 8, 6), goods[(k + c) % goods.length], x - 0.07 + c * 0.07, 0.145, 0.2));
-    }
-  });
-  // Yanda balya ve kasa yığını
-  g.add(part(box(0.1, 0.07, 0.07), mat('#e5c46a'), 0.36, 0.075, -0.02));
-  g.add(part(box(0.07, 0.05, 0.07), M.crate, -0.37, 0.065, -0.02));
-  return g;
-}
-
-// Mobilyacı: büyük vitrinli dükkan; vitrinde koltuk ve sandalye, yanda teslimat kamyoneti
-function furniture() {
-  const g = new THREE.Group();
-  g.add(pad());
-  const wall = mat('#f3e6d3');
-  const teal = mat('#00897b');
-  const sofa = mat('#c2185b');
-  g.add(part(box(0.7, 0.34, 0.34), wall, 0, 0.21, -0.18));
-  g.add(part(box(0.72, 0.05, 0.46), teal, 0, 0.405, -0.12));
-  // Vitrin: önde camlı bölme, içinde koltuk ve sandalye
-  g.add(part(box(0.5, 0.02, 0.12), M.white, -0.06, 0.05, 0.05));
-  vitrine(g, 0.5, 0.24, -0.06, 0.11);
-  g.add(part(box(0.2, 0.05, 0.07), sofa, -0.14, 0.085, 0.04));
-  g.add(part(box(0.2, 0.06, 0.02), sofa, -0.14, 0.12, 0.01));
-  for (const dx of [-0.1, 0.1]) g.add(part(box(0.025, 0.07, 0.07), sofa, -0.14 + dx, 0.1, 0.04));
-  g.add(part(box(0.06, 0.012, 0.06), M.wood, 0.1, 0.11, 0.04));
-  g.add(part(box(0.06, 0.07, 0.01), M.wood, 0.1, 0.14, 0.015));
-  g.add(part(box(0.09, 0.2, 0.012), M.dark, 0.26, 0.13, -0.004));
-  // Tabela: yeşil levhada beyaz sandalye
-  g.add(part(box(0.4, 0.08, 0.02), teal, -0.06, 0.34, 0.08));
-  g.add(part(box(0.05, 0.012, 0.01), M.white, -0.06, 0.33, 0.092));
-  g.add(part(box(0.012, 0.05, 0.01), M.white, -0.08, 0.345, 0.092));
-  // Teslimat kamyoneti
-  const van = makeModel('kenney-cars/delivery');
-  van.scale.multiplyScalar(0.6);
-  van.position.set(0.3, 0.04, 0.28);
-  van.rotation.y = Math.PI;
-  g.add(van);
-  return g;
-}
-
-// Camlı vitrin: genişlik, yükseklik, orta x ve camın z'si (çerçeve + saydam cam)
-function vitrine(g: THREE.Group, w: number, h: number, x: number, z: number) {
-  g.add(part(box(w, h, 0.006), showcaseMat, x, 0.05 + h / 2, z));
-  for (const dx of [-w / 2, w / 2]) g.add(part(box(0.014, h, 0.014), M.dark, x + dx, 0.05 + h / 2, z));
-  g.add(part(box(w + 0.02, 0.014, 0.014), M.dark, x, 0.05 + h, z));
-}
-
-// Fırın: krem duvar, kahverengi tente, vitrinde ekmek ve pasta, önde kafe masaları
-function bakery() {
-  const g = new THREE.Group();
-  g.add(pad());
-  const cream = mat('#f6e7c8');
-  const brown = mat('#8d5a3b');
-  const bread = mat('#d9a35b');
-  g.add(part(box(0.66, 0.34, 0.34), cream, 0, 0.21, -0.18));
-  g.add(part(box(0.68, 0.04, 0.44), brown, 0, 0.4, -0.13));
-  g.add(part(box(0.06, 0.12, 0.06), mat('#b5533c'), 0.22, 0.47, -0.25));
-  // Vitrin: raflarda ekmek, simit ve pasta
-  g.add(part(box(0.44, 0.02, 0.12), M.wood, -0.08, 0.06, 0.04));
-  vitrine(g, 0.44, 0.2, -0.08, 0.11);
-  for (let k = 0; k < 4; k++) {
-    const loaf = part(new THREE.CapsuleGeometry(0.018, 0.04, 4, 8), bread, -0.24 + k * 0.07, 0.09, 0.05);
-    loaf.rotation.z = Math.PI / 2;
-    g.add(loaf);
+  const st = new THREE.Group();
+  box(st, 0.96, 0.03, 0.96, M.asphalt, 0, 0, 0);
+  st.add(part(KIT.facadeBox(0.74, 0.24, 0.46, 0.03), KIT.METAL[variant % 3], 0, 0.15, -0.16));
+  // Hafif eğimli çatı
+  const roof = add(st, new THREE.BoxGeometry(0.78, 0.02, 0.5), M.roof, 0, 0.28, -0.16);
+  roof.rotation.x = 0.06;
+  for (const x of [-0.2, 0.2]) add(st, new THREE.CylinderGeometry(0.02, 0.02, 0.03, 8), M.steel, x, 0.305, -0.2);
+  for (const x of [-0.22, 0.0, 0.22]) {
+    box(st, 0.16, 0.16, 0.008, pm('#e9edf1', 0.5, 0.3), x, 0.03, 0.074);
+    for (let k = 0; k < 6; k++) box(st, 0.16, 0.003, 0.01, M.steel, x, 0.05 + k * 0.024, 0.077);
   }
-  g.add(part(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 14), mat('#f8bbd0'), 0.07, 0.095, 0.04));
-  g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.01, 8), mat('#e53935'), 0.07, 0.125, 0.04));
-  g.add(part(box(0.09, 0.2, 0.012), M.dark, 0.24, 0.13, -0.004));
+  box(st, 0.7, 0.03, 0.07, M.concrete, 0, 0.03, 0.115);
+  box(st, 0.3, 0.05, 0.012, signMat('DEPO', '#37474f'), -0.15, 0.2, 0.08);
+  // Konteynerler
+  container(st, -0.3, 0.03, 0.34, variant, Math.PI / 2);
+  container(st, -0.3, 0.08, 0.34, variant + 2, Math.PI / 2);
+  container(st, 0.05, 0.03, 0.34, variant + 4, Math.PI / 2);
+  box(st, 0.06, 0.02, 0.06, M.wood, 0.34, 0.03, 0.34);
+  return mergeStatic([st]);
+}
+
+// Dükkan binası: altta vitrinli dükkan, üstte bir kat (pencereli), tabela, isteğe bağlı tente
+function shopBuilding(st: THREE.Object3D, opts: { facade: THREE.Material; sign: THREE.Material; accent: string; awning?: [string, string] }) {
+  box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
+  // Üst kat
+  st.add(part(KIT.facadeBox(0.72, 0.2, 0.4, 0.2), opts.facade, 0, 0.33, -0.16));
+  box(st, 0.74, 0.03, 0.42, M.white, 0, 0.43, -0.16);
+  // Zemin kat: koyu çerçeve, büyük vitrin, kapı
+  box(st, 0.72, 0.2, 0.4, pm('#3b4450', 0.5), 0, 0.03, -0.16);
+  box(st, 0.5, 0.15, 0.006, showcaseMat, -0.08, 0.05, 0.043);
+  box(st, 0.1, 0.16, 0.008, pm('#263238', 0.4, 0.3), 0.26, 0.03, 0.044);
+  // Tabela
+  box(st, 0.5, 0.06, 0.016, opts.sign, -0.04, 0.22, 0.05);
+  box(st, 0.74, 0.012, 0.03, pm(opts.accent, 0.6), 0, 0.2, 0.05);
   // Çizgili tente
-  for (let k = 0; k < 7; k++) {
-    const s = part(box(0.095, 0.01, 0.13), k % 2 ? cream : brown, -0.285 + k * 0.095, 0.33, 0.13);
-    s.rotation.x = 0.35;
-    g.add(s);
+  if (opts.awning) {
+    for (let k = 0; k < 8; k++) {
+      const s = add(st, new THREE.BoxGeometry(0.075, 0.008, 0.12), pm(k % 2 ? opts.awning[1] : opts.awning[0], 0.8), -0.29 + k * 0.075, 0.19, 0.1);
+      s.rotation.x = 0.35;
+    }
   }
-  // Tabela: kahverengi levhada ekmek
-  g.add(part(box(0.3, 0.07, 0.02), brown, -0.08, 0.37, 0.0));
-  const sign = part(new THREE.CapsuleGeometry(0.014, 0.06, 4, 8), bread, -0.08, 0.37, 0.014);
-  sign.rotation.z = Math.PI / 2;
-  g.add(sign);
-  // Kafe masaları ve şemsiyeler
-  for (const [x, c] of [[-0.3, '#e53935'], [0.3, '#2e7d32']] as [number, string][]) {
-    g.add(part(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 12), M.white, x, 0.09, 0.33));
-    g.add(part(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 6), M.steel, x, 0.13, 0.33));
-    g.add(part(new THREE.ConeGeometry(0.09, 0.04, 10), mat(c), x, 0.24, 0.33));
-  }
-  return g;
 }
 
-// Giyim mağazası: beyaz modern bina, pembe şerit, vitrinde mankenler
-function fashion() {
-  const g = new THREE.Group();
-  g.add(pad());
-  const pink = mat('#e91e63');
-  const white = mat('#fafafa');
-  g.add(part(box(0.68, 0.4, 0.34), white, 0, 0.24, -0.18));
-  g.add(part(box(0.7, 0.05, 0.46), pink, 0, 0.465, -0.12));
-  g.add(part(box(0.68, 0.012, 0.012), pink, 0, 0.32, -0.004));
-  for (const x of [-0.2, 0.0, 0.2]) g.add(part(box(0.12, 0.07, 0.006), windowMat, x, 0.39, -0.008));
-  // Vitrin ve mankenler (renkli kıyafetli)
-  g.add(part(box(0.5, 0.02, 0.12), mat('#f3e5f5'), -0.04, 0.05, 0.04));
-  vitrine(g, 0.5, 0.24, -0.04, 0.11);
-  ['#42a5f5', '#ffb300', '#ab47bc'].forEach((c, k) => {
-    const x = -0.2 + k * 0.15;
-    g.add(part(new THREE.CylinderGeometry(0.018, 0.024, 0.1, 8), mat(c), x, 0.115, 0.04));
-    g.add(part(new THREE.SphereGeometry(0.016, 8, 6), white, x, 0.18, 0.04));
+// --- Hırdavatçı: turuncu tabela, vitrinde aletler, önde kereste yığını ---
+function store() {
+  const st = new THREE.Group();
+  shopBuilding(st, { facade: KIT.BRICK[0], sign: signMat('HIRDAVAT', '#ef6c00'), accent: '#ef6c00' });
+  for (let k = 0; k < 4; k++) box(st, 0.05, 0.08, 0.04, pm(['#e53935', '#fdd835', '#1e88e5', '#43a047'][k], 0.6), -0.26 + k * 0.1, 0.05, 0.0);
+  for (let k = 0; k < 3; k++) box(st, 0.28, 0.022, 0.06, M.wood, -0.24, 0.03 + k * 0.022, 0.32);
+  box(st, 0.1, 0.06, 0.08, pm('#ef6c00', 0.6), 0.28, 0.03, 0.3);
+  return mergeStatic([st]);
+}
+
+// --- Çiftçi pazarı: kırmızı ambar (beşik çatı), tenteli tezgahlar, sebze kasaları ---
+function market() {
+  const st = new THREE.Group();
+  box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
+  const barn = pm('#b23b2e', 0.85);
+  box(st, 0.56, 0.24, 0.32, barn, 0, 0.03, -0.24);
+  const s = new THREE.Shape([new THREE.Vector2(-0.31, 0), new THREE.Vector2(0.31, 0), new THREE.Vector2(0.2, 0.09), new THREE.Vector2(0, 0.15), new THREE.Vector2(-0.2, 0.09)]);
+  add(st, new THREE.ExtrudeGeometry(s, { depth: 0.36, bevelEnabled: false }), M.dark, 0, 0.27, -0.42);
+  box(st, 0.16, 0.17, 0.008, M.white, 0, 0.03, -0.077);
+  box(st, 0.13, 0.15, 0.01, M.wood, 0, 0.03, -0.073);
+  box(st, 0.36, 0.06, 0.012, signMat('PAZAR', '#2e7d32'), 0, 0.24, -0.075);
+  const awnings = ['#43a047', '#e53935', '#fbc02d'];
+  const goods = ['#ff8f00', '#7cb342', '#e53935', '#8e24aa'].map(c => pm(c, 0.7));
+  awnings.forEach((color, k) => {
+    const x = -0.29 + k * 0.29;
+    box(st, 0.22, 0.06, 0.13, M.wood, x, 0.03, 0.18);
+    for (const dx of [-0.1, 0.1]) box(st, 0.012, 0.2, 0.012, M.steel, x + dx, 0.03, 0.12);
+    for (let q = 0; q < 4; q++) {
+      const strip = add(st, new THREE.BoxGeometry(0.06, 0.01, 0.17), pm(q % 2 ? '#ffffff' : color, 0.8), x - 0.09 + q * 0.06, 0.24, 0.17);
+      strip.rotation.x = 0.3;
+    }
+    for (let c = 0; c < 3; c++) {
+      box(st, 0.06, 0.03, 0.06, M.crate, x - 0.07 + c * 0.07, 0.09, 0.18);
+      add(st, new THREE.SphereGeometry(0.022, 8, 6), goods[(k + c) % goods.length], x - 0.07 + c * 0.07, 0.135, 0.18);
+    }
   });
-  g.add(part(box(0.09, 0.22, 0.012), M.dark, 0.26, 0.14, -0.004));
-  // Tabela: pembe levhada tişört
-  g.add(part(box(0.32, 0.07, 0.02), pink, -0.04, 0.42, 0.06));
-  g.add(part(box(0.05, 0.035, 0.008), white, -0.04, 0.415, 0.072));
-  g.add(part(box(0.08, 0.012, 0.008), white, -0.04, 0.43, 0.072));
-  // Önde saksılar
-  for (const x of [-0.36, 0.36]) {
-    g.add(part(box(0.07, 0.05, 0.07), mat('#9e9e9e'), x, 0.065, 0.32));
-    g.add(part(new THREE.SphereGeometry(0.045, 8, 6), mat('#43a047'), x, 0.12, 0.32));
-  }
-  return g;
+  box(st, 0.1, 0.07, 0.07, pm('#e5c46a', 1), 0.38, 0.03, 0.4);
+  return mergeStatic([st]);
 }
 
-// Liman (2x2): rıhtım, depo, konteynerler, vinç ve yanaşmış kargo gemisi. Ön yüz (+z) nehre bakar.
+// --- Mobilyacı: büyük vitrinde koltuk ve masa, yanda teslimat kamyoneti ---
+function furniture() {
+  const st = new THREE.Group();
+  shopBuilding(st, { facade: KIT.HOME[1], sign: signMat('MOBİLYA', '#00796b'), accent: '#00796b' });
+  const sofa = pm('#c2185b', 0.9);
+  box(st, 0.2, 0.04, 0.07, sofa, -0.2, 0.04, 0.0);
+  box(st, 0.2, 0.06, 0.02, sofa, -0.2, 0.06, -0.03);
+  box(st, 0.07, 0.012, 0.07, M.wood, 0.02, 0.08, 0.0);
+  box(st, 0.012, 0.05, 0.012, M.wood, 0.02, 0.03, 0.0);
+  const van = carModel('van', '#ffffff');
+  van.position.set(0.3, 0.03, 0.3);
+  van.rotation.y = Math.PI;
+  van.scale.multiplyScalar(0.7);
+  st.add(van);
+  return mergeStatic([st]);
+}
+
+// --- Fırın: çizgili tente, vitrinde ekmek ve pasta, önde kafe masaları ---
+function bakery() {
+  const st = new THREE.Group();
+  shopBuilding(st, { facade: KIT.BRICK[1], sign: signMat('FIRIN', '#6d4c41'), accent: '#6d4c41', awning: ['#6d4c41', '#fff3e0'] });
+  const bread = pm('#d9a35b', 0.8);
+  for (let k = 0; k < 4; k++) {
+    const loaf = add(st, new THREE.CapsuleGeometry(0.016, 0.04, 4, 8), bread, -0.28 + k * 0.07, 0.08, 0.0);
+    loaf.rotation.z = Math.PI / 2;
+  }
+  add(st, new THREE.CylinderGeometry(0.035, 0.035, 0.05, 14), pm('#f8bbd0', 0.7), 0.06, 0.08, 0.0);
+  for (const [x, c] of [[-0.3, '#e53935'], [0.3, '#2e7d32']] as [number, string][]) {
+    add(st, new THREE.CylinderGeometry(0.035, 0.035, 0.008, 12), M.white, x, 0.09, 0.33);
+    add(st, new THREE.CylinderGeometry(0.006, 0.006, 0.2, 6), M.steel, x, 0.13, 0.33);
+    add(st, new THREE.ConeGeometry(0.09, 0.04, 10), pm(c, 0.8), x, 0.24, 0.33);
+    for (const dz of [-0.06, 0.06]) box(st, 0.03, 0.04, 0.03, M.dark, x, 0.03, 0.33 + dz);
+  }
+  return mergeStatic([st]);
+}
+
+// --- Butik: beyaz modern cephe, pembe tabela, vitrinde mankenler ---
+function fashion() {
+  const st = new THREE.Group();
+  shopBuilding(st, { facade: KIT.GLASS[4], sign: signMat('BUTİK', '#c2185b'), accent: '#c2185b' });
+  ['#42a5f5', '#ffb300', '#ab47bc'].forEach((c, k) => {
+    const x = -0.24 + k * 0.12;
+    add(st, new THREE.CylinderGeometry(0.016, 0.022, 0.09, 8), pm(c, 0.7), x, 0.085, 0.0);
+    add(st, new THREE.SphereGeometry(0.014, 8, 6), M.white, x, 0.145, 0.0);
+  });
+  for (const x of [-0.38, 0.38]) {
+    box(st, 0.07, 0.05, 0.07, pm('#9e9e9e', 0.8), x, 0.03, 0.34);
+    add(st, new THREE.SphereGeometry(0.045, 8, 6), M.hedge, x, 0.12, 0.34);
+  }
+  return mergeStatic([st]);
+}
+
+// --- Liman (2x2): rıhtım, konteyner vinci, renkli konteyner yığınları, liman binası, yanaşmış gemi. Ön yüz suya bakar ---
 function port() {
   const g = new THREE.Group();
-  const k = 1 / (2 * 0.96); // eşyalar büyütülmesin
-  const orange = mat('#f08c00');
-  g.add(part(box(0.98, 0.05, 0.98), mat('#a9afb6'), 0, 0.025, 0));
-  g.add(part(box(0.98, 0.006, 0.025), mat('#f2c14e'), 0, 0.053, 0.47));
-  for (let b = 0; b < 6; b++) g.add(part(new THREE.CylinderGeometry(0.011, 0.013, 0.03, 8), M.dark, -0.42 + b * 0.17, 0.065, 0.455));
-  // Depo binası
-  g.add(part(box(0.52, 0.17, 0.24), mat('#dfe3e8'), -0.18, 0.135, -0.33));
-  g.add(part(box(0.54, 0.03, 0.26), mat('#2f6fb0'), -0.18, 0.235, -0.33));
-  for (const x of [-0.34, -0.18, -0.02]) g.add(part(box(0.1, 0.11, 0.006), M.dark, x, 0.105, -0.208));
+  const st = new THREE.Group();
+  const k = 1 / (2 * 0.96);
+  box(st, 0.98, 0.05, 0.98, pm('#a9afb6', 0.9), 0, 0, 0);
+  box(st, 0.98, 0.006, 0.025, M.yellow, 0, 0.05, 0.47);
+  for (let b = 0; b < 6; b++) add(st, new THREE.CylinderGeometry(0.011, 0.013, 0.03, 8), M.dark, -0.42 + b * 0.17, 0.065, 0.455);
+  // Liman binası
+  st.add(part(KIT.facadeBox(0.36, 0.18, 0.2, 0.05), KIT.BAND[1], -0.28, 0.14, -0.36));
+  box(st, 0.38, 0.02, 0.22, pm('#1e5fa8', 0.6), -0.28, 0.23, -0.36);
   // Konteyner yığınları
-  const boxes = [PROPS.containerA, PROPS.containerB, PROPS.containerC];
   let n = 0;
-  for (const [x, z] of [[0.2, -0.32], [0.38, -0.32], [0.2, -0.12], [0.38, -0.12]] as [number, number][]) {
-    for (let layer = 0; layer < (n % 3) + 1; layer++) {
-      const c = makeModel(boxes[(n + layer) % 3]);
-      c.scale.multiplyScalar(k);
-      c.position.set(x, 0.05 + layer * 0.055, z);
-      g.add(c);
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 4; col++) {
+      const layers = 1 + ((row + col * 2) % 3);
+      for (let l = 0; l < layers; l++) container(st, -0.02 + col * 0.13, 0.05 + l * 0.05, -0.32 + row * 0.27, n++);
     }
-    n++;
   }
-  // Rıhtım vinci: ayaklar karada, kol nehrin üstüne uzanır
-  for (const x of [-0.12, 0.12]) {
-    for (const z of [0.18, 0.4]) g.add(part(box(0.022, 0.36, 0.022), orange, x, 0.23, z));
-    g.add(part(box(0.022, 0.022, 0.24), orange, x, 0.2, 0.29));
+  // Konteyner vinci (gantry): ayaklar karada, kol suyun üstüne uzanır
+  const orange = pm('#f08c00', 0.6);
+  for (const x of [-0.16, 0.12]) {
+    for (const z of [0.16, 0.42]) box(st, 0.022, 0.42, 0.022, orange, x, 0.05, z);
+    box(st, 0.022, 0.022, 0.28, orange, x, 0.24, 0.29);
   }
-  g.add(part(box(0.27, 0.035, 0.03), orange, 0, 0.41, 0.18));
-  g.add(part(box(0.27, 0.035, 0.03), orange, 0, 0.41, 0.4));
-  for (const x of [-0.06, 0.06]) g.add(part(box(0.02, 0.025, 0.8), orange, x, 0.43, 0.55));
-  g.add(part(box(0.1, 0.05, 0.06), mat('#37474f'), 0, 0.4, 0.8));
-  g.add(part(box(0.004, 0.13, 0.004), M.dark, 0, 0.31, 0.8));
-  const hang = makeModel(PROPS.containerB);
-  hang.scale.multiplyScalar(k);
-  hang.position.set(0, 0.2, 0.8);
-  g.add(hang);
+  box(st, 0.3, 0.035, 0.03, orange, -0.02, 0.45, 0.16);
+  box(st, 0.3, 0.035, 0.03, orange, -0.02, 0.45, 0.42);
+  for (const x of [-0.08, 0.04]) box(st, 0.02, 0.025, 0.9, orange, x, 0.47, 0.6);
+  box(st, 0.12, 0.06, 0.07, pm('#37474f', 0.6), -0.02, 0.44, 0.8);
+  box(st, 0.004, 0.14, 0.004, M.dark, -0.02, 0.3, 0.8);
+  container(st, -0.02, 0.25, 0.8, 3);
+  g.add(mergeStatic([st]));
   // Yanaşmış kargo gemisi (suda, rıhtıma paralel)
   const ship = new THREE.Group();
   const hull = makeModel(BOAT_MODELS[0]);
@@ -314,23 +346,9 @@ export function animatePort(obj: THREE.Object3D, time: number, away: number) {
   s.obj.rotation.z = Math.sin(time * 1.1) * 0.012;
 }
 
-// Ticaret merkezi (2x2 olarak büyütülür): büyük ambar, konteyner yığınları, tabela
+// Eski kayıtlardaki ticaret merkezi (yüklenince iade edilir; çizim için sade bir depo)
 function tradeCenter() {
-  const g = new THREE.Group();
-  g.add(makeModel(BASE));
-  const b = makeModel('kenney-ind/building-r', 1);
-  b.scale.multiplyScalar(0.8);
-  b.position.set(0, 0.05, -0.12);
-  g.add(b);
-  const boxes = [PROPS.containerA, PROPS.containerB, PROPS.containerC];
-  g.add(item(boxes[0], -0.26, 0.3, Math.PI / 2));
-  g.add(item(boxes[1], -0.26, 0.3, Math.PI / 2).translateY(0.11));
-  g.add(item(boxes[2], 0.08, 0.32, Math.PI / 2));
-  // Tabela: mavi levha
-  g.add(part(box(0.06, 0.32, 0.06), M.steel, 0.36, 0.2, 0.36));
-  g.add(part(box(0.24, 0.1, 0.03), mat('#1e6fd9'), 0.36, 0.38, 0.36));
-  g.add(part(box(0.16, 0.025, 0.01), M.white, 0.36, 0.38, 0.377));
-  return g;
+  return depot(1);
 }
 
 export function makeIndustry(kind: IndustryKind, variant = 0): THREE.Object3D {

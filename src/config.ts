@@ -1,6 +1,6 @@
 // Oyunun ayarları: fiyatlar, harita boyutu, bina seviyeleri
-import { towerPaths, villaPaths, apartmentPaths, midrisePaths } from './towers';
-import { modernPaths, cycladicPaths, chaletPaths, kyotoPaths, tuscanPaths, rowPaths } from './houses';
+import { towerPaths, midrisePaths } from './towers';
+import { cottagePaths, familyPaths, smallAptPaths } from './houses';
 export const SIZE = 48; // haritanın genişliği (x yönünde kare sayısı)
 // Harita kuzeye, denize doğru uzatıldı: kuzeydeki 16 sıra deniz ve içinde bir ada
 export const NORTH = 16;
@@ -371,24 +371,20 @@ const ks = (n: string) => `kenney-sub/${n}`;
 const ki = (n: string) => `kenney-ind/${n}`;
 const kc = (n: string) => `kenney-cars/${n}`;
 const kr = (n: string) => `kenney-roads/${n}`;
-const houses = (letters: string) => [...letters].map(l => ks(`building-type-${l}`));
 const x = (n: string) => `polypizza/extra/${n}`;
 
 // Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
+// Konut seviyeleri: ev yükseltildikçe büyür. Her seviyede üç model; yükseltince model sırası (renk ailesi) korunur.
+// 1 küçük ev, 2 iki katlı ev, 3 küçük apartman, 4 apartman bloğu, 5 konut kulesi, 6-8 gökdelenler
 export const RES_LEVELS = [
-  // 1-2. seviye: bahçeli banliyö evleri ve küçük KayKit binaları
-  { pop: 6, need: 1, models: [...modernPaths(1, 4, 700), ...cycladicPaths(1, 3, 720), ...chaletPaths(1, 3, 740), ...kyotoPaths(3, 760), ...tuscanPaths(1, 3, 780), ...villaPaths(1, 4, 300), ...houses('acehk')] },
-  { pop: 14, need: 2, models: [...modernPaths(2, 4, 800), ...cycladicPaths(2, 3, 820), ...chaletPaths(2, 3, 840), ...tuscanPaths(2, 3, 860), ...rowPaths(4, 880), ...villaPaths(2, 4, 400), ...houses('bdfj')] },
-  // 3-4. seviye: apartmanlar ve orta boy binalar
-  { pop: 30, need: 4, models: [...apartmentPaths(4, 6, 500), ...midrisePaths(0.95, 6, 900, [6, 5, 7, 6, 0, 5]), ...['a', 'c', 'e'].map(l => k2(`building-${l}`))] },
-  { pop: 60, need: 7, models: [...apartmentPaths(7, 6, 600), ...midrisePaths(1.4, 6, 950, [6, 7, 5, 0, 6, 2]), k2('building-skyscraper-a'), k2('building-skyscraper-b')] },
-  // 5. seviye: ilk gökdelenler
-  { pop: 100, need: 12, models: [k2('building-skyscraper-c'), ...towerPaths(1.9, 6, 50, [6, 7, 0, 5, 2, 1])] },
-  // 6. seviye: lüks kuleler (daha yüksek, tepesinde taç ve anten)
-  { pop: 160, need: 18, models: [k2('building-skyscraper-d'), ...towerPaths(2.3, 5, 150, [1, 2, 5, 0, 3])] },
-  // 7-8. seviye: cam gökdelenler ve dev gökdelenler (her biri farklı biçimde)
-  { pop: 240, need: 25, models: towerPaths(2.7, 6, 100, [0, 2, 3, 5, 1, 6]) },
-  { pop: 340, need: 33, models: towerPaths(3.5, 6, 200, [4, 1, 2, 3, 0, 7]) },
+  { pop: 6, need: 1, models: cottagePaths() },
+  { pop: 14, need: 2, models: familyPaths() },
+  { pop: 30, need: 4, models: smallAptPaths() },
+  { pop: 60, need: 7, models: midrisePaths(1.15, 3, 950, [6, 5, 7]) },
+  { pop: 100, need: 12, models: towerPaths(1.8, 3, 50, [6, 5, 0]) },
+  { pop: 160, need: 18, models: towerPaths(2.3, 3, 150, [2, 1, 3]) },
+  { pop: 240, need: 25, models: towerPaths(2.8, 3, 100, [0, 2, 4]) },
+  { pop: 340, need: 33, models: towerPaths(3.5, 3, 200, [4, 3, 1]) },
 ];
 
 // Konut seçimi: İnşa Et → Konut'ta istenen ev modeli seçilip doğrudan o seviyede kurulur.
@@ -396,20 +392,13 @@ export const RES_LEVELS = [
 export const HOUSE_PRICE = [0, 120, 400, 1500, 3500, 8000, 14000, 22000, 36000];
 export const HOUSE_UNLOCK = [0, 1, 2, 4, 6, 8, 10, 12, 14];
 export function houseName(path: string) {
-  if (path.startsWith('proc/modern-')) return 'Modern ev';
-  if (path.startsWith('proc/kiklad-')) return 'Kiklad evi';
-  if (path.startsWith('proc/chalet-')) return 'Dağ evi';
-  if (path.startsWith('proc/kyoto-')) return 'Kyoto evi';
-  if (path.startsWith('proc/toskana-')) return 'Toskana evi';
-  if (path.startsWith('proc/row-')) return 'Sıra evler';
-  if (path.startsWith('proc/midrise-')) return 'Apartman';
-  if (path.startsWith('proc/villa-1')) return 'Villa';
-  if (path.startsWith('proc/villa-2')) return 'Büyük villa';
-  if (path.startsWith('proc/apt-')) return 'Apartman';
-  if (path.startsWith('proc/tower-') || path.includes('skyscraper')) return 'Gökdelen';
-  if (path.startsWith('kenney-sub/')) return 'Bahçeli ev';
-  if (path.startsWith('kenney2/')) return 'Apartman bloğu';
-  return 'Şehir evi';
+  if (path.startsWith('proc/cottage-')) return 'Küçük ev';
+  if (path.startsWith('proc/family-')) return 'İki katlı ev';
+  if (path.startsWith('proc/smallapt-')) return 'Küçük apartman';
+  if (path.startsWith('proc/midrise-')) return 'Apartman bloğu';
+  if (path.startsWith('proc/tower-1.8')) return 'Konut kulesi';
+  if (path.startsWith('proc/tower-')) return 'Gökdelen';
+  return 'Ev';
 }
 // Seçilen modelin görünmesi için rastgele sayı: model sırası tutsun, menüdeki resimle aynı renk ve yön olsun
 export function houseVariant(level: number, model: number) {
