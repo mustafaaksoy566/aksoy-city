@@ -10,7 +10,7 @@ import {
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
 
 // 'part': büyük bir binanın ana kare dışındaki kareleri (variant = ana karenin numarası)
-export type Kind = 'road' | 'res' | 'com' | 'park' | 'hall' | 'part' | UtilKind | ServiceKind | IndustryKind | DecorKind;
+export type Kind = 'road' | 'rail' | 'res' | 'com' | 'park' | 'hall' | 'part' | UtilKind | ServiceKind | IndustryKind | DecorKind;
 export interface Tile {
   kind: Kind;
   level: number; // bölgelerde 0 = boş arsa, 1+ = bina seviyesi
@@ -44,7 +44,7 @@ export const isUtility = (k: Kind | string | undefined): k is UtilKind => !!k &&
 export const isService = (k: Kind | string | undefined): k is ServiceKind => !!k && k in SERVICES;
 export const isIndustry = (k: Kind | string | undefined): k is IndustryKind => !!k && k in INDUSTRY;
 export const isDecor = (k: Kind | string | undefined): k is DecorKind => !!k && k in DECOR;
-const KINDS: string[] = ['road', 'res', 'com', 'park', 'hall', 'part', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS, ...DECOR_KINDS];
+const KINDS: string[] = ['road', 'rail', 'res', 'com', 'park', 'hall', 'part', ...Object.keys(UTILITIES), ...SERVICE_KINDS, ...INDUSTRY_KINDS, ...DECOR_KINDS];
 
 // Daire şeklinde bir alanın kareleri (hizmet ve simge yapılar için); n = binanın kenar uzunluğu
 export function areaAround(i: number, r: number, n = 1): number[] {
@@ -222,6 +222,20 @@ export class City {
 
   isRoad(x: number, z: number) {
     return this.get(x, z)?.kind === 'road';
+  }
+
+  // Tren yolu ya da hemzemin geçit (rayın kestiği yol: level 1)
+  isRail(x: number, z: number) {
+    const t = this.get(x, z);
+    return t?.kind === 'rail' || (t?.kind === 'road' && t.level === 1);
+  }
+
+  railMask(x: number, z: number) {
+    let m = 0;
+    DIRS.forEach(([dx, dz], d) => {
+      if (this.isRail(x + dx, z + dz)) m |= 1 << d;
+    });
+    return m;
   }
 
   // Komşu yolların bit maskesi (kuzey 1, doğu 2, güney 4, batı 8)
@@ -665,8 +679,20 @@ export class City {
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
+    if (tool === 'rail') {
+      // Ray boş kareye ya da düz bir yolun üstüne (hemzemin geçit) döşenir
+      if (!t) return null;
+      if (t.kind === 'road' && t.level === 0) {
+        const m = this.roadMask(x, z);
+        return m === 0b0101 || m === 0b1010 ? null : 'Raylar yalnızca düz yolu kesebilir';
+      }
+      return 'Burası dolu';
+    }
     if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
     const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
+    if (tool === 'station' && !cells.some(c => this.railMask(c % SIZE, Math.floor(c / SIZE)) !== 0)) {
+      return 'İstasyon tren yolunun yanına kurulmalı';
+    }
     if (tool === 'res' || tool === 'com') {
       if (!nearRoad) return 'Bölgeler yol kenarına çizilmeli';
     } else if ((isUtility(tool) || isService(tool) || isIndustry(tool)) && !nearRoad) {
@@ -676,12 +702,12 @@ export class City {
   }
 
   // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin. n = binanın kenar uzunluğu
-  private facingFor(i: number, n = 1) {
+  private facingFor(i: number, n = 1, rail = false) {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     const side = (d: number) => {
       for (let k = 0; k < n; k++) {
         const [cx, cz] = d === 0 ? [x + k, z - 1] : d === 1 ? [x + n, z + k] : d === 2 ? [x + k, z + n] : [x - 1, z + k];
-        if (this.isRoad(cx, cz)) return true;
+        if (rail ? this.isRail(cx, cz) : this.isRoad(cx, cz)) return true;
       }
       return false;
     };
@@ -713,9 +739,15 @@ export class City {
         }
         continue;
       }
+      // Ray düz yolun üstüne: hemzemin geçit
+      if (tool === 'rail' && this.tiles[i]?.kind === 'road') {
+        this.tiles[i]!.level = 1;
+        done.push(i);
+        continue;
+      }
       const variant = Math.floor(Math.random() * 1000);
       const area = block(i % SIZE, Math.floor(i / SIZE), n)!;
-      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n), variant };
+      this.tiles[i] = { kind: tool, level: 0, facing: this.facingFor(i, n, tool === 'station'), variant };
       if (n > 1) this.tiles[i]!.fp = n;
       if (tool === 'park') this.tiles[i]!.variant = variant % PARK_MODELS.length;
       for (const c of area) if (c !== i) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: i };

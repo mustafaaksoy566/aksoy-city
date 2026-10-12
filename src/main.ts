@@ -11,6 +11,8 @@ import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic, Walkers } from './traffic';
+import { Trains } from './trains';
+import { railPiece } from './rails';
 import { DayNight, CYCLE_DAYS } from './daynight';
 import { renderThumbs } from './thumbs';
 import { makeUtility } from './utilities';
@@ -121,6 +123,8 @@ const traffic = new Traffic(city);
 scene.add(traffic.root);
 const walkers = new Walkers(city);
 scene.add(walkers.root);
+const trains = new Trains(city);
+scene.add(trains.root);
 const dayNight = new DayNight(scene, hemi, sun);
 
 const updateStats = () =>
@@ -440,6 +444,7 @@ document.getElementById('reset')!.addEventListener('click', () => {
   view.setCity(city);
   traffic.setCity(city);
   walkers.setCity(city);
+  trains.setCity(city);
   afterChange();
   toast('Yeni şehir kuruldu!');
 });
@@ -535,6 +540,7 @@ function frame() {
   adaptQuality(dt);
   traffic.update(dt);
   walkers.update(dt);
+  trains.update(dt);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
@@ -564,6 +570,7 @@ function adaptQuality(dt: number) {
 function makeMenuPictures() {
   const items: [Tool, THREE.Object3D][] = [
     ['road', makeModel('kaykit/road_junction')],
+    ['rail', railPiece(0b0110)],
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
     ['park', makeModel('kenney/models/grass-trees-tall')],
@@ -571,7 +578,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'depot'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -587,6 +594,7 @@ Promise.all([
   .then(() => {
     scene.add(buildSurroundings());
     traffic.init();
+    trains.init();
     view.rebuildAll();
     makeMenuPictures();
     // Oyun kapalıyken biten üretimleri depoya al

@@ -110,8 +110,9 @@ export const CRIME = { chance: 0.06, minPop: 60 }; // polis kapsamayan mahallele
 export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 2, wood: 1 } as Partial<Record<MatId, number>> };
 
 // Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
-export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium';
+export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station';
 export const DECOR: Record<DecorKind, { radius: number; happy: number; upkeep: number }> = {
+  station: { radius: 8, happy: 0.12, upkeep: 8 }, // tren istasyonu: ulaşım çevreyi mutlu eder
   fountain: { radius: 4, happy: 0.1, upkeep: 1 },
   statue: { radius: 5, happy: 0.12, upkeep: 1 },
   wheel: { radius: 7, happy: 0.18, upkeep: 6 },
@@ -120,11 +121,11 @@ export const DECOR: Record<DecorKind, { radius: number; happy: number; upkeep: n
 export const DECOR_KINDS = Object.keys(DECOR) as DecorKind[];
 export const DECOR_MAX = 0.3; // simgelerden gelen toplam mutluluk en fazla bu kadar
 
-export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
+export type BuildTool = 'road' | 'rail' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | DecorKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
-  road: 10, res: 20, com: 30, park: 60, bulldoze: 0,
+  road: 10, rail: 25, res: 20, com: 30, park: 60, bulldoze: 0, station: 2000,
   wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300,
@@ -133,13 +134,14 @@ export const COST: Record<BuildTool, number> = {
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
 export const UNLOCK: Partial<Record<BuildTool, number>> = {
   com: 2, depot: 2, police: 2,
   store: 3, fire: 3, solar: 3,
+  rail: 4, station: 4,
   health: 4, plant: 4,
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
@@ -148,6 +150,8 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
   pan: { icon: '✋', label: 'Gez', hint: 'Haritayı parmağınla kaydır, iki parmakla yakınlaştır.' },
   road: { icon: '🛣️', label: 'Yol', hint: 'Yol çizmek için parmağını sürükle. Kaydırmak için iki parmak kullan.' },
+  rail: { icon: '🛤️', label: 'Tren yolu', hint: 'Ray çizmek için sürükle. Düz bir yolu keserse hemzemin geçit olur.' },
+  station: { icon: '🚉', label: 'İstasyon', hint: 'İstasyonu tren yolunun yanına kur; trenler buradan sefer yapar.' },
   res: { icon: '🏠', label: 'Konut', hint: 'Yol kenarına konut bölgesi çiz, evler kendiliğinden yapılır.' },
   com: { icon: '🏪', label: 'Ticaret', hint: 'Dükkanlar ve ofisler nüfus arttıkça gelişir.' },
   park: { icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
@@ -175,7 +179,7 @@ export const HALL_INFO = { icon: '🏛️', label: 'Belediye' };
 export type ToolbarItem = Tool | { group: string; icon: string; label: string; tools: Tool[] };
 // "Gez" düğmesi yok: seçili araca tekrar basınca araç bırakılır ve harita kaydırılır.
 export const TOOLBAR: ToolbarItem[] = [
-  'road',
+  { group: 'transport', icon: '🛣️', label: 'Ulaşım', tools: ['road', 'rail', 'station'] },
   { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', tools: ['factory', 'store', 'depot'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
@@ -233,6 +237,9 @@ export const CAR_MODELS = [
 // Hastane ve itfaiye varsa trafikte ambulans ve itfaiye aracı da dolaşır
 export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck') };
 
+// Tren (Kenney Train Kit): öndeki ve arkadaki kabinli vagon, ortada yolcu vagonu
+export const TRAIN_MODELS = { head: 'kenney-train/train-electric-city-a', mid: 'kenney-train/train-electric-city-b' };
+
 // Fabrika ve depo binaları (Kenney City Kit Industrial)
 export const INDUSTRY_MODELS = {
   factory: ['a', 'b', 'e', 'f', 'l', 'm', 'n'].map(l => ki(`building-${l}`)),
@@ -285,6 +292,8 @@ export const ALL_MODELS = [
     BASE,
     ...CAR_MODELS,
     ...Object.values(PROPS),
+    TRAIN_MODELS.head,
+    TRAIN_MODELS.mid,
     ...INDUSTRY_MODELS.factory,
     ...INDUSTRY_MODELS.depot,
     ...(Object.values(DECOR_MODELS) as string[]),

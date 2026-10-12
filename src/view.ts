@@ -3,6 +3,7 @@ import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SK
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
 import { makeDecor, animateDecor } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
+import { railPiece } from './rails';
 
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
@@ -372,6 +373,14 @@ export class CityView {
     let o: THREE.Object3D;
     if (t.kind === 'road') {
       o = this.road(x, z);
+      // Hemzemin geçit: yolun üstünden yola dik raylar geçer
+      if (t.level === 1) {
+        const across = railPiece(this.city.roadMask(x, z) === 0b0101 ? 0b1010 : 0b0101, false);
+        across.position.y = 0.03;
+        o.add(across);
+      }
+    } else if (t.kind === 'rail') {
+      o = railPiece(this.city.railMask(x, z));
     } else if (t.kind === 'park') {
       o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {

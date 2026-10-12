@@ -80,7 +80,37 @@ function stadium() {
   return g;
 }
 
+// Tren istasyonu (2x2 olarak büyütülür): önde peron ve sundurma, arkada bina
+function station() {
+  const g = new THREE.Group();
+  g.add(pad());
+  const concrete = mat('#d9d4cb');
+  const roof = mat('#2e7d5b');
+  const brick = mat('#c86b4a');
+  // Peron (rayın olduğu taraf: +z)
+  g.add(part(new THREE.BoxGeometry(0.9, 0.06, 0.3), concrete, 0, 0.07, 0.28));
+  g.add(part(new THREE.BoxGeometry(0.9, 0.012, 0.03), mat('#f2c14e'), 0, 0.105, 0.41));
+  // Sundurma: direkler ve yeşil çatı
+  for (const x of [-0.38, -0.12, 0.12, 0.38]) g.add(part(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 6), M.steel, x, 0.21, 0.28));
+  const canopy = part(new THREE.BoxGeometry(0.92, 0.025, 0.3), roof, 0, 0.33, 0.28);
+  canopy.rotation.x = -0.08;
+  g.add(canopy);
+  // İstasyon binası ve saat
+  g.add(part(new THREE.BoxGeometry(0.62, 0.3, 0.32), brick, 0, 0.19, -0.16));
+  g.add(part(new THREE.BoxGeometry(0.66, 0.04, 0.36), roof, 0, 0.36, -0.16));
+  g.add(part(new THREE.BoxGeometry(0.16, 0.16, 0.16), brick, 0, 0.44, -0.16));
+  g.add(part(new THREE.CylinderGeometry(0.05, 0.05, 0.01, 16).rotateX(Math.PI / 2), M.white, 0, 0.45, -0.075));
+  for (const x of [-0.2, 0.2]) g.add(part(new THREE.BoxGeometry(0.1, 0.12, 0.01), mat('#9fd3ea'), x, 0.2, 0.002));
+  g.add(part(new THREE.BoxGeometry(0.12, 0.17, 0.01), mat('#3c3f44'), 0, 0.13, 0.002));
+  // Peronda bank
+  const bench = makeModel('kaykit/bench');
+  bench.position.set(-0.25, 0.1, 0.22);
+  g.add(bench);
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'station') return station();
   if (kind === 'wheel') return ferrisWheel();
   if (kind === 'stadium') return stadium();
   const g = new THREE.Group();

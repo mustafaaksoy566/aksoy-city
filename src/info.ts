@@ -209,6 +209,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       title: `${info.icon} ${info.label}`,
       lines: [
         { text: `😊 Çevresindeki ${d.radius} kare içindeki evlerin mutluluğu +${pct(d.happy)}` },
+        ...(t.kind === 'station' ? [{ text: '🚆 Trenler bu istasyondan sefer yapar' }] : []),
         { text: `🔧 Bakım: ${d.upkeep}/gün` },
       ],
     };

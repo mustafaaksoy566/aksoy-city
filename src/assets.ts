@@ -25,6 +25,8 @@ const FITS: [string, number][] = [
   ['kenney-cars/garbage-truck', 0.58],
   ['kenney-cars/delivery', 0.56],
   ['kenney-cars/', 0.48],
+  ['kenney-train/train-electric-city-b', 0.9],
+  ['kenney-train/', 0.8],
   ['kenney-roads/construction-cone', 0.07],
   ['kenney-roads/construction-light', 0.14],
   ['kenney-roads/', 0.32],
