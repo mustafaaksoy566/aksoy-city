@@ -59,6 +59,15 @@ export const UTIL_LEVELS = [
   { mult: 4, cost: 5, level: 10 },
 ];
 
+// Otopark yükseltilir: açık otopark → 2, 3, 4, 5 katlı otopark (arabalar girişten girer, çok daha fazlası sığar)
+export const PARKING_LEVELS = [
+  { floors: 1, cost: 0, level: 0, cars: 3 },
+  { floors: 2, cost: 800, level: 3, cars: 12 },
+  { floors: 3, cost: 1800, level: 5, cars: 18 },
+  { floors: 4, cost: 3200, level: 7, cars: 24 },
+  { floors: 5, cost: 5000, level: 9, cars: 30 },
+];
+
 // Hizmet binaları: çevrelerindeki kareleri kapsar. Evler 5. seviyeye çıkmak için dördüne de muhtaç.
 export type ServiceKind = 'police' | 'fire' | 'health' | 'school';
 export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; color: string; name: string }> = {

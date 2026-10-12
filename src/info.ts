@@ -1,6 +1,6 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
+  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
   INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
@@ -32,6 +32,7 @@ export interface CardActions {
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
   upgradeUtil(i: number): void;
+  upgradeParking(i: number): void;
   openCatalog(group: string): void;
   ship(n: number): void;
   upgradeRoad(i: number): void;
@@ -460,12 +461,38 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     };
   }
 
+  if (t.kind === 'parking') {
+    const lv = PARKING_LEVELS[t.level];
+    const next = PARKING_LEVELS[t.level + 1];
+    const blocker = city.parkingUpgradeBlocker(i);
+    const lines: InfoCard['lines'] = [
+      { text: t.level ? '🚗 Arabalar girişten girip katlara park eder; insanlar arabalarını alıp şehre çıkar.' : '🚗 Yakındaki evlerin arabaları burada durur; insanlar evlerinden yürüyüp arabalarına biner.' },
+      { text: city.isConnected(i) ? '✅ Şehrin yollarına bağlı' : '⚠️ Yola bağlı değil', ok: city.isConnected(i) },
+    ];
+    if (next) lines.push({ text: `⬆️ Yükseltince ${next.floors} katlı otopark olur, ${next.cars} araba sığar.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
+    else lines.push({ text: '⭐ En üst seviyede: 5 katlı otopark.' });
+    return {
+      title: t.level ? `${lv.floors} katlı otopark` : 'Otopark',
+      subtitle: t.level ? 'Katlı otopark' : 'Açık otopark',
+      thumb: 'parking',
+      tone: groupColor('parking'),
+      stats: [
+        { icon: '🚗', value: `${lv.cars}`, label: 'Araba yeri' },
+        { icon: '⭐', value: `${t.level + 1}/${PARKING_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
+        { icon: '🔧', value: `−${DECOR.parking.upkeep + t.level}`, label: 'Günlük bakım' },
+      ],
+      lines,
+      actions: next
+        ? [{ label: `Yükselt: ${next.floors} kat  💰${fmt(next.cost)}`, enabled: blocker === null, primary: true, run: () => act.upgradeParking(i) }]
+        : undefined,
+    };
+  }
+
   if (isDecor(t.kind)) {
     const d = DECOR[t.kind];
     const lines: InfoCard['lines'] = [];
     if (t.kind === 'station') lines.push({ text: '🚆 Trenler bu istasyondan sefer yapar.' });
     if (t.kind === 'busstop') lines.push({ text: '🚌 Her durak için şehirde bir otobüs dolaşır.' });
-    if (t.kind === 'parking') lines.push({ text: '🚗 Yakındaki evlerin arabaları burada durur; insanlar evlerinden yürüyüp arabalarına biner.' });
     if (t.kind === 'uni') lines.push({ text: '🎓 Çevresindeki geniş alanda okul hizmeti verir.' });
     if (t.kind === 'airport') lines.push({ text: '✈️ Uçaklar kalkıp iner; turistler her gün para getirir.' });
     if (d.road) lines.push(road);

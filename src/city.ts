@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -648,7 +648,7 @@ export class City {
       if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
       if (isService(t.kind)) sum += SERVICES[t.kind].upkeep;
       if (isIndustry(t.kind)) sum += INDUSTRY[t.kind].upkeep;
-      if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep;
+      if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep + (t.kind === 'parking' ? t.level : 0);
     }
     return sum;
   }
@@ -813,6 +813,34 @@ export class City {
     this.money -= this.utilUpgradeCost(i)!;
     this.tiles[i]!.level++;
     this.addXp(XP.build * 3);
+    this.refresh();
+    return null;
+  }
+
+  // --- Otopark katları ---
+  parkingUpgradeCost(i: number) {
+    const t = this.tiles[i];
+    const next = t?.kind === 'parking' ? PARKING_LEVELS[t.level + 1] : undefined;
+    return next ? next.cost : null;
+  }
+
+  parkingUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (t?.kind !== 'parking') return 'Burada otopark yok';
+    const next = PARKING_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
+    if (this.money < next.cost) return 'Yeterli para yok';
+    return null;
+  }
+
+  upgradeParking(i: number): string | null {
+    const err = this.parkingUpgradeBlocker(i);
+    if (err) return err;
+    const t = this.tiles[i]!;
+    this.money -= PARKING_LEVELS[t.level + 1].cost;
+    t.level++;
+    this.addXp(XP.build * 2);
     this.refresh();
     return null;
   }

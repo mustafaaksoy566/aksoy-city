@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PROPS } from './config';
+import { PROPS, PARKING_LEVELS } from './config';
 import { part, windowMat } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
@@ -440,5 +440,98 @@ export function beach() {
   st.add(palm(0.44, -0.4, 0.25, -0.15));
   st.add(palm(-0.45, 0.12, 0.19, 0.2));
   st.add(palm(0.2, -0.43, 0.2, 0.1));
+  return mergeStatic([st]);
+}
+
+// ======================= Katlı otopark (1x1) =======================
+// Beton katlar ve kolonlar, korkuluklu kenarlarda mavi şerit, kenarda katlar arası rampa, katlarda park etmiş
+// arabalar, tepede lambalar; arkada camlı merdiven kulesi ve "P" tabelası, önde giriş bariyeri ve gişe.
+const PARK_CON = pm('#d9d6d0', 0.9);
+const PARK_DARK = pm('#8f949b', 0.9);
+const pMat = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#1565c0';
+  x.fillRect(0, 0, 64, 64);
+  x.fillStyle = '#ffffff';
+  x.font = 'bold 50px Fredoka, Arial, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText('P', 32, 36);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: '#000000', roughness: 0.5 });
+  m.name = 'window'; // gece yanar
+  return m;
+})();
+const GARAGE_CARS = ['sedan', 'hatch', 'suv', 'sedan', 'van', 'sport', 'hatch', 'pickup'] as const;
+const GARAGE_PAINT = ['#c62828', '#1565c0', '#f5f5f5', '#202124', '#9ea4ab', '#2e7d32', '#f9a825', '#00838f', '#e64a19', '#455a64'];
+export function parkingGarage(level: number) {
+  const st = new THREE.Group();
+  const floors = PARKING_LEVELS[level]?.floors ?? level + 1;
+  const H = 0.15;
+  const X0 = -0.45, X1 = 0.29; // katın park kısmı; sağda rampa şeridi
+  box(st, 0.98, 0.03, 0.98, M.paving, 0, 0, 0);
+  box(st, 0.98, 0.004, 0.2, ASPHALT, 0.3, 0.03, 0.42);
+  let slot = level * 5;
+  for (let f = 0; f <= floors; f++) {
+    const y = 0.03 + f * H; // bu katın zemini
+    if (f > 0) {
+      // Döşeme, kenar korkulukları ve mavi şerit
+      box(st, X1 - X0, 0.016, 0.9, PARK_CON, (X0 + X1) / 2, y - 0.016, -0.02);
+      box(st, X1 - X0, 0.03, 0.014, PARK_CON, (X0 + X1) / 2, y, -0.463);
+      box(st, X1 - X0, 0.03, 0.014, PARK_CON, (X0 + X1) / 2, y, 0.423);
+      box(st, 0.014, 0.03, 0.9, PARK_CON, X0 + 0.007, y, -0.02);
+      box(st, X1 - X0 + 0.004, 0.008, 0.004, M.blue, (X0 + X1) / 2, y + 0.012, 0.431);
+      box(st, 0.004, 0.008, 0.9, M.blue, X0 - 0.001, y + 0.012, -0.02);
+      for (let k = 0; k < 4; k++) add(st, BULB_GEO, BULB, -0.35 + k * 0.2, y - 0.022, -0.02);
+    }
+    if (f === floors) break;
+    // Kolonlar
+    if (f < floors) {
+      for (const x of [X0 + 0.01, -0.08, X1 - 0.01]) for (const z of [-0.455, -0.02, 0.415]) box(st, 0.018, H - 0.016, 0.018, PARK_DARK, x, y, z);
+    }
+    // Park etmiş arabalar (iki sıra)
+    for (const [z, rot] of [[-0.27, 0], [0.22, Math.PI]] as [number, number][]) {
+      for (const x of [-0.34, -0.13, 0.08]) {
+        slot++;
+        if ((slot * 7) % 5 === 0) continue;
+        const kind = GARAGE_CARS[slot % GARAGE_CARS.length];
+        parked(st, kind, x, z + 0.0, rot, 0.85, GARAGE_PAINT[(slot * 3) % GARAGE_PAINT.length]);
+        st.children[st.children.length - 1].position.y = y;
+      }
+    }
+    for (let k = 0; k < 4; k++) box(st, 0.004, 0.002, 0.16, M.white, -0.44 + k * 0.21, y + 0.001, -0.3);
+    // Rampa (sağ şeritte bir üst kata)
+    if (f < floors) {
+      const len = 0.7;
+      const r = box(st, 0.13, 0.014, len, PARK_CON, 0.37, 0, 0.06);
+      r.position.y = y + H / 2;
+      r.rotation.x = Math.atan2(H, len);
+      const rail = box(st, 0.008, 0.03, len, PARK_CON, 0.437, 0, 0.06);
+      rail.position.y = y + H / 2 + 0.02;
+      rail.rotation.x = Math.atan2(H, len);
+    }
+  }
+  const top = 0.03 + floors * H;
+  // Tepe: lambalar ve açıkta park etmiş birkaç araba
+  const roof = item(st, 0, 0, 0, 1, top - 0.03);
+  for (const [x, z] of [[-0.42, -0.44], [0.27, -0.44], [-0.42, 0.4], [0.27, 0.4]] as [number, number][]) lamp(roof, x, z, 1, 0.12);
+  for (const x of [-0.34, 0.08]) {
+    slot++;
+    parked(roof, GARAGE_CARS[slot % GARAGE_CARS.length], x, -0.27, 0, 0.85, GARAGE_PAINT[(slot * 3) % GARAGE_PAINT.length]);
+  }
+  // Merdiven ve asansör kulesi, "P" tabelası
+  box(st, 0.14, top + 0.06 - 0.03, 0.12, PARK_CON, 0.37, 0.03, -0.39);
+  box(st, 0.1, top - 0.06, 0.004, PYRAMID, 0.37, 0.05, -0.328);
+  box(st, 0.15, 0.012, 0.13, PARK_DARK, 0.37, top + 0.06, -0.39);
+  box(st, 0.1, 0.1, 0.01, pMat, 0.37, top + 0.08, -0.33);
+  box(st, 0.24, 0.045, 0.006, signMat('OTOPARK', '#1565c0'), (X0 + X1) / 2, 0.03 + H * floors - 0.003, 0.433);
+  // Giriş: gişe ve kırmızı-beyaz bariyer
+  box(st, 0.06, 0.07, 0.06, M.white, 0.2, 0.03, 0.44);
+  box(st, 0.05, 0.025, 0.004, windowMat, 0.2, 0.07, 0.471);
+  box(st, 0.02, 0.05, 0.02, M.gray, 0.27, 0.03, 0.46);
+  for (let k = 0; k < 4; k++) box(st, 0.04, 0.008, 0.008, k % 2 ? M.white : M.red, 0.3 + k * 0.04, 0.072, 0.46);
   return mergeStatic([st]);
 }

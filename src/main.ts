@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
-import { City, idx, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
+import { City, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
 import {
   describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, type CardActions,
 } from './info';
@@ -37,7 +37,7 @@ import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
-  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, type Quality,
+  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, type Quality,
 } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
@@ -333,6 +333,18 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  upgradeParking(i) {
+    const err = city.upgradeParking(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`🅿️ Otopark ${city.tiles[i]!.level + 1} katlı oldu: daha çok araba sığıyor!`);
+    }
+    afterChange();
+  },
   upgradeUtil(i) {
     const err = city.upgradeUtility(i);
     if (err) {
@@ -408,11 +420,96 @@ function openTile(cell: CardKey | null) {
   openCard = cell;
   renderCard();
   highlight();
+  // Hizmet, elektrik ya da su binasına (ya da üstteki elektrik/su göstergesine) dokununca hizmet haritası açılır
+  mapKind = typeof cell === 'number' ? mapKindOf(cell) : cell === 'power' || cell === 'water' ? cell : null;
+  renderServiceMap();
 }
 onInfoClose(() => {
   openCard = null;
   highlight();
+  mapKind = null;
+  renderServiceMap();
 });
+
+// --- Hizmet haritası (SimCity'deki gibi): şehir beyazlaşır; hizmetin ulaştığı yer yeşil, ulaşmayan evler kırmızı ---
+type MapKind = 'power' | 'water' | ServiceKind;
+const MAP_KINDS: MapKind[] = ['power', 'water', 'police', 'fire', 'health', 'school'];
+const MAP_INFO: Record<MapKind, { icon: string; name: string }> = {
+  power: { icon: '⚡', name: 'Elektrik' },
+  water: { icon: '💧', name: 'Su' },
+  police: { icon: '🚓', name: 'Polis' },
+  fire: { icon: '🚒', name: 'İtfaiye' },
+  health: { icon: '🏥', name: 'Sağlık' },
+  school: { icon: '🎓', name: 'Eğitim' },
+};
+let mapKind: MapKind | null = null;
+function mapKindOf(i: number): MapKind | null {
+  const t = city.tiles[city.anchorOf(i)];
+  if (!t) return null;
+  if (isUtility(t.kind)) return UTILITIES[t.kind].power > 0 ? 'power' : 'water';
+  if (isService(t.kind)) return t.kind;
+  if (isDecor(t.kind) && DECOR[t.kind].covers) return DECOR[t.kind].covers!;
+  return null;
+}
+function renderServiceMap() {
+  const k = mapKind;
+  if (!k) {
+    view.showServiceMap(null);
+    setServiceBar(null);
+    return;
+  }
+  const fk = k === 'power' || k === 'water' ? k : null;
+  const flow = fk !== null;
+  const bldgs: { i: number; ok: boolean }[] = [];
+  let ok = 0, bad = 0;
+  city.tiles.forEach((t, i) => {
+    if (!t || t.level === 0) return;
+    if (flow ? !isZone(t.kind) : t.kind !== 'res') return;
+    const good = fk ? city.isConnected(i) && !city.lacking.get(i)?.[fk] : city.isCovered(i, k as ServiceKind);
+    bldgs.push({ i, ok: good });
+    if (good) ok++;
+    else bad++;
+  });
+  // Hizmeti veren binalar da yeşil
+  let sources = 0;
+  city.tiles.forEach((t, i) => {
+    if (t && t.kind !== 'part' && mapKindOf(i) === k) {
+      bldgs.push({ i, ok: true });
+      sources++;
+    }
+  });
+  view.showServiceMap({ area: fk ? [] : city.coverageOf(k as ServiceKind), color: '#3fcf4a', bldgs });
+  const s = fk ? city.service[fk] : null;
+  setServiceBar(
+    {
+      ...MAP_INFO[k],
+      ok,
+      bad,
+      okText: flow ? 'Var' : 'Hizmet var',
+      badText: flow ? 'Yok' : 'Hizmet yok',
+      extra: s
+        ? `Üretim ${fmt(s.supply)} · Kullanım ${fmt(s.demand)}${s.supply < s.demand ? ' · Yetmiyor!' : ''}`
+        : sources
+          ? `${sources} bina hizmet veriyor · yeşil alan hizmetin ulaştığı yer`
+          : 'Henüz hiç yok · İnşa Et → Hizmetler',
+    },
+    {
+      prev: () => cycleMap(-1),
+      next: () => cycleMap(1),
+      close: () => {
+        mapKind = null;
+        renderServiceMap();
+        if (openCard !== null) openTile(null);
+      },
+    },
+  );
+}
+function cycleMap(d: number) {
+  if (!mapKind) return;
+  mapKind = MAP_KINDS[(MAP_KINDS.indexOf(mapKind) + d + MAP_KINDS.length) % MAP_KINDS.length];
+  renderServiceMap();
+  play('click', 0.3);
+}
 
 // Trafik haritası: yol aracı seçiliyken ya da bir yolun kartı açıkken
 function updateTrafficView() {
@@ -469,6 +566,7 @@ function afterChange() {
   checkLevelUps();
   view.updateIcons();
   renderCard();
+  if (mapKind) renderServiceMap();
   updateStats();
   save();
 }
@@ -549,6 +647,8 @@ function pickTool(t: Tool) {
   tool = t;
   house = null;
   openCard = null;
+  mapKind = null;
+  renderServiceMap();
   input.cancelDrag();
   view.showPreview([]);
   showInfo(null);

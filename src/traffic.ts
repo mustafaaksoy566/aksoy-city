@@ -378,7 +378,11 @@ export class Traffic {
     this.stations = [];
     this.city.tiles.forEach((t, i) => {
       if (!t) return;
-      if (t.kind === 'parking') {
+      if (t.kind === 'parking' && t.level > 0) {
+        // Katlı otopark: arabalar girişten girip kaybolur, sonra çıkıp yola katılır (kat arttıkça daha sık)
+        const spot = this.spotOf(i);
+        if (spot) for (let k = 0; k <= t.level; k++) this.garages.push(spot);
+      } else if (t.kind === 'parking') {
         seen.add(i);
         const spot = this.spotOf(i);
         const old = this.lots.get(i);

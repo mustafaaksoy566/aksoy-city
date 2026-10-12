@@ -3,6 +3,7 @@ import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, R
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
+import { parkingGarage } from './places';
 import { SIGNAL_MATS, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
@@ -745,6 +746,10 @@ export class CityView {
   private dirty = new Set<number>(); // yeniden birleştirilecek bölgeler
   shadowDirty = true; // gölgeler yeniden çizilmeli mi
   private coverage: THREE.InstancedMesh;
+  // Hizmet haritası: şehir beyazlaşır, hizmet alanı yeşil, binalar yeşil (hizmet var) ya da kırmızı (yok)
+  private mapVeil: THREE.Mesh;
+  private mapArea: THREE.InstancedMesh;
+  private mapBldg: THREE.InstancedMesh;
   private pops: { obj: THREE.Object3D; t: number; i: number }[] = [];
   // Yapılmakta olan binalar: iskele içinde yerden yükselir
   private sites: { obj: THREE.Object3D; site: THREE.Group; t: number; i: number; scale: THREE.Vector3 }[] = [];
@@ -774,6 +779,38 @@ export class CityView {
     this.coverage.count = 0;
     this.coverage.renderOrder = 1;
     this.root.add(this.coverage);
+
+    // Hizmet haritası: bütün ekranı açık griye boyayan örtü (saydam şeylerden sonra), üstünde renkli alan ve kutular
+    this.mapVeil = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.ShaderMaterial({
+        vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: 'void main() { gl_FragColor = vec4(0.93, 0.95, 0.97, 0.68); }',
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    this.mapVeil.frustumCulled = false;
+    this.mapVeil.renderOrder = 900;
+    this.mapVeil.visible = false;
+    this.mapArea = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.42, depthWrite: false }),
+      SIZE * ROWS,
+    );
+    this.mapBldg = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.62, depthWrite: false }),
+      SIZE * ROWS,
+    );
+    this.mapArea.renderOrder = 950;
+    this.mapBldg.renderOrder = 960;
+    for (const m of [this.mapArea, this.mapBldg]) {
+      m.count = 0;
+      m.frustumCulled = false;
+    }
+    this.root.add(this.mapVeil, this.mapArea, this.mapBldg);
     this.root.add(this.land);
     this.root.add(river());
     this.root.add(this.spans);
@@ -992,8 +1029,9 @@ export class CityView {
       o = makeService(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isDecor(t.kind)) {
-      o = makeDecor(t.kind);
+      o = t.kind === 'parking' && t.level > 0 ? parkingGarage(t.level) : makeDecor(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
+      if (t.kind === 'parking' && t.level > 0) o.add(starSign(t.level, 1));
     } else if (isIndustry(t.kind)) {
       o = makeIndustry(t.kind, t.variant);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
@@ -1269,6 +1307,47 @@ export class CityView {
     this.preview.count = cells.length;
     this.preview.instanceMatrix.needsUpdate = true;
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
+  }
+
+  // Hizmet haritasını göster (null: kapat). area: hizmetin ulaştığı kareler; bldgs: renklendirilecek binalar
+  showServiceMap(map: { area: number[]; color: string; bldgs: { i: number; ok: boolean }[] } | null) {
+    this.mapVeil.visible = !!map;
+    this.mapArea.count = 0;
+    this.mapBldg.count = 0;
+    if (!map) return;
+    const c = new THREE.Color(map.color);
+    map.area.forEach((i, n) => {
+      this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.05);
+      this.tmp.updateMatrix();
+      this.mapArea.setMatrixAt(n, this.tmp.matrix);
+      this.mapArea.setColorAt(n, c);
+    });
+    this.mapArea.count = map.area.length;
+    const okColor = new THREE.Color('#3fcf4a');
+    const badColor = new THREE.Color('#ff3b30');
+    const box = new THREE.Box3();
+    const size = new THREE.Vector3();
+    let n = 0;
+    for (const { i, ok } of map.bldgs) {
+      const o = this.objs.get(i);
+      if (!o) continue;
+      o.updateMatrixWorld(true);
+      box.setFromObject(o);
+      if (box.isEmpty()) continue;
+      box.getSize(size);
+      this.tmp.position.set((box.min.x + box.max.x) / 2, Math.max(0, box.min.y), (box.min.z + box.max.z) / 2);
+      this.tmp.scale.set(size.x * 1.03 + 0.02, Math.max(0.05, box.max.y) * 1.02 + 0.01, size.z * 1.03 + 0.02);
+      this.tmp.updateMatrix();
+      this.mapBldg.setMatrixAt(n, this.tmp.matrix);
+      this.mapBldg.setColorAt(n, ok ? okColor : badColor);
+      n++;
+    }
+    this.tmp.scale.set(1, 1, 1);
+    this.mapBldg.count = n;
+    for (const m of [this.mapArea, this.mapBldg]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
   }
 
   showCoverage(cells: number[], color: string) {
