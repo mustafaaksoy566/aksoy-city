@@ -80,6 +80,8 @@ export const HW = {
   east: 118,
   south: 110,
   ring: { x: -30.5, z: ENTRANCE_Z - Z0 + 0.5, r: 2.05, outer: 2.75 }, // göbek kavşak (r: arabaların döndüğü çember)
+  clover: { x: -30.5, z: ZS + 4.5, size: 7.5 }, // şehrin güneybatısındaki kelebek (yonca yaprağı) kavşak
+  west: -75, // kelebek kavşaktan batıya giden otobanın ucu
 };
 // Kayak merkezine çıkan yol (kavşağın kuzeyinden dağın eteğine)
 export const SKI_ROAD: [number, number][] = [[HW.x, HW.z0 - HW.ring.outer], [HW.x, -6.5], [-34, -9.5], [-42.2, -12.2]];
@@ -113,6 +115,8 @@ export function roadDist(x: number, z: number) {
     segDist(x, z, HW.x, HW.z1, EXTENT, HW.z1),
     segDist(x, z, HW.x, HW.z1, HW.x, EXTENT),
     Math.max(0, Math.hypot(x - ring.x, z - ring.z) - ring.outer),
+    segDist(x, z, HW.west, HW.z1, HW.x, HW.z1),
+    Math.max(0, Math.max(Math.abs(x - HW.clover.x), Math.abs(z - HW.clover.z)) - HW.clover.size),
     lineDist(x, z, SKI_ROAD) + 0.4,
     Math.max(0, Math.hypot(x - LODGE.x, z - LODGE.z) - 2.3),
   );
