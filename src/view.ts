@@ -35,12 +35,35 @@ const hash = (x: number, z: number, seed = 0) => {
 // Sokak lambasının ucunda gece yanan ışık (DayNight 'lamp' adlı malzemeyi yakar)
 const lampMat = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 });
 lampMat.name = 'lamp';
-const lampGeo = new THREE.SphereGeometry(0.028, 8, 6);
+// Sokak lambası: kaldırımda ince koyu direk, yola doğru kavisli kol, ucunda yassı lamba başlığı (altı gece yanar).
+// Kol yerel -x yönünde uzanır (rot ile yola çevrilir).
+const POLE_MAT = new THREE.MeshStandardMaterial({ color: '#3a4652', roughness: 0.45, metalness: 0.55 });
+const STREET = {
+  base: new THREE.CylinderGeometry(0.014, 0.018, 0.016, 8),
+  pole: new THREE.CylinderGeometry(0.0048, 0.0072, 0.42, 7),
+  arm: new THREE.TorusGeometry(0.06, 0.0035, 5, 10, Math.PI / 2),
+  reach: new THREE.CylinderGeometry(0.0035, 0.0035, 0.07, 5).rotateZ(Math.PI / 2),
+  head: new THREE.BoxGeometry(0.07, 0.012, 0.03),
+  lens: new THREE.BoxGeometry(0.056, 0.004, 0.022),
+};
 export function streetLight(dx: number, dz: number, rot: number) {
-  const g = prop(PROPS.streetlight, dx, dz, rot);
-  const bulb = new THREE.Mesh(lampGeo, lampMat);
-  bulb.position.set(-0.11, 0.455, 0); // kolun ucu (lamba modeli kolu -x yönünde)
-  g.add(bulb);
+  const g = new THREE.Group();
+  g.position.set(dx, 0.03, dz);
+  g.rotation.y = rot;
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const o = new THREE.Mesh(geo, m);
+    o.position.set(x, y, z);
+    o.castShadow = true;
+    g.add(o);
+    return o;
+  };
+  add(STREET.base, POLE_MAT, 0, 0.008, 0);
+  add(STREET.pole, POLE_MAT, 0, 0.21, 0);
+  // Direğin tepesinden yola doğru kıvrılan kol
+  add(STREET.arm, POLE_MAT, -0.06, 0.42, 0);
+  add(STREET.reach, POLE_MAT, -0.095, 0.48, 0);
+  add(STREET.head, POLE_MAT, -0.15, 0.475, 0);
+  add(STREET.lens, lampMat, -0.15, 0.468, 0);
   return g;
 }
 
@@ -82,11 +105,15 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
     return mesh;
   };
   const lamp = (h: number) => {
-    // Refüjde iki kollu lamba
-    const pole = add(roadDeco.geo.pole, roadDeco.pole, 0, h / 2 + 0.06, 0);
+    // Refüjde iki yana kollu lamba: kollar iki yöndeki şeritlerin üstüne uzanır
+    const pole = add(roadDeco.geo.pole, POLE_MAT, 0, h / 2 + 0.06, 0);
     pole.scale.y = h / 0.3;
-    add(roadDeco.geo.arm, roadDeco.pole, 0, h + 0.05, 0).rotation.y = Math.PI / 2;
-    for (const s of [-1, 1]) add(roadDeco.geo.bulb, lampMat, s * 0.05, h + 0.035, 0);
+    for (const s of [-1, 1]) {
+      const arm = add(STREET.reach, POLE_MAT, s * 0.06, h + 0.06, 0);
+      arm.scale.x = 1.7;
+      add(STREET.head, POLE_MAT, s * 0.13, h + 0.055, 0);
+      add(STREET.lens, lampMat, s * 0.13, h + 0.048, 0);
+    }
   };
   if (grade === 1) {
     // Bulvar: tuğla kaldırım, iki yanda ağaçlar; çimenli refüjde çiçekler, bir karede ağaç ötekinde süslü lamba
@@ -122,35 +149,48 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
   return g;
 }
 
-// Trafik ışığı: kavşağın köşesinde direk, iki yöne bakan lambalar (kırmızı üstte, yeşil altta).
-// Lambaların malzemeleri her karede ışığın durumuna göre yakılır (signals.ts).
+// Trafik ışıkları: kavşağa gelen her yolun sağ köşesinde bir direk; direkten yolun üstüne uzanan kol,
+// kolun ucunda gelen arabalara bakan üç lambalı başlık (kırmızı, sarı, yeşil). Lambalar her karede yakılır (signals.ts).
 const signalGeo = {
-  pole: new THREE.CylinderGeometry(0.009, 0.011, 0.36, 6),
-  head: new THREE.BoxGeometry(0.03, 0.07, 0.03),
-  lamp: new THREE.SphereGeometry(0.0095, 8, 6),
+  pole: new THREE.CylinderGeometry(0.0065, 0.0085, 0.36, 7),
+  base: new THREE.CylinderGeometry(0.013, 0.016, 0.014, 8),
+  armX: new THREE.BoxGeometry(0.2, 0.009, 0.009),
+  armZ: new THREE.BoxGeometry(0.009, 0.009, 0.2),
+  headX: new THREE.BoxGeometry(0.02, 0.072, 0.028),
+  headZ: new THREE.BoxGeometry(0.028, 0.072, 0.02),
+  lamp: new THREE.SphereGeometry(0.0085, 8, 6),
 };
-function signalPost(tile: number) {
+const SIGNAL_DIRS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+// mask: kavşağa hangi yönlerden yol geliyor (kuzey 1, doğu 2, güney 4, batı 8)
+function signalPost(tile: number, mask: number) {
   const g = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(x, y, z);
+    mesh.castShadow = true;
     g.add(mesh);
   };
-  const cx = 0.44, cz = 0.44;
-  add(signalGeo.pole, roadDeco.pole, cx, 0.18, cz);
-  // Grup 0'da kuzey-güney başlığı 0. malzemeyi kullanır; grup 1 tam tersini
+  // Grup 0'da kuzey-güney ışıkları 0. malzemeyi kullanır; grup 1 tam tersini
   const ns = signalGroup(tile), ew = 1 - ns;
-  // Kuzey-güney yönüne bakan başlık (ön ve arka yüzde lamba)
-  add(signalGeo.head, roadDeco.pole, cx, 0.33, cz);
-  for (const s of [-1, 1]) {
-    add(signalGeo.lamp, SIGNAL_MATS.red[ns], cx, 0.35, cz + s * 0.017);
-    add(signalGeo.lamp, SIGNAL_MATS.green[ns], cx, 0.315, cz + s * 0.017);
-  }
-  // Doğu-batı yönüne bakan başlık
-  add(signalGeo.head, roadDeco.pole, cx, 0.25, cz);
-  for (const s of [-1, 1]) {
-    add(signalGeo.lamp, SIGNAL_MATS.red[ew], cx + s * 0.017, 0.27, cz);
-    add(signalGeo.lamp, SIGNAL_MATS.green[ew], cx + s * 0.017, 0.235, cz);
+  for (let d = 0; d < 4; d++) {
+    if (!(mask & (1 << d))) continue;
+    // Bu yoldan gelen araba (d+2) yönünde gider; ışık onun sağ köşesinde, ona bakar
+    const t = (d + 2) % 4;
+    const [fx, fz] = SIGNAL_DIRS[t];
+    const rx = -fz, rz = fx;
+    const px = -fx * 0.47 + rx * 0.47, pz = -fz * 0.47 + rz * 0.47;
+    const k = t % 2 === 0 ? ns : ew;
+    add(signalGeo.base, POLE_MAT, px, 0.037, pz);
+    add(signalGeo.pole, POLE_MAT, px, 0.21, pz);
+    // Kol direkten şeridin üstüne uzanır
+    add(rx ? signalGeo.armX : signalGeo.armZ, POLE_MAT, px - rx * 0.1, 0.38, pz - rz * 0.1);
+    const hx = px - rx * 0.22, hz = pz - rz * 0.22;
+    add(rx ? signalGeo.headZ : signalGeo.headX, POLE_MAT, hx, 0.335, hz);
+    // Lambalar başlığın arabaya bakan yüzünde
+    const lx = hx - fx * 0.012, lz = hz - fz * 0.012;
+    add(signalGeo.lamp, SIGNAL_MATS.red[k], lx, 0.358, lz);
+    add(signalGeo.lamp, SIGNAL_MATS.amber[k], lx, 0.335, lz);
+    add(signalGeo.lamp, SIGNAL_MATS.green[k], lx, 0.312, lz);
   }
   return g;
 }
@@ -1165,7 +1205,7 @@ export class CityView {
         else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
       }
     } else if (p.model === 'kaykit/road_junction' || p.model === 'kaykit/road_tsplit') {
-      g.add(signalPost(idx(x, z)));
+      g.add(signalPost(idx(x, z), mask));
     }
     if (!straight && grade) g.add(junctionExtras(grade, mask));
     return g;

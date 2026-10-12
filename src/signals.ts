@@ -29,6 +29,7 @@ export function isGreen(tile: number, dir: number) {
 const lamp = (color: string) => new THREE.MeshStandardMaterial({ color: '#222', emissive: color, emissiveIntensity: 1 });
 export const SIGNAL_MATS = {
   red: [lamp('#ff2a2a'), lamp('#ff2a2a')], // [kuzey-güney yeşilken kırmızı yanan, doğu-batı ...]
+  amber: [lamp('#ffb300'), lamp('#ffb300')], // yeşil bitmeden önce sarı
   green: [lamp('#2bff6a'), lamp('#2bff6a')],
 };
 
@@ -39,8 +40,10 @@ export function updateSignals() {
   const amber = now % CYCLE > CYCLE - AMBER;
   // index 0: kuzey-güney başlığı (grup 0), index 1: doğu-batı başlığı (grup 0)
   const green = [nsGreen && !amber, !nsGreen && !amber];
+  const yellow = [nsGreen && amber, !nsGreen && amber];
   for (let k = 0; k < 2; k++) {
     SIGNAL_MATS.green[k].emissiveIntensity = green[k] ? 2.2 : 0.05;
-    SIGNAL_MATS.red[k].emissiveIntensity = green[k] ? 0.05 : 2.2;
+    SIGNAL_MATS.amber[k].emissiveIntensity = yellow[k] ? 2.2 : 0.05;
+    SIGNAL_MATS.red[k].emissiveIntensity = green[k] || yellow[k] ? 0.05 : 2.2;
   }
 }
