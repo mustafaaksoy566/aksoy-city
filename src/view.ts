@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS } from './config';
-import { City, DIRS, idx, inBounds, isUtility, isService, isZone } from './city';
+import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isZone } from './city';
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService } from './services';
+import { makeIndustry, setWorking } from './industry';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
@@ -44,14 +45,18 @@ const FACING_TURNS = [2, 1, 0, 3];
 
 export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - SIZE / 2 + 0.5);
 
-type IconType = 'road' | 'power' | 'water';
+type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full';
+const ICON_COLORS: Record<IconType, string> = {
+  road: '#e53935', power: '#ffb300', water: '#1e88e5', upgrade: '#43a047', full: '#8e44ad',
+};
 
-// Binaların üstünde çıkan uyarı simgeleri: yol yok (!), elektrik yok (şimşek), su yok (damla)
+// Binaların üstünde çıkan simgeler: yol yok (!), elektrik yok (şimşek), su yok (damla),
+// yükseltilebilir (yeşil ok), depo dolu (mor kutu)
 function iconTexture(type: IconType) {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.fillStyle = type === 'road' ? '#e53935' : type === 'power' ? '#ffb300' : '#1e88e5';
+  g.fillStyle = ICON_COLORS[type];
   g.beginPath();
   g.arc(32, 32, 28, 0, Math.PI * 2);
   g.fill();
@@ -72,6 +77,25 @@ function iconTexture(type: IconType) {
     g.lineTo(46, 26);
     g.lineTo(34, 26);
     g.lineTo(40, 10);
+  } else if (type === 'upgrade') {
+    // Yukarı ok
+    g.moveTo(32, 10);
+    g.lineTo(52, 32);
+    g.lineTo(40, 32);
+    g.lineTo(40, 52);
+    g.lineTo(24, 52);
+    g.lineTo(24, 32);
+    g.lineTo(12, 32);
+  } else if (type === 'full') {
+    // Kutu
+    g.fillRect(16, 24, 32, 26);
+    g.fillStyle = ICON_COLORS.full;
+    g.fillRect(28, 24, 8, 12);
+    g.fillStyle = '#fff';
+    g.moveTo(14, 22);
+    g.lineTo(50, 22);
+    g.lineTo(44, 14);
+    g.lineTo(20, 14);
   } else {
     // Su damlası
     g.moveTo(32, 12);
@@ -85,11 +109,9 @@ function iconTexture(type: IconType) {
   return t;
 }
 
-const ICON_MATS: Record<IconType, THREE.SpriteMaterial> = {
-  road: new THREE.SpriteMaterial({ map: iconTexture('road'), depthTest: false }),
-  power: new THREE.SpriteMaterial({ map: iconTexture('power'), depthTest: false }),
-  water: new THREE.SpriteMaterial({ map: iconTexture('water'), depthTest: false }),
-};
+const ICON_MATS = Object.fromEntries(
+  (Object.keys(ICON_COLORS) as IconType[]).map(t => [t, new THREE.SpriteMaterial({ map: iconTexture(t), depthTest: false })]),
+) as Record<IconType, THREE.SpriteMaterial>;
 const ICON_Y = 2.2;
 
 export class CityView {
@@ -175,6 +197,10 @@ export class CityView {
       o = makeService(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       this.animated.add(o);
+    } else if (isIndustry(t.kind)) {
+      o = makeIndustry(t.kind);
+      o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
+      this.animated.add(o);
     } else if (t.level === 0) {
       o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
       o.position.y = 0.015;
@@ -209,11 +235,21 @@ export class CityView {
     return group;
   }
 
-  // Yolu, elektriği ya da suyu olmayan binaların üstünde simge göster
+  // Binaların üstündeki simgeleri güncelle (sorunlar, yükseltme, depo dolu)
   updateIcons() {
     const want = new Map<string, { i: number; type: IconType; slot: number }>();
+    const now = Date.now();
+    for (const i of this.city.waiting(now)) want.set(`${i}|full`, { i, type: 'full', slot: 0 });
     this.city.tiles.forEach((t, i) => {
+      if (t?.kind === 'factory') {
+        const obj = this.objs.get(i);
+        if (obj) setWorking(obj, (this.city.jobs.get(i) ?? []).some(j => j.end > now));
+      }
       if (!t || !isZone(t.kind) || t.level === 0) return;
+      if (this.city.canUpgrade(i)) {
+        want.set(`${i}|upgrade`, { i, type: 'upgrade', slot: 0 });
+        return;
+      }
       if (!this.city.isConnected(i)) {
         want.set(`${i}|road`, { i, type: 'road', slot: 0 });
         return;
@@ -232,9 +268,12 @@ export class CityView {
       if (this.icons.has(key)) continue;
       const s = new THREE.Sprite(ICON_MATS[type]);
       s.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE)));
-      s.userData.y = ICON_Y + slot * 0.55;
+      const t = this.city.tiles[i];
+      // Yükseltme oku binanın üstünde dursun, uyarılar sabit yükseklikte
+      const top = type === 'upgrade' && t ? 1 + t.level * 0.45 : type === 'full' ? 1.1 : ICON_Y;
+      s.userData.y = top + slot * 0.55;
       s.userData.phase = (i * 0.37) % (Math.PI * 2);
-      s.scale.setScalar(0.5);
+      s.scale.setScalar(type === 'upgrade' ? 0.42 : 0.5);
       s.renderOrder = 2;
       this.root.add(s);
       this.icons.set(key, s);

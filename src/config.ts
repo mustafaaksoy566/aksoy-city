@@ -2,8 +2,8 @@
 export const SIZE = 32; // harita SIZE x SIZE kare
 export const DAY_SECONDS = 4; // bir oyun günü kaç saniye sürer
 export const START_MONEY = 3000;
-export const TAX_PER_PERSON = 0.3; // kişi başı günlük vergi
-export const TAX_PER_JOB = 0.3; // iş yeri başına günlük vergi
+export const TAX_PER_PERSON = 0.5; // kişi başı günlük vergi
+export const TAX_PER_JOB = 0.5; // iş yeri başına günlük vergi
 
 // Şehir girişi: haritanın sol kenarından giren, yıkılamayan yol
 export const ENTRANCE_Z = SIZE / 2;
@@ -29,13 +29,78 @@ export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; col
 };
 export const SERVICE_KINDS = Object.keys(SERVICES) as ServiceKind[];
 
-export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | 'bulldoze';
+// Sanayi: fabrika ham madde üretir, hırdavatçı onlardan ürün yapar, depo saklama yerini büyütür
+export type IndustryKind = 'factory' | 'store' | 'depot';
+export const INDUSTRY: Record<IndustryKind, { upkeep: number }> = {
+  factory: { upkeep: 2 },
+  store: { upkeep: 2 },
+  depot: { upkeep: 1 },
+};
+export const INDUSTRY_KINDS = Object.keys(INDUSTRY) as IndustryKind[];
+export const FACTORY_SLOTS = 2; // bir fabrika aynı anda kaç şey üretir
+export const STORE_QUEUE = 3; // hırdavatçıda sıraya kaç ürün konabilir
+export const BASE_STORAGE = 20; // depo yokken saklanabilecek malzeme
+export const DEPOT_STORAGE = 40; // her depo bu kadar yer ekler
+
+// Malzemeler: fabrikada ham madde, hırdavatçıda ürün. Süreler gerçek saniye (oyun kapalıyken de işler).
+export type MatId = 'metal' | 'wood' | 'plastic' | 'mineral' | 'nails' | 'hammer' | 'paint' | 'brick';
+export interface Material {
+  name: string;
+  icon: string;
+  seconds: number;
+  maker: 'factory' | 'store';
+  needs?: Partial<Record<MatId, number>>;
+  unlock: number; // hangi şehir seviyesinde açılır
+}
+export const MATERIALS: Record<MatId, Material> = {
+  metal: { name: 'Metal', icon: '🔩', seconds: 10, maker: 'factory', unlock: 1 },
+  wood: { name: 'Odun', icon: '🪵', seconds: 20, maker: 'factory', unlock: 1 },
+  plastic: { name: 'Plastik', icon: '🧴', seconds: 30, maker: 'factory', unlock: 3 },
+  mineral: { name: 'Mineral', icon: '🪨', seconds: 40, maker: 'factory', unlock: 5 },
+  nails: { name: 'Çivi', icon: '📌', seconds: 30, maker: 'store', needs: { metal: 2 }, unlock: 3 },
+  hammer: { name: 'Çekiç', icon: '🔨', seconds: 45, maker: 'store', needs: { metal: 1, wood: 1 }, unlock: 3 },
+  paint: { name: 'Boya', icon: '🎨', seconds: 60, maker: 'store', needs: { plastic: 2 }, unlock: 4 },
+  brick: { name: 'Tuğla', icon: '🧱', seconds: 60, maker: 'store', needs: { mineral: 2 }, unlock: 5 },
+};
+export const MAT_IDS = Object.keys(MATERIALS) as MatId[];
+
+// Konutu bir üst seviyeye çıkarmak için gereken malzemeler (indeks = hedef seviye)
+export const UPGRADE_COST: Partial<Record<MatId, number>>[] = [
+  {},
+  {},
+  { metal: 2, wood: 1 },
+  { nails: 2, wood: 2 },
+  { nails: 2, hammer: 2, plastic: 1 },
+  { hammer: 2, paint: 2, brick: 2 },
+];
+
+// Deneyim puanı (XP) ve şehir seviyesi
+export const XP = {
+  build: 5, // arsaya ilk bina yapılınca
+  upgrade: [0, 0, 15, 30, 50, 80], // konut bu seviyeye yükselince
+  raw: 1, // fabrikada bir ham madde üretilince
+  crafted: 3, // hırdavatçıda bir ürün yapılınca
+};
+// Seviye n için gereken toplam XP: LEVEL_XP[n - 1]
+export const LEVEL_XP = [0, 40, 120, 250, 450, 750, 1150, 1700, 2400, 3300, 4500];
+export const LEVEL_REWARD = 250; // her seviye atlayınca (seviye x bu kadar) para
+
+export type BuildTool = 'road' | 'res' | 'com' | 'park' | UtilKind | ServiceKind | IndustryKind | 'bulldoze';
 export type Tool = 'pan' | BuildTool;
 
 export const COST: Record<BuildTool, number> = {
   road: 10, res: 20, com: 30, park: 60, bulldoze: 0,
   wind: 300, plant: 1500, tower: 250, pump: 1200,
   police: 500, fire: 500, health: 800, school: 600,
+  factory: 400, store: 600, depot: 300,
+};
+
+// Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
+export const UNLOCK: Partial<Record<BuildTool, number>> = {
+  com: 2, depot: 2, police: 2,
+  store: 3, fire: 3,
+  health: 4, plant: 4,
+  school: 5, pump: 5,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -46,21 +111,25 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   park: { icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
   bulldoze: { icon: '🚜', label: 'Yık', hint: 'Yıkmak istediğin alanı sürükle.' },
   wind: { icon: '🌬️', label: 'Türbin', hint: 'Rüzgar türbini: az elektrik, ucuz. Yol kenarına kur.' },
-  plant: { icon: '🏭', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
+  plant: { icon: '🔌', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
   tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: az su, ucuz. Yol kenarına kur.' },
   pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası: çok su verir ama pahalı.' },
   police: { icon: '🚓', label: 'Polis', hint: 'Polis merkezi renkli alandaki evleri korur.' },
   fire: { icon: '🚒', label: 'İtfaiye', hint: 'İtfaiye renkli alandaki evleri yangından korur.' },
   health: { icon: '🏥', label: 'Hastane', hint: 'Hastane renkli alandaki evlere sağlık hizmeti verir.' },
   school: { icon: '🏫', label: 'Okul', hint: 'Okul renkli alandaki çocuklara eğitim verir.' },
+  factory: { icon: '🏭', label: 'Fabrika', hint: 'Fabrika metal ve odun üretir. Dokunup üretim başlat.' },
+  store: { icon: '🔨', label: 'Hırdavatçı', hint: 'Hırdavatçı metal ve odundan çivi, çekiç gibi ürünler yapar.' },
+  depot: { icon: '📦', label: 'Depo', hint: 'Her depo malzeme saklama yerini 40 artırır.' },
 };
 
 // Alt çubuk: tek araçlar ve açılır gruplar
 export type ToolbarItem = Tool | { group: string; icon: string; label: string; tools: Tool[] };
+// "Gez" düğmesi yok: seçili araca tekrar basınca araç bırakılır ve harita kaydırılır.
 export const TOOLBAR: ToolbarItem[] = [
-  'pan',
   'road',
   { group: 'zones', icon: '🏘️', label: 'Bölge', tools: ['res', 'com'] },
+  { group: 'industry', icon: '🏭', label: 'Sanayi', tools: ['factory', 'store', 'depot'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', tools: ['wind', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🏛️', label: 'Hizmet', tools: ['police', 'fire', 'health', 'school', 'park'] },
   'bulldoze',

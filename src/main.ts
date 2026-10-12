@@ -1,15 +1,20 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/examples/jsm/controls/MapControls.js';
-import { SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, type Tool } from './config';
-import { City, isUtility, isService, serviceArea } from './city';
-import { describeTile } from './info';
+import {
+  SIZE, DAY_SECONDS, COST, TOOL_INFO, SERVICES, ALL_MODELS, ENTRANCE_Z, MATERIALS, MAT_IDS, UNLOCK, LEVEL_REWARD,
+  type Tool, type BuildTool, type MatId,
+} from './config';
+import { City, isUtility, isService, isIndustry, serviceArea } from './city';
+import { describeTile, describeStorage, type CardActions } from './info';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic } from './traffic';
 import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
-import { buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, fmt } from './ui';
+import {
+  buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, celebrateLevel, fmt,
+} from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
 
@@ -61,14 +66,23 @@ scene.add(grid);
 
 // --- Şehir ---
 function loadCity(): City {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    raw = localStorage.getItem(SAVE_KEY);
     if (raw) {
       const data = JSON.parse(raw) as Parameters<typeof City.load>[0];
-      if (data?.v === 1 || data?.v === 2) return City.load(data);
+      if (data?.v === 1 || data?.v === 2 || data?.v === 3) return City.load(data);
     }
   } catch {
-    // Kayıt okunamazsa yeni şehirle başla
+    // Aşağıda yedeklenip yeni şehirle başlanır
+  }
+  // Kayıt okunamadıysa üstüne yazmadan önce yedeğini al
+  if (raw) {
+    try {
+      localStorage.setItem(`${SAVE_KEY}-yedek-${Date.now()}`, raw);
+    } catch {
+      // yer yoksa yapacak bir şey yok
+    }
   }
   return new City();
 }
@@ -87,10 +101,85 @@ scene.add(view.root);
 const traffic = new Traffic(city);
 scene.add(traffic.root);
 
-const updateStats = () => setStats(city.money, city.population, city.day, city.dailyIncome, city.service);
+const updateStats = () =>
+  setStats({
+    money: city.money,
+    pop: city.population,
+    income: city.dailyIncome,
+    service: city.service,
+    level: city.levelProgress,
+    storage: { used: city.storageUsed, cap: city.storageCap },
+  });
+
+// Seviye atlanınca kutla ve yeni açılanları göster
+function checkLevelUps() {
+  while (city.levelUps.length) {
+    const level = city.levelUps.shift()!;
+    const tools = (Object.entries(UNLOCK) as [BuildTool, number][]).filter(([, l]) => l === level).map(([t]) => `${TOOL_INFO[t].icon} ${TOOL_INFO[t].label}`);
+    const mats = MAT_IDS.filter(m => MATERIALS[m].unlock === level).map(m => `${MATERIALS[m].icon} ${MATERIALS[m].name}`);
+    celebrateLevel(level, LEVEL_REWARD * level, [...tools, ...mats]);
+    play('grow', 0.6);
+  }
+}
+
+// Depo düğmesinin yanında küçük "+🔩" yazısı uçsun
+function floatStorage(mats: MatId[]) {
+  const el = document.createElement('div');
+  el.className = 'float';
+  el.textContent = '+' + mats.map(m => MATERIALS[m].icon).join('');
+  document.getElementById('storage')!.appendChild(el);
+  setTimeout(() => el.remove(), 1200);
+}
+
+// --- Bilgi kartı (binaya dokununca) ---
+let openCard: number | 'storage' | null = null;
+
+const cardActions: CardActions = {
+  upgrade(i) {
+    const err = city.upgrade(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`⬆️ Bina ${city.tiles[i]!.level}. seviyeye yükseldi!`);
+    }
+    afterChange();
+  },
+  make(i, mat) {
+    const err = city.startJob(i, mat, Date.now());
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else play('click', 0.4);
+    afterChange();
+  },
+};
+
+function renderCard() {
+  if (openCard === null) return showInfo(null);
+  const card = openCard === 'storage' ? describeStorage(city) : describeTile(city, openCard, cardActions);
+  if (!card) openCard = null;
+  showInfo(card);
+}
+
+function openTile(cell: number | null) {
+  openCard = cell;
+  renderCard();
+}
+
+// Bir şey değişince her yeri güncelle ve kaydet
+function afterChange() {
+  checkLevelUps();
+  view.updateIcons();
+  renderCard();
+  updateStats();
+  save();
+}
 
 // Elektrik ya da su eksikse ara sıra hatırlat
-const lastWarned = { power: -99, water: -99 };
+const lastWarned = { power: -99, water: -99, factory: -99 };
 function warnShortages() {
   if (!city.hasZones) return;
   const texts = {
@@ -105,6 +194,13 @@ function warnShortages() {
       toast(texts[k][none ? 0 : 1], 'error');
       return;
     }
+  }
+  // Evler var ama fabrika yoksa yükseltmeyi hatırlat
+  const hasHouse = city.tiles.some(t => t?.kind === 'res' && t.level > 0);
+  const hasFactory = city.tiles.some(t => t?.kind === 'factory');
+  if (hasHouse && !hasFactory && city.day - lastWarned.factory >= 20) {
+    lastWarned.factory = city.day;
+    toast('🏭 Evleri büyütmek için Sanayi menüsünden fabrika kur ve metal, odun üret.');
   }
 }
 
@@ -128,8 +224,20 @@ function showCoverage(candidate?: number) {
   view.showCoverage([...cells], SERVICES[tool].color);
 }
 
+// Aracın kilidi hangi seviyede açılıyor (açıksa null)
+const lockedAt = (t: Tool) => (t === 'pan' || city.isUnlocked(t) ? null : city.unlockLevel(t));
+
 function pickTool(t: Tool) {
+  // Seçili araca tekrar basınca araç bırakılır
+  if (t === tool) t = 'pan';
+  const lock = lockedAt(t);
+  if (lock) {
+    toast(`🔒 Şehir seviyesi ${lock}'te açılır`, 'error');
+    play('error', 0.3);
+    return;
+  }
   tool = t;
+  openCard = null;
   input.cancelDrag();
   view.showPreview([]);
   showInfo(null);
@@ -138,7 +246,7 @@ function pickTool(t: Tool) {
   setActiveTool(t);
   applyControls();
   play('click', 0.4);
-  if (!hinted.has(t)) {
+  if (t !== 'pan' && !hinted.has(t)) {
     hinted.add(t);
     toast(TOOL_INFO[t].hint);
   }
@@ -152,7 +260,7 @@ const input = new TileInput(renderer.domElement, camera, {
     view.showPreview(items);
     const n = items.filter(c => c.ok).length;
     if (isService(tool)) showCoverage(items[0]?.ok ? items[0].i : undefined);
-    if (cells.length > 1 || isUtility(tool)) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
+    if (cells.length > 1 || isUtility(tool) || isService(tool) || isIndustry(tool)) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
   },
   commit(cells) {
     view.showPreview([]);
@@ -167,11 +275,10 @@ const input = new TileInput(renderer.domElement, camera, {
     }
     view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
+    afterChange();
     if (tool !== 'road' && tool !== 'bulldoze' && tool !== 'park' && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
-    updateStats();
-    save();
   },
   cancel() {
     view.showPreview([]);
@@ -179,17 +286,21 @@ const input = new TileInput(renderer.domElement, camera, {
     showCoverage();
   },
   tap(cell) {
-    const card = cell === null ? null : describeTile(city, cell);
-    showInfo(card);
-    if (card) play('click', 0.3);
+    openTile(cell);
+    if (openCard !== null) play('click', 0.3);
   },
 });
 
-buildToolbar(pickTool);
+buildToolbar(pickTool, lockedAt);
 setActiveTool(tool);
 applyControls();
 setupAudioUnlock();
-renderer.domElement.addEventListener('pointerdown', () => showInfo(null));
+renderer.domElement.addEventListener('pointerdown', () => openTile(null));
+document.getElementById('storage')!.addEventListener('click', () => {
+  openCard = openCard === 'storage' ? null : 'storage';
+  renderCard();
+  play('click', 0.3);
+});
 
 // Ses ve sıfırlama düğmeleri
 const soundBtn = document.getElementById('sound')!;
@@ -201,10 +312,10 @@ soundBtn.addEventListener('click', () => {
 document.getElementById('reset')!.addEventListener('click', () => {
   if (!confirm('Şehrin tamamen silinip baştan başlansın mı?')) return;
   city = new City();
+  openCard = null;
   view.setCity(city);
   traffic.setCity(city);
-  save();
-  updateStats();
+  afterChange();
   toast('Yeni şehir kuruldu!');
 });
 
@@ -246,6 +357,7 @@ resize();
 
 const clock = new THREE.Clock();
 let dayTimer = 0;
+let prodTimer = 0;
 const limit = SIZE / 2;
 
 function frame() {
@@ -271,11 +383,24 @@ function frame() {
       view.refresh(changed, true);
       play('grow', 0.35);
     }
-    view.updateIcons();
     floatIncome(income);
-    updateStats();
     warnShortages();
-    save();
+    afterChange();
+  }
+
+  // Fabrika ve hırdavatçı üretimlerini yarım saniyede bir kontrol et
+  prodTimer += dt;
+  if (prodTimer >= 0.5) {
+    prodTimer = 0;
+    const got = city.collect(Date.now());
+    if (got.length) {
+      floatStorage(got);
+      play('place', 0.25);
+      afterChange();
+    } else {
+      view.updateIcons();
+      if (openCard !== null) renderCard();
+    }
   }
 
   view.update(dt);
@@ -287,8 +412,12 @@ loadModels(ALL_MODELS)
   .then(() => {
     scene.add(buildSurroundings());
     view.rebuildAll();
-    updateStats();
+    // Oyun kapalıyken biten üretimleri depoya al
+    const got = city.collect(Date.now());
+    if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
+    afterChange();
     hideLoading();
+    if (!city.hasZones) toast('Hoş geldin! Önce yol çiz, sonra Bölge menüsünden konut koy.');
     renderer.setAnimationLoop(frame);
   })
   .catch(err => {
