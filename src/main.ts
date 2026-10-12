@@ -1122,9 +1122,16 @@ function fitStandalone() {
   const portrait = matchMedia('(orientation: portrait)').matches;
   const a = screen.width, b = screen.height;
   const w = portrait ? Math.min(a, b) : Math.max(a, b), h = portrait ? Math.max(a, b) : Math.min(a, b);
+  // Sadece saat çubuğu kadar küçük bir fark varsa düzelt (bilgisayarda ya da bölünmüş ekranda pencere ekrandan küçüktür)
+  const gap = h - window.innerHeight;
+  if (Math.abs(w - window.innerWidth) > 2 || gap <= 0 || gap > 120) {
+    app.removeAttribute('style');
+    document.documentElement.style.removeProperty('--sgap');
+    return;
+  }
   app.style.cssText = `top:0;left:0;right:auto;bottom:auto;width:${w}px;height:${h}px`;
   // Sayfa kısa kaldıysa alttaki düğmeler de o kadar aşağı insin (ekranın gerçek altına göre dursun)
-  document.documentElement.style.setProperty('--sgap', `${Math.max(0, h - window.innerHeight)}px`);
+  document.documentElement.style.setProperty('--sgap', `${gap}px`);
 }
 function resize() {
   fitStandalone();
