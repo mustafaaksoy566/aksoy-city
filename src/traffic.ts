@@ -70,6 +70,16 @@ function pickExit(city: City, tile: number, dIn: number, busy = false) {
   return options[options.length - 1];
 }
 
+// Yaya kavşakta sola dönmez: sola dönüş kavşağın ortasından çapraz geçer, dönen arabaların önünü keser.
+// Düz gider (yaya geçidinden karşıya) ya da köşeden sağa döner; sola gitmek isteyen iki geçitten dolanır.
+function walkerExit(city: City, tile: number, dIn: number) {
+  const options = roadDirs(city, tile).filter(d => d !== (dIn + 2) % 4);
+  if (!options.length) return (dIn + 2) % 4;
+  const safe = options.length >= 2 ? options.filter(d => d !== (dIn + 3) % 4) : options;
+  const pick = safe.length ? safe : options;
+  return pick[Math.floor(Math.random() * pick.length)];
+}
+
 // İlerlet; yol yok olduysa false döner. limit: bu karede en fazla nereye kadar gidebilir (öndeki araç, kırmızı ışık).
 // choose: yeni kareye girince hangi yöne çıkılacağı (verilmezse rastgele)
 function advance(city: City, m: Mover, step: number, busy = false, limit = Infinity, choose?: (m: Mover) => number) {
@@ -1336,7 +1346,9 @@ export class Walkers {
       for (const t of lanes.get(`${p.tile}|${p.dIn}`) ?? []) if (t > p.t + 1e-4) limit = Math.min(limit, t - 0.08);
       const h = lanePos(this.city, p, this.lane, 0.05, pos);
       if (carAhead(p, pos.x, pos.z, h)) limit = p.t;
-      return advance(this.city, p, dt * p.speed, false, Math.max(p.t, limit));
+      // Kavşakta karşıdan karşıya geçerken biraz hızlanır (arabaları uzun bekletmesin)
+      const hurry = isJunction(this.city, p.tile) ? 1.6 : 1;
+      return advance(this.city, p, dt * p.speed * hurry, false, Math.max(p.t, limit), m => walkerExit(this.city, m.tile, m.dIn));
     });
     if (this.people.length !== before) this.colorsDirty = true;
     if (this.colorsDirty) this.paint();
