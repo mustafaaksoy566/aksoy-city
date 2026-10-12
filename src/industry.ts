@@ -100,7 +100,27 @@ function depot(variant: number) {
   return g;
 }
 
+// Ticaret merkezi (2x2 olarak büyütülür): büyük ambar, konteyner yığınları, tabela
+function tradeCenter() {
+  const g = new THREE.Group();
+  g.add(makeModel(BASE));
+  const b = makeModel('kenney-ind/building-r', 1);
+  b.scale.multiplyScalar(0.8);
+  b.position.set(0, 0.05, -0.12);
+  g.add(b);
+  const boxes = [PROPS.containerA, PROPS.containerB, PROPS.containerC];
+  g.add(item(boxes[0], -0.26, 0.3, Math.PI / 2));
+  g.add(item(boxes[1], -0.26, 0.3, Math.PI / 2).translateY(0.11));
+  g.add(item(boxes[2], 0.08, 0.32, Math.PI / 2));
+  // Tabela: mavi levha
+  g.add(part(box(0.06, 0.32, 0.06), M.steel, 0.36, 0.2, 0.36));
+  g.add(part(box(0.24, 0.1, 0.03), mat('#1e6fd9'), 0.36, 0.38, 0.36));
+  g.add(part(box(0.16, 0.025, 0.01), M.white, 0.36, 0.38, 0.377));
+  return g;
+}
+
 export function makeIndustry(kind: IndustryKind, variant = 0): THREE.Object3D {
+  if (kind === 'trade') return tradeCenter();
   if (kind === 'factory') return factory(variant);
   if (kind === 'store') return store();
   return depot(variant);

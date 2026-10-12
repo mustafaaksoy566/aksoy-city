@@ -39,6 +39,7 @@ export class DayNight {
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
       if (!m || !(o as THREE.Mesh).isMesh || !('emissive' in m)) return;
       if (m.name === 'window') this.glowing.add(m);
+      else if (m.name === 'lamp') this.lights.add(m);
       else if (/headlight/i.test(m.name)) this.lights.add(m);
     });
   }
@@ -57,6 +58,8 @@ export class DayNight {
     this.sun.intensity = THREE.MathUtils.lerp(2.2, 0.25, night);
     this.sun.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk);
     this.hemi.intensity = THREE.MathUtils.lerp(1.0, 0.35, night);
+    // Ortam yansıması da gece kısılsın (yoksa gece aydınlık kalıyor)
+    this.scene.environmentIntensity = THREE.MathUtils.lerp(0.55, 0.1, night);
     // Pencereler yalnızca gece değeri belirgin değiştiğinde güncellensin
     if (Math.abs(night - this.lastNight) > 0.02) {
       this.lastNight = night;

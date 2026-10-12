@@ -109,7 +109,32 @@ function station() {
   return g;
 }
 
+// Otobüs durağı: camlı sundurma, bank ve tabela (yolun olduğu taraf +z)
+function busStop() {
+  const g = new THREE.Group();
+  const glass = new THREE.MeshStandardMaterial({ color: '#bfe6f5', transparent: true, opacity: 0.55 });
+  const roof = mat('#1e6fd9');
+  g.add(part(new THREE.BoxGeometry(0.5, 0.02, 0.22), mat('#d9d4cb'), 0, 0.03, 0.3));
+  g.add(part(new THREE.BoxGeometry(0.46, 0.2, 0.012), glass, 0, 0.14, 0.2));
+  for (const x of [-0.22, 0.22]) g.add(part(new THREE.BoxGeometry(0.012, 0.2, 0.18), glass, x, 0.14, 0.29));
+  g.add(part(new THREE.BoxGeometry(0.52, 0.025, 0.24), roof, 0, 0.255, 0.3));
+  const bench = makeModel('kaykit/bench');
+  bench.position.set(0, 0.04, 0.26);
+  g.add(bench);
+  // Tabela direği
+  g.add(part(new THREE.CylinderGeometry(0.01, 0.01, 0.34, 6), M.steel, 0.32, 0.17, 0.4));
+  g.add(part(new THREE.BoxGeometry(0.09, 0.09, 0.012), roof, 0.32, 0.33, 0.4));
+  g.add(part(new THREE.BoxGeometry(0.05, 0.05, 0.014), M.white, 0.32, 0.33, 0.4));
+  // Arkada küçük çim ve çalı
+  g.add(part(new THREE.BoxGeometry(0.9, 0.02, 0.5), mat('#6cc35a'), 0, 0.01, -0.2));
+  const bush = makeModel('kaykit/bush');
+  bush.position.set(-0.25, 0.02, -0.2);
+  g.add(bush);
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'busstop') return busStop();
   if (kind === 'station') return station();
   if (kind === 'wheel') return ferrisWheel();
   if (kind === 'stadium') return stadium();

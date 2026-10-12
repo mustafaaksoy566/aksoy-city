@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { SIZE, CAR_MODELS, EMERGENCY_CARS } from './config';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
-import { bakeTextured } from './batcher';
+import { bakeTextured, bakeModel, vertexColorMat } from './batcher';
+import { makeBus } from './sky';
 import { tileCenter } from './view';
 
 const CAR_LANE = 0.16; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
@@ -91,6 +92,8 @@ export class Traffic {
   private cars: (Mover & { type: number })[] = [];
   private meshes: THREE.InstancedMesh[] = [];
   private paths: string[] = [];
+  private buses: Mover[] = [];
+  private busMesh: THREE.InstancedMesh | null = null;
   private recount = 0;
   private tmp = new THREE.Object3D();
 
@@ -98,6 +101,13 @@ export class Traffic {
 
   // Modeller yüklendikten sonra çağrılır
   init() {
+    const busGeo = bakeModel(makeBus());
+    if (busGeo) {
+      this.busMesh = new THREE.InstancedMesh(busGeo, vertexColorMat, 12);
+      this.busMesh.count = 0;
+      this.busMesh.frustumCulled = false;
+      this.root.add(this.busMesh);
+    }
     for (const path of [...CAR_MODELS, EMERGENCY_CARS.health, EMERGENCY_CARS.fire]) {
       const baked = bakeTextured(makeModel(path));
       if (!baked) continue;
@@ -114,6 +124,26 @@ export class Traffic {
   setCity(city: City) {
     this.city = city;
     this.cars = [];
+    this.buses = [];
+  }
+
+  // Otobüsler: her durak için bir tane (en fazla 12), arabalar gibi dolaşır ama yavaş
+  private updateBuses(dt: number) {
+    if (!this.busMesh) return;
+    const stops = this.city.tiles.filter(t => t?.kind === 'busstop').length;
+    const wanted = Math.min(12, stops);
+    if (this.buses.length < wanted && this.recount === 1) {
+      const m = randomStart(this.city, 0.55);
+      if (m) this.buses.push(m);
+    } else if (this.buses.length > wanted) this.buses.pop();
+    this.buses = this.buses.filter(b => advance(this.city, b, dt));
+    this.buses.forEach((b, n) => {
+      this.tmp.rotation.y = lanePos(b, CAR_LANE, 0.03, this.tmp.position);
+      this.tmp.updateMatrix();
+      this.busMesh!.setMatrixAt(n, this.tmp.matrix);
+    });
+    this.busMesh.count = this.buses.length;
+    this.busMesh.instanceMatrix.needsUpdate = true;
   }
 
   // Hangi araç türü: çoğu normal araba; hastane/itfaiye varsa bazen ambulans/itfaiye aracı
@@ -139,6 +169,7 @@ export class Traffic {
         if (m) this.cars.push({ ...m, type: this.pickType() });
       } else if (this.cars.length > wanted) this.cars.pop();
     }
+    this.updateBuses(dt);
     if (!this.meshes.length) return;
 
     this.cars = this.cars.filter(car => advance(this.city, car, dt));

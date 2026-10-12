@@ -21,6 +21,30 @@ export interface CardActions {
   repair(i: number): void;
   claim(n: number): void;
   buyLand(plot: number): void;
+  sell(mat: MatId): void;
+  buy(mat: MatId): void;
+}
+
+export function describeTrade(city: City, act: CardActions): InfoCard {
+  const lines: InfoCard['lines'] = [
+    { text: `📦 Depo: ${fmt(city.storageUsed)}/${fmt(city.storageCap)}  ·  💰${fmt(city.money)}` },
+    { text: 'Malzemelerini sat, ham madde eksikse satın al (iki katı fiyata).' },
+  ];
+  if (!city.hasTrade) lines.push({ ok: false, text: 'Ticaret merkezi yola bağlı değil' });
+  const actions: NonNullable<InfoCard['actions']> = [];
+  for (const m of MAT_IDS) {
+    const mat = MATERIALS[m];
+    if (city.storage[m] > 0) {
+      actions.push({ label: `Sat ${mat.icon}${mat.name} (${city.storage[m]}) +💰${mat.price}`, enabled: city.hasTrade, run: () => act.sell(m) });
+    }
+  }
+  for (const m of MAT_IDS) {
+    const mat = MATERIALS[m];
+    if (mat.maker === 'factory' && city.isUnlocked(m)) {
+      actions.push({ label: `Al ${mat.icon}${mat.name} −💰${mat.price * 2}`, enabled: city.hasTrade && city.money >= mat.price * 2, run: () => act.buy(m) });
+    }
+  }
+  return { title: '🏬 Ticaret Merkezi', lines, actions };
 }
 
 export function describeLand(city: City, plot: number, act: CardActions): InfoCard {
@@ -125,6 +149,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   const road = { ok: connected, text: connected ? 'Şehrin yollarına bağlı' : 'Yol bağlantısı yok' };
 
   if (t.kind === 'hall') return describeHall(city, act);
+  if (t.kind === 'trade') return describeTrade(city, act);
   if (t.kind === 'factory' || t.kind === 'store') return production(city, i, act, now);
   if (t.kind === 'depot') return describeStorage(city);
 
@@ -210,6 +235,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       lines: [
         { text: `😊 Çevresindeki ${d.radius} kare içindeki evlerin mutluluğu +${pct(d.happy)}` },
         ...(t.kind === 'station' ? [{ text: '🚆 Trenler bu istasyondan sefer yapar' }] : []),
+        ...(t.kind === 'busstop' ? [{ text: '🚌 Her durak için şehirde bir otobüs dolaşır' }] : []),
         { text: `🔧 Bakım: ${d.upkeep}/gün` },
       ],
     };

@@ -572,6 +572,31 @@ export class City {
     for (const [m, n] of Object.entries(cost) as [MatId, number][]) this.storage[m] -= n;
   }
 
+  // --- Ticaret merkezi: malzeme sat / ham madde satın al ---
+
+  get hasTrade() {
+    return this.tiles.some((t, i) => t?.kind === 'trade' && this.isConnected(i));
+  }
+
+  sell(mat: MatId): string | null {
+    if (!this.hasTrade) return 'Önce yola bağlı bir ticaret merkezi kur';
+    if (this.storage[mat] < 1) return 'Depoda yok';
+    this.storage[mat]--;
+    this.money += MATERIALS[mat].price;
+    return null;
+  }
+
+  buy(mat: MatId): string | null {
+    if (!this.hasTrade) return 'Önce yola bağlı bir ticaret merkezi kur';
+    if (MATERIALS[mat].maker !== 'factory' || !this.isUnlocked(mat)) return 'Bu malzeme satın alınamaz';
+    if (this.storageUsed >= this.storageCap) return 'Depo dolu';
+    const price = MATERIALS[mat].price * 2;
+    if (this.money < price) return 'Yeterli para yok';
+    this.money -= price;
+    this.storage[mat]++;
+    return null;
+  }
+
   // --- Konut yükseltme (malzemeyle) ---
 
   // Bir sonraki seviyenin malzeme listesi (yükseltilemiyorsa null)
@@ -698,6 +723,7 @@ export class City {
     }
     if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
     const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
+    if (tool === 'busstop' && !nearRoad) return 'Durak yol kenarına kurulmalı';
     if (tool === 'station' && !cells.some(c => this.railMask(c % SIZE, Math.floor(c / SIZE)) !== 0)) {
       return 'İstasyon tren yolunun yanına kurulmalı';
     }

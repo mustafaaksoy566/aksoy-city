@@ -15,7 +15,7 @@ function classify(mat: THREE.Material): Kind {
   const m = mat as THREE.MeshStandardMaterial;
   if (m.map) return 'tex';
   // Pencereler ve far gibi gece yanan, saydam ya da ışık saçan malzemeler kendileri kalsın
-  if (m.name === 'window' || /headlight/i.test(m.name) || m.transparent || (m.emissiveIntensity > 0 && m.emissive?.getHex())) return 'keep';
+  if (m.name === 'window' || m.name === 'lamp' || /headlight/i.test(m.name) || m.transparent || (m.emissiveIntensity > 0 && m.emissive?.getHex())) return 'keep';
   if (!m.color) return 'keep';
   return 'vc';
 }

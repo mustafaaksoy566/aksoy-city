@@ -28,6 +28,18 @@ const hash = (x: number, z: number, seed = 0) => {
   return v - Math.floor(v);
 };
 
+// Sokak lambasının ucunda gece yanan ışık (DayNight 'lamp' adlı malzemeyi yakar)
+const lampMat = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 });
+lampMat.name = 'lamp';
+const lampGeo = new THREE.SphereGeometry(0.028, 8, 6);
+function streetLight(dx: number, dz: number, rot: number) {
+  const g = prop(PROPS.streetlight, dx, dz, rot);
+  const bulb = new THREE.Mesh(lampGeo, lampMat);
+  bulb.position.set(-0.11, 0.455, 0); // kolun ucu (lamba modeli kolu -x yönünde)
+  g.add(bulb);
+  return g;
+}
+
 // Bir modeli kare merkezine göre (dx, dz) konumuna, verilen açıyla koy
 function prop(path: string, dx: number, dz: number, rot = 0, scale = 1) {
   const o = makeModel(path);
@@ -520,8 +532,8 @@ export class CityView {
       const side = hash(x, z) < 0.5 ? 1 : -1;
       // Lambanın kolu yola doğru uzansın
       if (along % 3 === 0) {
-        if (alongX) g.add(prop(PROPS.streetlight, 0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
-        else g.add(prop(PROPS.streetlight, side * 0.46, 0, side > 0 ? 0 : Math.PI));
+        if (alongX) g.add(streetLight(0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
+        else g.add(streetLight(side * 0.46, 0, side > 0 ? 0 : Math.PI));
       } else if (along % 5 === 1 && hash(x, z, 2) < 0.6) {
         if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
         else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));

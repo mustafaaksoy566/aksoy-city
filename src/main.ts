@@ -7,6 +7,7 @@ import {
 } from './config';
 import { City, isUtility, isService, isIndustry, isDecor, serviceArea, sizeOf, block } from './city';
 import { describeTile, describeStorage, describeQuests, describeHall, type CardActions } from './info';
+import { Sky } from './sky';
 import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
@@ -125,6 +126,8 @@ const walkers = new Walkers(city);
 scene.add(walkers.root);
 const trains = new Trains(city);
 scene.add(trains.root);
+const sky = new Sky();
+scene.add(sky.root);
 const dayNight = new DayNight(scene, hemi, sun);
 
 const updateStats = () =>
@@ -244,6 +247,21 @@ const cardActions: CardActions = {
       play('grow', 0.6);
       toast('🏞️ Yeni arazi senin! Şehrini büyütebilirsin.');
     }
+    afterChange();
+  },
+  sell(mat) {
+    const err = city.sell(mat);
+    if (err) toast(err, 'error');
+    else {
+      floatIncome(MATERIALS[mat].price);
+      play('place', 0.4);
+    }
+    afterChange();
+  },
+  buy(mat) {
+    const err = city.buy(mat);
+    if (err) toast(err, 'error');
+    else play('click', 0.4);
     afterChange();
   },
   claim(n) {
@@ -544,6 +562,7 @@ function frame() {
   traffic.update(dt);
   walkers.update(dt);
   trains.update(dt);
+  sky.update(dt);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
@@ -580,8 +599,8 @@ function makeMenuPictures() {
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
-  for (const k of ['factory', 'store', 'depot'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['factory', 'store', 'depot', 'trade'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -598,6 +617,7 @@ Promise.all([
     scene.add(buildSurroundings());
     traffic.init();
     trains.init();
+    sky.init();
     view.rebuildAll();
     makeMenuPictures();
     // Oyun kapalıyken biten üretimleri depoya al
