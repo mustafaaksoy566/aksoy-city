@@ -4,6 +4,7 @@ import { part, mat, pad, windowMat, showcaseMat } from './utilities';
 import { makeModel } from './assets';
 import { makeAirliner } from './planes';
 import { mergeStatic } from './batcher';
+import { SEA_Y } from './water';
 
 // Simge yapılar: çeşme ve heykel hazır model, dönme dolap ve stadyum basit şekillerden.
 
@@ -129,7 +130,7 @@ function busStop() {
   g.add(part(new THREE.BoxGeometry(0.05, 0.05, 0.014), M.white, 0.32, 0.33, 0.4));
   // Arkada küçük çim ve çalı
   g.add(part(new THREE.BoxGeometry(0.9, 0.02, 0.5), mat('#6cc35a'), 0, 0.01, -0.2));
-  const bush = makeModel('kaykit/bush');
+  const bush = makeModel(PROPS.bush);
   bush.position.set(-0.25, 0.02, -0.2);
   g.add(bush);
   return g;
@@ -269,7 +270,7 @@ function airport() {
 }
 
 // Palmiye: eğik gövde ve sarkan yapraklar (yerel ölçüde, s = boy)
-function palm(x: number, z: number, s: number, lean = 0.15) {
+export function palm(x: number, z: number, s: number, lean = 0.15) {
   const g = new THREE.Group();
   const trunk = part(new THREE.CylinderGeometry(0.03 * s, 0.045 * s, s, 6), mat('#8d6e4c'), 0, s / 2, 0);
   g.add(trunk);
@@ -510,7 +511,167 @@ function funfair() {
   return g;
 }
 
+// --- Sahil ---
+const LH = {
+  white: mat('#f6f5f1'),
+  red: mat('#d63a32'),
+  dark: mat('#37474f'),
+  stone: mat('#9b958a'),
+  lamp: new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 }),
+};
+LH.lamp.name = 'lamp'; // gece yanar (DayNight)
+
+// Deniz feneri kulesi: kırmızı-beyaz kuşaklar, balkon, gece yanan fener odası (yerel ölçüde boyu ~0.93)
+export function lighthouseTower() {
+  const g = new THREE.Group();
+  g.add(part(new THREE.CylinderGeometry(0.17, 0.2, 0.06, 12), LH.stone, 0, 0.03, 0));
+  for (let k = 0; k < 4; k++) {
+    g.add(part(new THREE.CylinderGeometry(0.098 - k * 0.012, 0.11 - k * 0.012, 0.17, 14), k % 2 ? LH.red : LH.white, 0, 0.145 + k * 0.17, 0));
+  }
+  // Küçük pencereler
+  for (const [y, a] of [[0.2, 0], [0.37, 2], [0.54, 4]]) {
+    const r = 0.105 - y * 0.07;
+    g.add(part(new THREE.BoxGeometry(0.02, 0.035, 0.02), LH.dark, Math.sin(a) * r, y, Math.cos(a) * r));
+  }
+  g.add(part(new THREE.CylinderGeometry(0.095, 0.095, 0.018, 14), LH.dark, 0, 0.74, 0));
+  g.add(part(new THREE.CylinderGeometry(0.092, 0.092, 0.03, 14, 1, true), LH.dark, 0, 0.765, 0));
+  g.add(part(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 10), LH.lamp, 0, 0.79, 0));
+  g.add(part(new THREE.ConeGeometry(0.072, 0.08, 10), LH.red, 0, 0.87, 0));
+  g.add(part(new THREE.SphereGeometry(0.012, 6, 4), LH.dark, 0, 0.915, 0));
+  return g;
+}
+
+// Işık huzmesi (gece, fener yanınca görünür)
+const beamMat = new THREE.MeshBasicMaterial({
+  color: '#fff6c8', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false,
+});
+
+// Deniz feneri (1x1): kayalık kıyıda kule ve bekçi evi. Ön yüz (+z) denize bakar.
+function lighthouse() {
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#efdca4'), 0, 0.01, 0));
+  st.add(part(new THREE.BoxGeometry(0.98, 0.022, 0.5), mat('#8fc76a'), 0, 0.011, -0.24));
+  for (const [x, z, s] of [[0.28, 0.36, 0.11], [0.1, 0.42, 0.08], [0.38, 0.12, 0.08], [-0.05, 0.3, 0.06]]) {
+    const r = part(new THREE.IcosahedronGeometry(s, 0), LH.stone, x, s * 0.4, z);
+    r.rotation.set(x * 5, z * 7, 0);
+    st.add(r);
+  }
+  const tower = lighthouseTower();
+  tower.position.set(0.12, 0, 0.12);
+  st.add(tower);
+  // Bekçi evi
+  st.add(part(new THREE.BoxGeometry(0.26, 0.12, 0.18), LH.white, -0.24, 0.08, -0.22));
+  const roof = part(new THREE.CylinderGeometry(0.11, 0.11, 0.28, 3), LH.red, -0.24, 0.18, -0.22);
+  roof.rotation.set(0, 0, Math.PI / 2);
+  roof.scale.set(0.6, 1, 1);
+  st.add(roof);
+  st.add(part(new THREE.BoxGeometry(0.05, 0.07, 0.006), LH.dark, -0.24, 0.055, -0.128));
+  st.add(part(new THREE.BoxGeometry(0.04, 0.035, 0.006), windowMat, -0.32, 0.09, -0.128));
+  st.add(part(new THREE.BoxGeometry(0.04, 0.035, 0.006), windowMat, -0.16, 0.09, -0.128));
+  for (let k = 0; k < 4; k++) st.add(part(new THREE.BoxGeometry(0.05, 0.006, 0.05), mat('#d8d2c4'), -0.12 + k * 0.07, 0.024, -0.04 + k * 0.05));
+  g.add(mergeStatic([st]));
+  // Dönen ışık huzmesi
+  const beam = new THREE.Group();
+  beam.position.set(0.12, 0.79, 0.12);
+  for (const turn of [0, Math.PI]) {
+    const geo = new THREE.ConeGeometry(0.28, 2.6, 16, 1, true).rotateZ(Math.PI / 2).translate(1.3, 0, 0);
+    const m = new THREE.Mesh(geo, beamMat);
+    m.rotation.y = turn;
+    beam.add(m);
+  }
+  beam.visible = false;
+  g.add(beam);
+  g.userData.beam = beam;
+  return g;
+}
+
+// Yat: beyaz gövde, renkli şerit, ahşap güverte, kabin; yelkenli ya da motorlu
+const sailMat = new THREE.MeshStandardMaterial({ color: '#ffffff', side: THREE.DoubleSide, roughness: 0.7 });
+function yacht(sail: boolean, stripe: string) {
+  const b = new THREE.Group();
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.08, -0.027);
+  shape.lineTo(0.04, -0.027);
+  shape.quadraticCurveTo(0.085, -0.016, 0.1, 0);
+  shape.quadraticCurveTo(0.085, 0.016, 0.04, 0.027);
+  shape.lineTo(-0.08, 0.027);
+  shape.lineTo(-0.08, -0.027);
+  const hull = new THREE.ExtrudeGeometry(shape, { depth: 0.032, bevelEnabled: false, curveSegments: 4 }).rotateX(-Math.PI / 2);
+  b.add(part(hull, LH.white, 0, 0, 0));
+  b.add(part(new THREE.BoxGeometry(0.15, 0.007, 0.056), mat(stripe), -0.005, 0.02, 0));
+  b.add(part(new THREE.BoxGeometry(0.13, 0.004, 0.044), mat('#c9a06a'), -0.01, 0.034, 0));
+  b.add(part(new THREE.BoxGeometry(0.06, 0.026, 0.038), LH.white, -0.02, 0.047, 0));
+  b.add(part(new THREE.BoxGeometry(0.062, 0.008, 0.04), LH.dark, -0.02, 0.052, 0));
+  if (sail) {
+    b.add(part(new THREE.CylinderGeometry(0.0025, 0.0025, 0.24, 5), mat('#dddddd'), 0.012, 0.16, 0));
+    const tri = new THREE.ShapeGeometry(new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-0.085, 0), new THREE.Vector2(0, 0.2)]));
+    b.add(part(tri, sailMat, 0.01, 0.06, 0));
+  } else {
+    b.add(part(new THREE.BoxGeometry(0.035, 0.02, 0.032), LH.white, -0.025, 0.07, 0));
+    b.add(part(new THREE.BoxGeometry(0.037, 0.007, 0.034), LH.dark, -0.025, 0.074, 0));
+  }
+  return b;
+}
+
+// Yat limanı (2x2): kulüp binası, kafe, ahşap iskeleler denize uzanır, iskelelerin arasında yatlar sallanır.
+// Ön yüz (+z) denize bakar; iskeleler arazinin dışına, denizin üstüne taşar.
+function marina() {
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  const wood = mat('#b98a56');
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.76), mat('#ddd6c6'), 0, 0.01, -0.11));
+  st.add(part(new THREE.BoxGeometry(0.98, 0.016, 0.22), mat('#efdca4'), 0, 0.008, 0.38));
+  // Kulüp binası: beyaz, mavi çatı, geniş camlar ve üst kat
+  st.add(part(new THREE.BoxGeometry(0.34, 0.12, 0.2), LH.white, -0.2, 0.08, -0.3));
+  st.add(part(new THREE.BoxGeometry(0.38, 0.018, 0.24), mat('#1e88e5'), -0.2, 0.149, -0.3));
+  st.add(part(new THREE.BoxGeometry(0.3, 0.05, 0.006), windowMat, -0.2, 0.085, -0.197));
+  st.add(part(new THREE.BoxGeometry(0.18, 0.06, 0.12), LH.white, -0.26, 0.19, -0.33));
+  st.add(part(new THREE.BoxGeometry(0.2, 0.012, 0.14), mat('#1e88e5'), -0.26, 0.226, -0.33));
+  // Şemsiyeli kafe masaları
+  ['#e53935', '#fdd835', '#43a047'].forEach((c, n) => {
+    const x = 0.08 + n * 0.12;
+    st.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.08, 4), mat('#eeeeee'), x, 0.06, -0.3));
+    st.add(part(new THREE.ConeGeometry(0.05, 0.025, 8), mat(c), x, 0.1, -0.3));
+    st.add(part(new THREE.CylinderGeometry(0.02, 0.02, 0.004, 8), LH.white, x, 0.045, -0.3));
+  });
+  // Bayraklar
+  ['#e53935', '#1e88e5', '#fdd835'].forEach((c, n) => {
+    const x = -0.4 + n * 0.08;
+    st.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.2, 4), mat('#eeeeee'), x, 0.11, 0.18));
+    st.add(part(new THREE.BoxGeometry(0.045, 0.028, 0.003), mat(c), x + 0.024, 0.19, 0.18));
+  });
+  st.add(palm(0.42, -0.4, 0.2, 0.1));
+  st.add(palm(0.3, -0.12, 0.18, -0.15));
+  // İskeleler: kıyı boyunca yürüyüş yolu ve denize uzanan üç parmak
+  const deck = 0.016;
+  st.add(part(new THREE.BoxGeometry(0.96, 0.012, 0.07), wood, 0, deck, 0.42));
+  for (const x of [-0.3, 0, 0.3]) {
+    st.add(part(new THREE.BoxGeometry(0.045, 0.012, 0.56), wood, x, deck, 0.72));
+    for (const z of [0.6, 0.8, 0.98]) st.add(part(new THREE.CylinderGeometry(0.008, 0.008, 0.14, 5), mat('#7b5a3a'), x + 0.025, -0.04, z));
+  }
+  g.add(mergeStatic([st]));
+  // Yatlar: iskelelerin arasında, burunları denize dönük; deniz seviyesinde yüzer (bina 2x2 büyütülür)
+  const water = SEA_Y / (2 * 0.96);
+  const boats: { obj: THREE.Object3D; phase: number }[] = [];
+  ([[-0.15, true, '#1e88e5'], [0.15, false, '#e53935'], [0.44, true, '#00897b'], [-0.44, false, '#3949ab']] as [number, boolean, string][]).forEach(
+    ([x, sail, c], n) => {
+      const b = yacht(sail, c);
+      b.rotation.y = -Math.PI / 2;
+      const holder = new THREE.Group();
+      holder.add(mergeStatic([b]));
+      holder.position.set(x, water - 0.012, 0.74 + (n % 2) * 0.05);
+      g.add(holder);
+      boats.push({ obj: holder, phase: n * 1.7 });
+    },
+  );
+  g.userData.bob = boats;
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'lighthouse') return lighthouse();
+  if (kind === 'marina') return marina();
   if (kind === 'clocktower') return clockTower();
   if (kind === 'museum') return museum();
   if (kind === 'funfair') return funfair();
@@ -533,6 +694,22 @@ export function makeDecor(kind: DecorKind): THREE.Object3D {
 // Dönme dolap dönsün, kabinler hep düz dursun; atlıkarınca dönsün, hız treni rayda ilerlesin
 const ahead = new THREE.Vector3();
 export function animateDecor(obj: THREE.Object3D, dt: number) {
+  // Fener huzmesi döner; fener yanınca (gece) görünür
+  const beam = obj.userData.beam as THREE.Object3D | undefined;
+  if (beam) {
+    beam.rotation.y += dt * 0.9;
+    beamMat.opacity = (LH.lamp.emissiveIntensity / 2) * 0.22;
+    beam.visible = beamMat.opacity > 0.01;
+  }
+  // Yatlar dalgada sallanır
+  const bob = obj.userData.bob as { obj: THREE.Object3D; phase: number }[] | undefined;
+  if (bob) {
+    const t = (obj.userData.t = ((obj.userData.t as number | undefined) ?? 0) + dt);
+    for (const b of bob) {
+      b.obj.position.y = SEA_Y / (2 * 0.96) - 0.012 + Math.sin(t * 1.3 + b.phase) * 0.004;
+      b.obj.rotation.z = Math.sin(t * 1.1 + b.phase) * 0.03;
+    }
+  }
   const car = obj.userData.carousel as THREE.Object3D | undefined;
   if (car) car.rotation.y += dt * 0.8;
   const co = obj.userData.coaster as { curve: THREE.CatmullRomCurve3; cars: THREE.Object3D[]; t: number } | undefined;

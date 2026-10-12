@@ -22,7 +22,10 @@ export function renderThumbs(items: [string, THREE.Object3D][], size = 160): Map
   for (const [tool, obj] of items) {
     scene.add(obj);
     obj.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(obj);
+    const box = new THREE.Box3();
+    obj.traverseVisible(o => {
+      if ((o as THREE.Mesh).isMesh) box.expandByObject(o, false);
+    });
     const center = box.getCenter(new THREE.Vector3());
     const r = box.getSize(new THREE.Vector3()).length() / 2;
     Object.assign(cam, { left: -r, right: r, top: r, bottom: -r });

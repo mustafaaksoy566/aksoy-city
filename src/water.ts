@@ -40,13 +40,13 @@ function waveNormals(size = 128) {
 
 const normals = waveNormals();
 
-// Nehir: opak; deniz: hafif saydam (kıyıda kumun rengi görünsün)
+// Nehir: opak; deniz: hafif saydam (kıyıda kumun rengi görünsün), rengi kıyıdan açığa koyulaşır (terrain.ts)
 export const riverMat = new THREE.MeshStandardMaterial({
   color: '#2b9be0', roughness: 0.3, metalness: 0.05, normalMap: normals, normalScale: new THREE.Vector2(0.18, 0.18),
 });
 export const seaMat = new THREE.MeshStandardMaterial({
-  color: '#2490d6', roughness: 0.28, metalness: 0.05, normalMap: normals, normalScale: new THREE.Vector2(0.22, 0.22),
-  transparent: true, opacity: 0.9,
+  vertexColors: true, roughness: 0.28, metalness: 0.05, normalMap: normals, normalScale: new THREE.Vector2(0.22, 0.22),
+  transparent: true, opacity: 0.88,
 });
 
 // Geometrinin doku koordinatlarını dünya konumundan ver (geometri dünya yerinde olmalı)

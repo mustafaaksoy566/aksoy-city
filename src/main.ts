@@ -27,6 +27,8 @@ import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
 import { makeModel, loadSkins } from './assets';
 import { buildSurroundings } from './terrain';
+import { buildHighway, HighwayTraffic } from './highway';
+import { updateTrees } from './trees';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
@@ -57,9 +59,12 @@ const writePref = (key: string, value: string) => {
 // --- Sahne, kamera, ışık ---
 const container = document.getElementById('app')!;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-// Çözünürlük: grafik ayarına göre; telefon zorlanırsa kendiliğinden düşürülür (bkz. adaptQuality)
+// Çözünürlük: grafik ayarına göre ekranın kendi keskinliği; telefon zorlanırsa kendiliğinden biraz düşürülür,
+// ama bulanıklaşmasın diye bir alt sınırın altına inmez (bkz. adaptQuality)
 let quality: Quality = (readPref(QUALITY_KEY) as Quality) || 'high';
-const maxRatio = () => (quality === 'high' ? Math.min(window.devicePixelRatio, 2) : quality === 'mid' ? Math.min(window.devicePixelRatio, 1.5) : 1);
+const dpr = () => window.devicePixelRatio || 1;
+const maxRatio = () => (quality === 'high' ? Math.min(dpr(), 3) : quality === 'mid' ? Math.min(dpr(), 2) : Math.min(dpr(), 1.25));
+const minRatio = () => (quality === 'high' ? Math.min(dpr(), 2) : quality === 'mid' ? Math.min(dpr(), 1.5) : 1);
 let pixelRatio = maxRatio();
 renderer.setPixelRatio(pixelRatio);
 renderer.shadowMap.enabled = quality !== 'low';
@@ -98,13 +103,7 @@ Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: 
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
 
-// Şehrin çimen zemini. Yolların asfaltı y=0'da olduğu için zemin biraz aşağıda,
-// yoksa çimen yolun içinden titreyerek görünüyor.
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), new THREE.MeshStandardMaterial({ color: '#56a03a' }));
-ground.rotation.x = -Math.PI / 2;
-ground.position.y = -0.02;
-ground.receiveShadow = true;
-scene.add(ground);
+// Şehrin zemini çevre araziyle tek parça (terrain.ts); yolların asfaltı y=0'da, zemin biraz aşağıda
 const grid = new THREE.GridHelper(SIZE, SIZE, '#ffffff', '#ffffff');
 (grid.material as THREE.Material).transparent = true;
 (grid.material as THREE.Material).opacity = 0.18;
@@ -145,6 +144,8 @@ const trains = new Trains(city);
 scene.add(trains.root);
 const sky = new Sky(city);
 scene.add(sky.root);
+const highway = new HighwayTraffic();
+scene.add(highway.root);
 const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);
@@ -681,9 +682,11 @@ function frame() {
   traffic.update(dt);
   walkers.update(dt);
   trains.update(dt);
+  highway.update(dt);
   sky.update(dt);
   weather.update(dt, rig.target);
   updateWater(clock.elapsedTime);
+  updateTrees(clock.elapsedTime);
   dayNight.dome.position.copy(camera.position);
   fireworks.update(dt, phase(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS).night, showSpots);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
@@ -698,17 +701,31 @@ function frame() {
   camera.position.sub(jolt);
 }
 
-// Kare hızı düşükse çözünürlüğü biraz azalt (en az 1)
+// Kare hızı düşükse çözünürlüğü biraz azalt, hızlanınca geri artır. Açılıştaki ilk saniyeler (yükleme)
+// ve arka planda geçen süre sayılmaz. Pil tasarrufunda telefon 30 kareye inse bile alt sınırın altına düşmez.
 let slowTime = 0;
+let fastTime = 0;
+let warmup = 5;
 function adaptQuality(dt: number) {
-  if (dt > 1 / 40) slowTime += dt;
-  else slowTime = Math.max(0, slowTime - dt * 0.5);
-  if (slowTime > 2 && pixelRatio > 1) {
-    pixelRatio = Math.max(1, pixelRatio - 0.25);
-    renderer.setPixelRatio(pixelRatio);
-    resize();
-    slowTime = 0;
+  if (warmup > 0 || dt > 0.25) {
+    warmup -= Math.min(dt, 0.25);
+    return;
   }
+  if (dt > 1 / 40) {
+    slowTime += dt;
+    fastTime = 0;
+  } else {
+    slowTime = Math.max(0, slowTime - dt * 0.5);
+    if (dt < 1 / 52) fastTime += dt;
+  }
+  let next = pixelRatio;
+  if (slowTime > 2 && pixelRatio > minRatio()) next = Math.max(minRatio(), pixelRatio - 0.25);
+  else if (fastTime > 6 && pixelRatio < maxRatio()) next = Math.min(maxRatio(), pixelRatio + 0.25);
+  if (next === pixelRatio) return;
+  pixelRatio = next;
+  renderer.setPixelRatio(pixelRatio);
+  resize();
+  slowTime = fastTime = 0;
 }
 
 // Menü düğmeleri için her binanın küçük resmini çiz
@@ -724,7 +741,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'trade', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -734,7 +751,8 @@ function makeMenuPictures() {
 
 Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), loadSkins(SKINS)])
   .then(() => {
-    scene.add(buildSurroundings());
+    scene.add(buildSurroundings(), buildHighway());
+    highway.init();
     traffic.init();
     trains.init();
     sky.init();
@@ -743,12 +761,13 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     // Oyun kapalıyken biten üretimleri depoya al
     const got = city.collect(Date.now());
     if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
+    if (city.seaRefund) toast(`Kuzey kıyısı artık deniz! Oradaki yapıların parası iade edildi: 💰${fmt(city.seaRefund)}`);
     afterChange();
     hideLoading();
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, open: openTile, pick: pickTool, refresh: afterChange } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, open: openTile, pick: pickTool, refresh: afterChange } });
   })
   .catch(err => {
     console.error(err);

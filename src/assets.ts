@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { TREE_MODELS } from './trees';
 
 const models = new Map<string, THREE.Object3D>();
 // Aynı klasördeki modeller aynı doku atlasını kullanır; tek malzemede birleştirilir ki çizim sayısı azalsın
@@ -60,6 +61,12 @@ export async function loadModels(paths: string[], onProgress?: (done: number, to
   let done = 0;
   await Promise.all(
     paths.map(async path => {
+      // Kodla çizilen modeller (ağaçlar) dosyadan yüklenmez
+      if (TREE_MODELS[path]) {
+        models.set(path, TREE_MODELS[path]());
+        onProgress?.(++done, paths.length);
+        return;
+      }
       const gltf = await loader.loadAsync(`${import.meta.env.BASE_URL}${path}${path.startsWith('kaykit/') ? '.gltf' : '.glb'}`);
       let obj: THREE.Object3D = gltf.scene;
       const folder = path.slice(0, path.lastIndexOf('/'));

@@ -284,7 +284,7 @@ function port() {
   hang.scale.multiplyScalar(k);
   hang.position.set(0, 0.2, 0.8);
   g.add(hang);
-  // Yanaşmış kargo gemisi (nehirde, rıhtıma paralel)
+  // Yanaşmış kargo gemisi (suda, rıhtıma paralel)
   const ship = new THREE.Group();
   const hull = makeModel(BOAT_MODELS[0]);
   hull.scale.multiplyScalar((2.6 / 3.5) * k);

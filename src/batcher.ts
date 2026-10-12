@@ -58,7 +58,9 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
       const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
       const kind = classify(mat);
       if (kind === 'vc') {
-        push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], mat.color));
+        // Kendi köşe renkleri olan modeller (ağaçlar) renklerini korur
+        const own = mat.vertexColors && !!mesh.geometry.attributes.color;
+        push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], own ? undefined : mat.color));
       } else if (kind === 'tex') {
         // Aynı doku atlası tek malzeme olarak yüklenir (assets.ts), o yüzden malzemeye göre grupla
         push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));

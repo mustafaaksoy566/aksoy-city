@@ -45,7 +45,9 @@ function effectOf(t: BuildTool): string {
     const d = DECOR[t];
     if (t === 'station') return '🚆 Tren seferleri';
     if (t === 'busstop') return '🚌 Otobüs hattı';
-    if (t === 'beach') return `🏖️ +${fmt(d.income ?? 0)}/gün, nehir kıyısı`;
+    if (t === 'beach') return `🏖️ +${fmt(d.income ?? 0)}/gün, su kıyısı`;
+    if (t === 'marina') return `⛵ +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
+    if (t === 'lighthouse') return `🗼 +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
     if (d.income) return `✈️ +${fmt(d.income)}/gün turist`;
     if (d.covers) return `🎓 ${d.radius} kare okul alanı`;
     return `😊 Mutluluk +%${Math.round(d.happy * 100)}`;

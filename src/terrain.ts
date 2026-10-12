@@ -1,22 +1,25 @@
 import * as THREE from 'three';
-import { SIZE, ENTRANCE_Z, PROPS } from './config';
-import { makeModel } from './assets';
+import { SIZE, ENTRANCE_Z, SEA_ROWS } from './config';
 import { mergeStatic } from './batcher';
 import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV } from './water';
+import { forest, type TreeSpot, type TreeType } from './trees';
+import { palm, lighthouseTower } from './landmarks';
 
-// Haritanın çevresi: şehrin kenarından başlayan yumuşak tepeler, batıda ve güneyde karlı dağlar,
-// kuzeyde kumsal ve deniz. Nehir batıdaki dağlardan gelir, şehrin içinden geçer ve kuzeyde denize dökülür.
-// Hepsi sadece görüntü, üzerine bina yapılmaz.
+// Şehrin zemini ve çevresi tek parça arazi: şehrin çimeni kenarda yumuşak tepelere, batıda ve güneyde
+// karlı dağlara dönüşür. Kuzeyde deniz şehrin içine kadar gelir (ilk iki sıra deniz, sonraki iki sıra kumsal);
+// kıyı şehrin dışında da aynı çizgiden doğal şekilde devam eder. Nehir batıdaki dağlardan gelir,
+// şehrin içinden geçer ve kuzeyde denize dökülür. Şehrin dışı sadece görüntü, üzerine bina yapılmaz.
 
 const EXTENT = 240; // çevre arazinin genişliği
-const SEG = 240; // arazi ızgarası (1 birimde bir köşe; şehrin kenarı tam köşelere denk gelir)
 const HALF = SIZE / 2;
-const CITY_Y = -0.03; // şehrin çimeninin hemen altı
-const ROAD_Z = ENTRANCE_Z - HALF + 0.5; // otoyolun z konumu
-const RIVER_C = 18; // nehrin şehirden çıktığı yerin ortası (41-42. kareler)
+const CITY_Y = -0.03; // şehrin zemini (yollar y=0'da)
+const RIVER_C = 18; // nehrin şehrin batısından çıktığı yerin ortası (41-42. sıralar)
+// Kıyı çizgisi (şehrin içinde): kumsal z = -22'de başlar, su biraz ileride
+const COAST_Z = SEA_ROWS - HALF - 0.5;
 
 const smooth = (x: number, a: number, b: number) => THREE.MathUtils.smoothstep(x, a, b);
 const lerp = THREE.MathUtils.lerp;
+const clampCity = (v: number) => THREE.MathUtils.clamp(v, -HALF, HALF);
 
 // Basit, tekrar edilebilir gürültü
 function hash(x: number, z: number) {
@@ -32,36 +35,59 @@ function noise(x: number, z: number) {
 }
 const fbm = (x: number, z: number) => noise(x * 0.06, z * 0.06) * 0.65 + noise(x * 0.15, z * 0.15) * 0.35;
 
-// Kıyı çizgisi: pozitifse deniz. Kuzeyde şehirden ~9 birim ötede, doğuya doğru şehre yaklaşır.
-export const coast = (x: number, z: number) => -z - 33 + Math.max(0, x - 20) * 0.3 + (fbm(x + 50, z) - 0.5) * 5;
-
 // Şehir alanının kenarına uzaklık (içerideyse 0)
 const edgeDist = (x: number, z: number) => Math.hypot(Math.max(Math.abs(x) - HALF, 0), Math.max(Math.abs(z) - HALF, 0));
 
-// --- Nehir ---
-// Batı kolu: şehrin batı kenarından (z = 18) dağlara doğru kıvrılarak yükselir
-const westZ = (t: number) => RIVER_C + Math.sin(t * 0.07) * 5 * smooth(t, 0, 14);
+// --- Kıyı ---
+// Denizdeki adalar [x, z, yarıçap] (gemilerin yolundan uzakta)
+const ISLANDS: [number, number, number][] = [[-48, -84, 9], [38, -97, 11], [66, -74, 3.5]];
+
+// Kıyıya uzaklık: pozitifse deniz. Şehrin yanlarında şehirdeki kıyıyla aynı çizgiden başlar;
+// batıda kara kuzeye doğru uzanır, doğuda deniz güneye doğru sokulur.
+export function coast(x: number, z: number) {
+  const ex = Math.max(Math.abs(x) - HALF, 0);
+  const bend = x < 0 ? -smooth(ex, 0, 50) * 10 : 0.3 * ex * smooth(ex, 0, 10);
+  let c = COAST_Z - z + bend + (fbm(x + 50, z) - 0.5) * 5 * smooth(ex, 0, 14);
+  for (const [ix, iz, r] of ISLANDS) c = Math.min(c, Math.hypot(x - ix, z - iz) - r + (fbm(x * 2 + ix, z * 2) - 0.5) * r * 0.5);
+  return c;
+}
+
+// Kıyıdaki yükseklik: karada şehir hizası, suya doğru kumsal iner, sonra deniz derinleşir
+const seaFloor = (c: number) => SEA_Y - 0.1 - Math.min(2.4, Math.max(0, c) * 0.25);
+const shore = (c: number) => Math.max(seaFloor(c), CITY_Y - Math.max(0, c + 0.5) * 0.35);
+// Kumsalın çimene döndüğü çizgi (hafif dalgalı)
+const sandLine = (x: number) => -2.42 + 0.1 * Math.sin(x * 0.9) + 0.06 * Math.sin(x * 2.3 + 1);
+
+// --- Otoyol ---
+// Batıdaki dağın tünelinden çıkar, şehrin girişine bağlanır; şehrin batısından güneye döner,
+// nehri köprüyle geçer ve şehrin güneyinden doğuya, ufka kadar uzanır.
+export const HW = { portal: -96.75, x: -30.5, z0: ENTRANCE_Z - HALF + 0.5, z1: HALF + 4.5, east: 118 };
+const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) =>
+  Math.hypot(px - THREE.MathUtils.clamp(px, Math.min(ax, bx), Math.max(ax, bx)), pz - THREE.MathUtils.clamp(pz, Math.min(az, bz), Math.max(az, bz)));
+// Otoyola uzaklık
+export function roadDist(x: number, z: number) {
+  return Math.min(
+    segDist(x, z, -EXTENT, HW.z0, -HALF, HW.z0),
+    segDist(x, z, HW.x, HW.z0, HW.x, HW.z1),
+    segDist(x, z, HW.x, HW.z1, EXTENT, HW.z1),
+  );
+}
+// Tünelin içi (dağın altında kalan kısım): 0 dışarıda, 1 dağın içinde
+const tunnelAt = (x: number) => smooth(-x, -HW.portal + 0.1, -HW.portal + 1.9);
+
+// --- Nehir (batı kolu) ---
+// Şehrin batı kenarından (z = 18) önce dümdüz çıkar, sonra kıvrılarak dağlara doğru yükselir
+const westZ = (t: number) => RIVER_C + Math.sin(t * 0.07) * 5 * smooth(t, 2, 24);
 const westY = (t: number) => RIVER_Y + Math.max(0, t - 14) * 0.045;
-// Kuzey kolu: şehrin kuzey kenarından (x = 18) denize akar, ağzında genişler
-const northX = (t: number) => RIVER_C + Math.sin(t * 0.13) * 2 * smooth(t, 0, 6);
-const northY = (x: number, z: number) => lerp(RIVER_Y, SEA_Y - 0.004, smooth(coast(x, z), -5, -0.5));
-const northHalf = (x: number, z: number) => 1 + smooth(coast(x, z), -7, 1) * 1.6;
+const westHalf = (t: number) => 1 - smooth(t, 70, 115) * 0.4;
 
 // Bir noktanın nehre uzaklığı, su yüksekliği ve yarım genişlik (nehir yakında değilse null)
-function riverAt(x: number, z: number): { d: number; y: number; half: number } | null {
-  let best: { d: number; y: number; half: number } | null = null;
-  if (x < -HALF + 0.5) {
-    const t = -HALF - x;
-    const d = Math.abs(z - westZ(Math.max(0, t)));
-    if (d < 14) best = { d, y: westY(Math.max(0, t)), half: 1 };
-  }
-  if (z < -HALF + 0.5) {
-    const t = -HALF - z;
-    const cx = northX(Math.max(0, t));
-    const d = Math.abs(x - cx);
-    if (d < 14 && (!best || d < best.d)) best = { d, y: northY(cx, z), half: northHalf(cx, z) };
-  }
-  return best;
+export function riverAt(x: number, z: number): { d: number; y: number; half: number } | null {
+  if (x > -HALF + 0.5) return null;
+  const t = Math.max(0, -HALF - x);
+  const slope = westZ(t + 0.5) - westZ(Math.max(0, t - 0.5));
+  const d = Math.abs(z - westZ(t)) / Math.hypot(1, slope);
+  return d < 14 ? { d, y: westY(t), half: westHalf(t) } : null;
 }
 
 // Tepeler ve dağlar (şehirden uzaklaştıkça yükselir; batıda ve güneyde dağlar daha yüksek)
@@ -76,75 +102,153 @@ function hills(x: number, z: number, d: number) {
 
 export function heightAt(x: number, z: number) {
   const d = edgeDist(x, z);
-  if (d <= 0) return CITY_Y;
+  // Şehrin içi düz; sadece kuzeydeki deniz sıralarında kumsal suya iner
+  const inner = shore(COAST_Z - clampCity(z));
+  if (d <= 0) return inner;
   const c = coast(x, z);
-  if (c > 0) return SEA_Y - 0.06 - Math.min(2.5, c * 0.3); // deniz tabanı
   let h = hills(x, z, d) * smooth(-c, 2, 14); // kıyıya doğru alçalır
-  if (x < -HALF + 1) h *= smooth(Math.abs(z - ROAD_Z), 2.5, 10); // otoyol koridoru düz
-  let y = CITY_Y + h;
+  const rd = roadDist(x, z);
+  const tunnel = tunnelAt(x);
+  h *= lerp(smooth(rd, 1.2, 8), 1, tunnel); // otoyolun çevresi düz, tünelde dağ yolun üstünü örter
+  h += tunnel * 3 * (1 - smooth(rd, 3, 10));
+  let y = shore(c) + h;
   const r = riverAt(x, z);
-  if (r) y = lerp(r.y + 0.04, y, smooth(r.d, r.half + 0.6, r.half + 9)); // nehir vadisi
-  y = lerp(SEA_Y - 0.06, y, smooth(-c, 0, 4)); // kumsal denize doğru iner
-  if (r) y = lerp(r.y - 0.22, y, smooth(r.d, r.half - 0.15, r.half + 1)); // nehir yatağı
-  return lerp(CITY_Y, y, smooth(d, 0, 2.5)); // şehrin kenarı şehirle aynı hizada
+  if (r) {
+    y = lerp(r.y + 0.015, y, smooth(r.d, r.half + 0.5, r.half + 9)); // nehir vadisi
+    y = lerp(r.y - 0.06, y, smooth(r.d, r.half + 0.05, r.half + 0.5)); // nehir yatağı (kıyı şeridinin altında kalır)
+  }
+  return lerp(inner, y, smooth(d, 0, 2.5)); // şehrin kenarı şehirle aynı hizada
 }
 
 const C = {
-  ground: new THREE.Color('#56a03a'), // şehrin çimeniyle aynı
+  ground: new THREE.Color('#56a03a'), // şehrin çimeni
   meadow: new THREE.Color('#5aa53c'),
   hill: new THREE.Color('#4a9535'),
   forest: new THREE.Color('#3b7f33'),
   rock: new THREE.Color('#8e877b'),
   snow: new THREE.Color('#f4f4f0'),
-  sand: new THREE.Color('#ecd9a0'),
-  bank: new THREE.Color('#cdb98a'),
-  shallow: new THREE.Color('#dcc58e'),
-  deep: new THREE.Color('#a99a6c'),
+  sand: new THREE.Color('#efdca4'),
+  wet: new THREE.Color('#d9c085'),
+  shallow: new THREE.Color('#e2cd94'),
+  deep: new THREE.Color('#6f8c86'),
 };
 
+// Kıyıda renk: su altında kumlu taban; karada kumsal çimene yumuşakça geçer, suya yakın kum ıslak ve koyu
+const tmpSand = new THREE.Color();
+function shoreColor(x: number, y: number, c: number, land: THREE.Color, out: THREE.Color) {
+  if (c > -0.25 && y < SEA_Y + 0.02) return out.lerpColors(C.shallow, C.deep, Math.min(1, (SEA_Y - y) / 1.2));
+  const sand = smooth(c - sandLine(x), -0.2, 0.2) * (1 - smooth(y, 0.2, 0.45));
+  tmpSand.lerpColors(C.sand, C.wet, smooth(c, -0.95, -0.45));
+  return out.copy(land).lerp(tmpSand, sand);
+}
+
+// Şehrin içindeki zemin rengi
+function cityColor(x: number, z: number, out: THREE.Color) {
+  return shoreColor(x, shore(COAST_Z - z), COAST_Z - z, C.ground, out);
+}
+
+const tmpLand = new THREE.Color();
 function colorAt(x: number, z: number, y: number, out: THREE.Color) {
   const d = edgeDist(x, z);
-  const c = coast(x, z);
-  const r = riverAt(x, z);
-  if (y < SEA_Y + 0.01 && c > -1.5) return out.lerpColors(C.shallow, C.deep, Math.min(1, (SEA_Y - y) / 1.5));
-  if (r && r.d < r.half + 0.45) return out.copy(C.bank);
-  if (c > -3.5 && y < 0.35) return out.copy(C.sand);
-  if (y < 1.5) out.lerpColors(C.meadow, C.hill, Math.max(0, y) / 1.5);
-  else if (y < 5) out.lerpColors(C.hill, C.forest, (y - 1.5) / 3.5);
-  else if (y < 9) out.lerpColors(C.forest, C.rock, (y - 5) / 4);
-  else out.lerpColors(C.rock, C.snow, Math.min(1, (y - 9) / 3));
-  // Hafif renk dalgalanması, şehrin kenarında şehrin çimeni
-  out.multiplyScalar(0.94 + fbm(x * 3, z * 3) * 0.12);
-  return out.lerp(C.ground, 1 - smooth(d, 0.5, 5));
+  if (d <= 0) return cityColor(x, z, out);
+  const land = tmpLand;
+  if (y < 1.5) land.lerpColors(C.meadow, C.hill, Math.max(0, y) / 1.5);
+  else if (y < 5) land.lerpColors(C.hill, C.forest, (y - 1.5) / 3.5);
+  else if (y < 9) land.lerpColors(C.forest, C.rock, (y - 5) / 4);
+  else land.lerpColors(C.rock, C.snow, Math.min(1, (y - 9) / 3));
+  land.multiplyScalar(0.94 + fbm(x * 3, z * 3) * 0.12); // hafif renk dalgalanması
+  shoreColor(x, y, coast(x, z), land, out);
+  // Şehrin kenarında şehrin kendi rengine geçer
+  const edge = 1 - smooth(d, 0.5, 5);
+  if (edge > 0) out.lerp(cityColor(clampCity(x), clampCity(z), new THREE.Color()), edge);
+  return out;
+}
+
+// Izgara çizgileri: şehrin kenarı ve kıyısı çevresinde sık (yarım kare), şehrin düz ortasında ve
+// uzaklarda seyrek. inner: ortadaki aralık (innerTo'ya kadar)
+function axis(half: number, fine: number, fineTo: number, far: number, inner = fine, innerTo = 0) {
+  const out = [0];
+  let v = 0;
+  while (v < half - 1e-6) {
+    const s = v < innerTo ? inner : v < fineTo ? fine : fine + ((far - fine) * (v - fineTo)) / (half - fineTo);
+    v = Math.min(half, v + s);
+    out.push(v);
+  }
+  return [...out.slice(1).reverse().map(p => -p), ...out];
+}
+
+// Bir aralıkta ızgarayı sıklaştır (tünel ağzı gibi keskin yerler için)
+function refine(list: number[], from: number, to: number, step: number) {
+  const out = list.filter(v => v < from - step / 2 || v > to + step / 2);
+  for (let v = from; v <= to + 1e-6; v += step) out.push(v);
+  return out.sort((a, b) => a - b);
+}
+
+function grid(xs: number[], zs: number[], at: (x: number, z: number, pos: Float32Array, col: Float32Array, k: number) => void) {
+  const n = xs.length, m = zs.length;
+  const pos = new Float32Array(n * m * 3);
+  const col = new Float32Array(n * m * 3);
+  for (let j = 0; j < m; j++) for (let i = 0; i < n; i++) at(xs[i], zs[j], pos, col, j * n + i);
+  const index = new Uint32Array((n - 1) * (m - 1) * 6);
+  let k = 0;
+  for (let j = 0; j < m - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
+      index.set([a, c, b, b, c, d], k);
+      k += 6;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
+  return geo;
 }
 
 function buildGround() {
-  const geo = new THREE.PlaneGeometry(EXTENT, EXTENT, SEG, SEG).rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position as THREE.BufferAttribute;
-  const colors = new Float32Array(pos.count * 3);
   const col = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
+  const zs = axis(EXTENT / 2, 0.5, 34, 3.2, 1, 18);
+  const xs = refine(zs, HW.portal - 3, HW.portal + 1, 0.5);
+  const geo = grid(xs, zs, (x, z, pos, colors, k) => {
     const y = heightAt(x, z);
-    pos.setY(i, y);
-    colorAt(x, z, y, col).toArray(colors, i * 3);
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    pos.set([x, y, z], k * 3);
+    colorAt(x, z, y, col).toArray(colors, k * 3);
+  });
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }));
   mesh.receiveShadow = true;
   return mesh;
 }
 
+// Deniz: kıyıda köpük ve turkuaz sığ su, açıkta koyu mavi
+const SEA = {
+  foam: new THREE.Color('#dff7f2'),
+  shallow: new THREE.Color('#38c0d0'),
+  mid: new THREE.Color('#1f95d4'),
+  deep: new THREE.Color('#1a66b5'),
+};
 function buildSea() {
-  const geo = worldUV(new THREE.PlaneGeometry(EXTENT * 2, EXTENT * 2, 1, 1).rotateX(-Math.PI / 2).translate(0, SEA_Y, 0));
-  const sea = new THREE.Mesh(geo, seaMat);
+  const lines = axis(EXTENT, 1, 30, 24);
+  const geo = grid(lines, lines, (x, z, pos, colors, k) => {
+    pos.set([x, SEA_Y, z], k * 3);
+    const c = coast(x, z);
+    const col = new THREE.Color();
+    if (c < 0.2) col.lerpColors(SEA.foam, SEA.shallow, smooth(c, -0.3, 0.2));
+    else if (c < 5) col.lerpColors(SEA.shallow, SEA.mid, smooth(c, 0.2, 5));
+    else col.lerpColors(SEA.mid, SEA.deep, smooth(c, 5, 30));
+    col.toArray(colors, k * 3);
+  });
+  const normals = new Float32Array(geo.attributes.position.count * 3);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  const sea = new THREE.Mesh(worldUV(geo), seaMat);
   sea.renderOrder = -1;
   return sea;
 }
 
-// Nehrin şehir dışındaki suyu: ortaçizgi boyunca şerit
-function ribbon(points: { x: number; z: number; y: number; half: number }[]) {
+// Nehrin şehir dışındaki kısmı: su şeridi ve iki yanında kum şeridi (şehirdeki nehirle aynı genişlikte)
+interface RiverPoint { x: number; z: number; y: number; half: number }
+function ribbon(points: RiverPoint[], material: THREE.Material) {
   const pos: number[] = [];
   const idx: number[] = [];
   points.forEach((p, k) => {
@@ -160,72 +264,90 @@ function ribbon(points: { x: number; z: number; y: number; half: number }[]) {
   });
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
   geo.setIndex(idx);
-  geo.computeVertexNormals();
-  // Yüzey hep yukarı baksın
-  const n = geo.attributes.normal;
-  for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-  return new THREE.Mesh(worldUV(geo), riverMat);
+  const mesh = new THREE.Mesh(worldUV(geo), material);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
+const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
 function buildRiver() {
+  const pts: RiverPoint[] = [];
+  for (let t = 0; t <= 115; t += 0.5) pts.push({ x: -HALF - t, z: westZ(t), y: westY(t), half: westHalf(t) });
   const g = new THREE.Group();
-  const west: { x: number; z: number; y: number; half: number }[] = [];
-  for (let t = 0; t <= 115; t += 0.5) west.push({ x: -HALF - t, z: westZ(t), y: westY(t), half: 1 - smooth(t, 70, 115) * 0.4 });
-  const north: { x: number; z: number; y: number; half: number }[] = [];
-  for (let t = 0; t <= 18; t += 0.5) {
-    const z = -HALF - t, x = northX(t);
-    north.push({ x, z, y: northY(x, z), half: northHalf(x, z) });
-  }
-  g.add(ribbon(west), ribbon(north));
+  // Şehirdeki gibi: suyun kenarında 0.12 genişliğinde kum şeridi
+  g.add(ribbon(pts.map(p => ({ ...p, half: p.half - 0.12 })), riverMat));
+  g.add(ribbon(pts.map(p => ({ ...p, y: p.y - 0.003 })), bankMat));
   return g;
 }
 
-// Ağaçlar: şehirdekiyle aynı modeller, binlercesi tek seferde çizilir
-function instanced(path: string, mats: THREE.Matrix4[], tints: THREE.Color[]) {
-  const src = makeModel(path);
-  src.updateMatrixWorld(true);
-  const out: THREE.InstancedMesh[] = [];
-  src.traverse(o => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    const geo = m.geometry.clone().applyMatrix4(m.matrixWorld);
-    const inst = new THREE.InstancedMesh(geo, m.material, mats.length);
-    mats.forEach((mat, i) => {
-      inst.setMatrixAt(i, mat);
-      inst.setColorAt(i, tints[i % tints.length]);
-    });
-    out.push(inst);
-  });
-  return out;
-}
+// --- Ağaçlar ---
+const LEAF = {
+  green: ['#5fae45', '#6cbb4b', '#4f9f3f', '#7cc551', '#8cbf45', '#59a84a'],
+  pine: ['#3f7f46', '#4a8c4c', '#37723f', '#52905a'],
+  autumn: ['#e0913a', '#d8693a', '#e8c04a', '#c9a23f'],
+  blossom: ['#f7b3cd', '#ffd9e6', '#f39ab9'],
+};
+const pick = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 
 function buildTrees() {
-  const big: THREE.Matrix4[] = [], small: THREE.Matrix4[] = [];
+  const spots: TreeSpot[] = [];
   const tmp = new THREE.Object3D();
   let tries = 0;
-  while (big.length + small.length < 2000 && tries++ < 40000) {
+  while (spots.length < 2700 && tries++ < 90000) {
+    const x = (Math.random() - 0.5) * EXTENT * 0.9;
+    const z = (Math.random() - 0.5) * EXTENT * 0.9;
+    const d = edgeDist(x, z);
+    if (d < 1) continue;
+    if (coast(x, z) > -2.9) continue; // kumsalda ve denizde ağaç yok
+    const y = heightAt(x, z);
+    if (y > 10.5) continue;
+    const r = riverAt(x, z);
+    if (r && r.d < r.half + 1.3) continue;
+    if (roadDist(x, z) < 2.2) continue;
+    // Ağaçlar kümeler halinde (tepelerde orman daha sık); ormanların dışında seyrek tek ağaçlar
+    const dense = fbm(x * 1.6 + 9, z * 1.6) > (y > 2.5 ? 0.4 : 0.52);
+    if (!dense && Math.random() > 0.05) continue;
+    const roll = Math.random();
+    let type: TreeType;
+    if (y > 4.5) type = roll < 0.75 ? 'pine' : roll < 0.85 ? 'cypress' : 'round';
+    else if (y > 2) type = roll < 0.35 ? 'pine' : roll < 0.85 ? 'round' : roll < 0.95 ? 'cypress' : 'bush';
+    else type = roll < 0.55 ? 'round' : roll < 0.7 ? 'cypress' : roll < 0.88 ? 'bush' : 'pine';
+    let color = pick(type === 'pine' || type === 'cypress' ? LEAF.pine : LEAF.green);
+    // Arada bir sonbahar renginde ya da çiçek açmış ağaç
+    if (type === 'round' && y < 3) {
+      const s = Math.random();
+      if (s < 0.05) type = 'blossom';
+      else if (s < 0.12) color = pick(LEAF.autumn);
+    }
+    if (type === 'blossom') color = pick(LEAF.blossom);
+    tmp.position.set(x, y - 0.02, z);
+    tmp.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    tmp.scale.setScalar((0.95 + Math.random() * 0.6) * (1.15 + Math.min(d, 60) / 45) * (type === 'bush' ? 1.3 : 1));
+    tmp.updateMatrix();
+    spots.push({ type, matrix: tmp.matrix.clone(), color: new THREE.Color(color) });
+  }
+  return forest(spots);
+}
+
+// Kumsallarda palmiyeler
+function buildPalms() {
+  const list: THREE.Object3D[] = [];
+  let tries = 0;
+  while (list.length < 60 && tries++ < 30000) {
     const x = (Math.random() - 0.5) * EXTENT * 0.85;
     const z = (Math.random() - 0.5) * EXTENT * 0.85;
-    const d = edgeDist(x, z);
-    if (d < 1.2) continue;
-    const y = heightAt(x, z);
-    const r = riverAt(x, z);
-    if (coast(x, z) > -3.5 || y < 0.02 || y > 10.5) continue;
-    if (r && r.d < r.half + 1.4) continue;
-    if (x < -HALF && Math.abs(z - ROAD_Z) < 2) continue;
-    // Ağaçlar kümeler halinde; tepelerde orman daha sık
-    if (fbm(x * 1.6 + 9, z * 1.6) < (y > 2.5 ? 0.36 : 0.5)) continue;
-    tmp.position.set(x, y - 0.02, z);
-    tmp.rotation.y = Math.random() * Math.PI * 2;
-    tmp.scale.setScalar((0.9 + Math.random() * 0.7) * (1 + Math.min(d, 60) / 60));
-    tmp.updateMatrix();
-    (Math.random() < 0.55 ? big : small).push(tmp.matrix.clone());
+    if (edgeDist(x, z) < 1.5) continue;
+    const c = coast(x, z);
+    if (c < -2.3 || c > -0.9 || roadDist(x, z) < 1.5) continue;
+    const holder = new THREE.Group();
+    holder.add(palm(0, 0, 0.75 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4));
+    holder.position.set(x, heightAt(x, z) - 0.02, z);
+    holder.rotation.y = Math.random() * Math.PI * 2;
+    list.push(holder);
   }
-  const tints = ['#ffffff', '#eaf6e4', '#f6fff0', '#dcebd6', '#fff8e8'].map(c => new THREE.Color(c));
-  const g = new THREE.Group();
-  for (const m of [...instanced(PROPS.treeLarge, big, tints), ...instanced(PROPS.treeSmall, small, tints)]) g.add(m);
-  return g;
+  return mergeStatic(list);
 }
 
 // Dağlarda kayalar
@@ -253,53 +375,16 @@ function buildRocks() {
   return rocks;
 }
 
-// Nehrin ağzında deniz feneri (gece ışığı yanar)
-function lighthouse() {
-  const g = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: '#f4f4f2' });
-  const red = new THREE.MeshStandardMaterial({ color: '#d63a32' });
-  const lamp = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 });
-  lamp.name = 'lamp';
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.y = y;
-    mesh.castShadow = true;
-    g.add(mesh);
-  };
-  add(new THREE.CylinderGeometry(0.75, 0.85, 0.3, 10), new THREE.MeshStandardMaterial({ color: '#9b958a' }), 0.15);
-  for (let k = 0; k < 4; k++) add(new THREE.CylinderGeometry(0.34 - k * 0.04, 0.38 - k * 0.04, 0.6, 12), k % 2 ? red : white, 0.6 + k * 0.6);
-  add(new THREE.CylinderGeometry(0.3, 0.3, 0.3, 12), lamp, 2.85);
-  add(new THREE.ConeGeometry(0.36, 0.4, 12), red, 3.2);
-  return g;
-}
-
-// Şehre batıdan giren otoyol
-function buildHighway() {
-  const parts: THREE.Object3D[] = [];
-  for (let x = -HALF - 0.5; x > -EXTENT / 2; x--) {
-    const r = makeModel('kaykit/road_straight');
-    r.position.set(x, 0, ROAD_Z);
-    r.rotation.y = Math.PI / 2;
-    parts.push(r);
-    // Otoyol kenarında sokak lambaları
-    if (Math.round(x) % 4 === 0) {
-      const l = makeModel('kaykit/streetlight');
-      l.position.set(x, 0, ROAD_Z + 0.46);
-      l.rotation.y = -Math.PI / 2;
-      parts.push(l);
-    }
-  }
-  return mergeStatic(parts);
-}
-
 export function buildSurroundings() {
   const group = new THREE.Group();
-  group.add(buildGround(), buildSea(), buildRiver(), buildTrees(), buildRocks(), buildHighway());
-  // Deniz feneri: nehir ağzının doğusundaki kumsalda
-  let z = -HALF - 4;
-  while (coast(RIVER_C + 6, z) < -1.5 && z > -60) z -= 0.5;
-  const lh = lighthouse();
-  lh.position.set(RIVER_C + 6, Math.max(heightAt(RIVER_C + 6, z), SEA_Y), z);
+  group.add(buildGround(), buildSea(), buildRiver(), buildTrees(), buildPalms(), buildRocks());
+  // Deniz feneri: şehrin doğusundaki kumsalın ucunda
+  const lx = HALF + 9;
+  let z = 0;
+  while (coast(lx, z) < -0.9 && z > -60) z -= 0.25;
+  const lh = lighthouseTower();
+  lh.scale.setScalar(2.6);
+  lh.position.set(lx, Math.max(heightAt(lx, z), CITY_Y), z);
   group.add(lh);
   return group;
 }

@@ -4,7 +4,7 @@ import {
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
-  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER,
+  PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SEA_ROWS, SAND_ROWS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -74,11 +74,16 @@ export function serviceArea(i: number, kind: ServiceKind, n = 1): number[] {
 
 export const sizeOf = (tool: BuildTool | Kind) => FOOTPRINT[tool as BuildTool] ?? 1;
 
-// Nehir kareleri: doğuda iki sütun, güneyde iki satır (köşede birleşir)
-export function isWaterXZ(x: number, z: number) {
+// Deniz: kuzey kenarındaki ilk sıralar. Hemen arkasında kumsal.
+export const isSeaXZ = (_x: number, z: number) => z < SEA_ROWS;
+export const isSandXZ = (_x: number, z: number) => z >= SEA_ROWS && z < SEA_ROWS + SAND_ROWS;
+export const isSea = (i: number) => Math.floor(i / SIZE) < SEA_ROWS;
+// Nehir kareleri: doğuda iki sütun (denize dökülür), güneyde iki satır (köşede birleşir)
+export function isRiverXZ(x: number, z: number) {
   const [a, b] = RIVER;
-  return ((x === a || x === b) && z <= b) || ((z === a || z === b) && x <= b);
+  return z >= SEA_ROWS && (((x === a || x === b) && z <= b) || ((z === a || z === b) && x <= b));
 }
+export const isWaterXZ = (x: number, z: number) => isSeaXZ(x, z) || isRiverXZ(x, z);
 export const isWater = (i: number) => isWaterXZ(i % SIZE, Math.floor(i / SIZE));
 
 // Sol üst köşesi (x, z) olan n x n alanın kareleri (harita dışına taşarsa null)
@@ -145,6 +150,7 @@ export class City {
   owned = new Uint8Array(PLOTS * PLOTS); // hangi arazi parçaları bizim
   orders: Order[] = []; // limandaki komşu şehir siparişleri
   lastShipped = 0; // son geminin kalkış zamanı (sadece görüntü için)
+  seaRefund = 0; // eski kayıtta denize kalan binaların geri ödenen parası
   private reach = new Set<number>(); // girişe bağlı yol kareleri
   // Elektrik ya da suyu eksik binalar ve eksik olan şey
   lacking = new Map<number, { power: boolean; water: boolean }>();
@@ -819,6 +825,7 @@ export class City {
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
+    if (cells.some(isSea)) return 'Denizin üstüne bir şey yapılamaz';
     if (tool !== 'road' && tool !== 'rail' && cells.some(isWater)) return 'Suyun üstüne sadece yol ya da ray (köprü) yapılır';
     if (tool === 'rail') {
       // Ray boş kareye ya da düz bir yolun üstüne (hemzemin geçit) döşenir
@@ -832,7 +839,8 @@ export class City {
     if (cells.some(c => this.tiles[c])) return n > 1 ? `Bu yapı ${n}x${n} kare boş yer ister` : 'Burası dolu';
     const nearRoad = cells.some(c => this.roadMask(c % SIZE, Math.floor(c / SIZE)) !== 0);
     if (tool === 'busstop' && !nearRoad) return 'Durak yol kenarına kurulmalı';
-    if (NEEDS_WATER.includes(tool) && !cells.some(c => this.nextToWater(c))) return 'Bu yapı nehir kıyısına kurulmalı';
+    if (NEEDS_SEA.includes(tool) && !cells.some(c => this.nextToWater(c, true))) return 'Bu yapı deniz kıyısına (kumsala) kurulmalı';
+    if (NEEDS_WATER.includes(tool) && !cells.some(c => this.nextToWater(c))) return 'Bu yapı deniz ya da nehir kıyısına kurulmalı';
     if (isDecor(tool) && DECOR[tool].road && !nearRoad) return 'Bu yapı yol kenarına kurulmalı';
     if (tool === 'station' && !cells.some(c => this.railMask(c % SIZE, Math.floor(c / SIZE)) !== 0)) {
       return 'İstasyon tren yolunun yanına kurulmalı';
@@ -845,9 +853,9 @@ export class City {
     return null;
   }
 
-  private nextToWater(c: number) {
+  private nextToWater(c: number, sea = false) {
     const x = c % SIZE, z = Math.floor(c / SIZE);
-    return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && isWaterXZ(x + dx, z + dz));
+    return DIRS.some(([dx, dz]) => inBounds(x + dx, z + dz) && (sea ? isSeaXZ : isWaterXZ)(x + dx, z + dz));
   }
 
   // Toplam fiyat: su üstündeki yol ve raylar köprü olduğu için pahalı
@@ -1082,11 +1090,19 @@ export class City {
         if (t.kind === 'res') for (let l = 2; l <= t.level; l++) c.xp += XP.upgrade[l];
       }
     }
-    // Eski kayıtlarda nehrin olduğu yerde bina varsa kaldır (yol ve ray köprü olarak kalır)
+    // Eski kayıtlarda suyun olduğu yerde bina varsa kaldır (nehirde yol ve ray köprü olarak kalır).
+    // Denize kalan yapıların parası geri verilir.
     c.tiles.forEach((t, i) => {
-      if (!t || !isWater(i) || t.kind === 'road' || t.kind === 'rail') return;
-      for (const cell of c.cellsOf(i)) c.tiles[cell] = null;
+      if (!t || !isWater(i)) return;
+      if (!isSea(i) && (t.kind === 'road' || t.kind === 'rail')) return;
+      const anchor = c.tiles[c.anchorOf(i)];
+      if (isSea(i) && anchor && anchor.kind in COST) c.seaRefund += COST[anchor.kind as BuildTool];
+      for (const cell of c.cellsOf(i)) {
+        c.tiles[cell] = null;
+        c.jobs.delete(cell);
+      }
     });
+    c.money += c.seaRefund;
     c.placeHall();
     c.refresh();
     c.fillQuests();

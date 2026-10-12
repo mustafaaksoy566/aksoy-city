@@ -1,6 +1,6 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, LEVEL_XP,
+  MATERIALS, MAT_IDS, FACTORY_SLOTS, STORE_QUEUE, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, LEVEL_XP,
   INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
@@ -82,6 +82,7 @@ export function describeTrade(city: City, act: CardActions): InfoCard {
 export function describeLand(city: City, plot: number, act: CardActions): InfoCard {
   const err = city.canBuyPlot(plot);
   const lines: InfoCard['lines'] = [{ text: 'Boş arazi. Satın alırsan şehrini buraya doğru büyütebilirsin.' }];
+  if (Math.floor(plot / PLOTS) === 0) lines.push({ text: '🌊 Sahil arazisi: kumsalına liman, plaj, yat limanı ve deniz feneri kurabilirsin.' });
   if (err && err !== 'Yeterli para yok') lines.push({ ok: false, text: err });
   return {
     title: 'Satılık arazi',

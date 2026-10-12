@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER } from './config';
-import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ } from './city';
-import { makeDecor, animateDecor } from './landmarks';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, SEA_ROWS } from './config';
+import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ } from './city';
+import { makeDecor, animateDecor, palm } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
-import { riverMat, worldUV, RIVER_Y } from './water';
+import { riverMat, worldUV, RIVER_Y, SEA_Y } from './water';
 
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
-  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.getObjectByName('flames'));
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.beam || o.userData.bob || o.getObjectByName('flames'));
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -33,7 +33,7 @@ const hash = (x: number, z: number, seed = 0) => {
 const lampMat = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 });
 lampMat.name = 'lamp';
 const lampGeo = new THREE.SphereGeometry(0.028, 8, 6);
-function streetLight(dx: number, dz: number, rot: number) {
+export function streetLight(dx: number, dz: number, rot: number) {
   const g = prop(PROPS.streetlight, dx, dz, rot);
   const bulb = new THREE.Mesh(lampGeo, lampMat);
   bulb.position.set(-0.11, 0.455, 0); // kolun ucu (lamba modeli kolu -x yönünde)
@@ -72,7 +72,7 @@ for (const [model, base] of ROAD_BASES) {
   }
 }
 
-function roadPiece(mask: number) {
+export function roadPiece(mask: number) {
   return ROAD_TABLE.get(mask) ?? { model: ROAD_BASES[0][0], k: mask & 0b1010 ? 1 : 0 };
 }
 
@@ -247,6 +247,9 @@ function park(variant: number, x: number, z: number) {
 
 // Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
 const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
+// Nehrin denize karıştığı yer: nehir suyuyla aynı, ama denize doğru saydamlaşır
+const mouthMat = riverMat.clone();
+Object.assign(mouthMat, { vertexColors: true, transparent: true, depthWrite: false });
 function river() {
   const g = new THREE.Group();
   const [a, b] = RIVER;
@@ -257,18 +260,40 @@ function river() {
     mesh.receiveShadow = true;
     g.add(mesh);
   };
-  // Su: doğu kolu (kuzeyden köşeye) ve güney kolu (batıdan köşeye), şehir dışındaki nehirle aynı yükseklikte
-  const water = (w: number, d: number, x: number, z: number) => {
-    const geo = worldUV(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).translate(x - SIZE / 2, RIVER_Y, z - SIZE / 2));
-    const mesh = new THREE.Mesh(geo, riverMat);
+  // Su: doğu kolu (denizden köşeye) ve güney kolu (batıdan köşeye), şehir dışındaki nehirle aynı yükseklikte
+  const water = (geo: THREE.BufferGeometry) => {
+    const mesh = new THREE.Mesh(worldUV(geo), riverMat);
     mesh.receiveShadow = true;
     g.add(mesh);
   };
-  water(2, len, a + 1, len / 2);
-  water(len - 2, 2, (len - 2) / 2, a + 1);
+  const plane = (w: number, d: number, x: number, z: number) =>
+    new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).translate(x - SIZE / 2, RIVER_Y, z - SIZE / 2);
+  const s = SEA_ROWS;
+  water(plane(2, len - s, a + 1, (len + s) / 2));
+  water(plane(len - 2, 2, (len - 2) / 2, a + 1));
+  // Ağız: nehir kumsalın kenarından deniz seviyesine iner, genişleyip denizin rengine karışarak kaybolur
+  const rows: [number, number, number, number][] = [
+    // [kıyıdan uzaklık, yükseklik, yarım genişlik, görünürlük]
+    [0, RIVER_Y, 1, 1], [0.5, SEA_Y + 0.004, 1.1, 0.95], [1.4, SEA_Y + 0.004, 1.45, 0.6], [2.6, SEA_Y + 0.004, 1.9, 0.25], [3.8, SEA_Y + 0.004, 2.3, 0],
+  ];
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const cx = a + 1 - SIZE / 2, z0 = s - SIZE / 2;
+  rows.forEach(([d, y, h, alpha], k) => {
+    pos.push(cx - h, y, z0 - d, cx + h, y, z0 - d);
+    col.push(1, 1, 1, alpha, 1, 1, 1, alpha);
+    if (k) idx.push(k * 2 - 2, k * 2 - 1, k * 2, k * 2, k * 2 - 1, k * 2 + 1);
+  });
+  const mouth = new THREE.BufferGeometry();
+  mouth.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  mouth.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));
+  mouth.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  mouth.setIndex(idx);
+  const mouthMesh = new THREE.Mesh(worldUV(mouth), mouthMat);
+  mouthMesh.renderOrder = 0;
+  g.add(mouthMesh);
   // Kıyı şeritleri
-  add(0.12, len - 2, a + 0.06, (len - 2) / 2, bankMat, -0.004);
-  add(0.12, len, b + 0.94, len / 2, bankMat, -0.004);
+  add(0.12, len - 2 - s, a + 0.06, (len - 2 + s) / 2, bankMat, -0.004);
+  add(0.12, len - s, b + 0.94, (len + s) / 2, bankMat, -0.004);
   add(len - 2, 0.12, (len - 2) / 2, a + 0.06, bankMat, -0.004);
   add(len, 0.12, len / 2, b + 0.94, bankMat, -0.004);
   return g;
@@ -277,7 +302,7 @@ function river() {
 // Köprü: yol/rayın kenarlarına korkuluk, altına ayak
 const railMat = new THREE.MeshStandardMaterial({ color: '#e8e4dc' });
 const pillarMat = new THREE.MeshStandardMaterial({ color: '#9a9690' });
-function bridge(mask: number) {
+export function bridge(mask: number) {
   const g = new THREE.Group();
   const add = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -614,9 +639,17 @@ export class CityView {
   private nature(i: number): THREE.Object3D | null {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     const owned = this.city.isOwned(i);
+    // Kumsalda arada bir palmiye
+    if (isSandXZ(x, z)) {
+      if (hash(x, z, 9) > 0.22) return null;
+      const o = palm((hash(x, z, 11) - 0.5) * 0.5, (hash(x, z, 12) - 0.5) * 0.4, 0.26 + hash(x, z, 14) * 0.12, (hash(x, z, 13) - 0.5) * 0.4);
+      o.rotation.y = hash(x, z, 10) * 6;
+      o.position.add(tileCenter(x, z));
+      return o;
+    }
     if (hash(x, z, 9) > (owned ? 0.16 : 0.32)) return null;
     const pick = hash(x, z, 10);
-    const path = pick < 0.45 ? PROPS.treeLarge : pick < 0.8 ? PROPS.treeSmall : PROPS.bush;
+    const path = pick < 0.4 ? PROPS.treeLarge : pick < 0.58 ? PROPS.treeSmall : pick < 0.72 ? PROPS.treePine : pick < 0.76 ? PROPS.treeBlossom : PROPS.bush;
     const o = prop(path, (hash(x, z, 11) - 0.5) * 0.5, (hash(x, z, 12) - 0.5) * 0.5, hash(x, z, 13) * 6, 0.8 + hash(x, z, 14) * 0.5);
     o.position.add(tileCenter(x, z));
     return o;
