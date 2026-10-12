@@ -10,7 +10,7 @@ import { tileCenter } from './view';
 import { isGreen } from './signals';
 
 const CAR_LANE = 0.16; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
-const WIDE_LANES = [0.1, 0.3]; // caddede (çift şerit) iç ve dış şerit (araçlar yan yana sığsın)
+const WIDE_LANES = [0.125, 0.3]; // caddede (çift şerit) iç ve dış şerit: çizgilerin ortası (geniş araç refüje binmesin)
 const CAR_Y = 0.066; // asfalt (0.036) + tekerleklerin altı
 const CAR_SCALE = 0.78;
 const WALK_LANE = 0.43; // yayalar: kaldırım
@@ -152,8 +152,14 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
 
 // Kavşakta iki hareket (giriş yönü, çıkış yönü) birbirinin yolunu keser mi? (sağdan gidiş; sağa dönüş = d+1)
 const rightOf = (d: number) => (d + 1) % 4, leftOf = (d: number) => (d + 3) % 4;
-function conflicts(ai: number, ao: number, bi: number, bo: number) {
-  if (ai === bi) return ao !== bo; // aynı yönden gelip farklı yere giden (caddede şerit keser)
+// aw, bw: caddede şerit (0 iç, 1 dış), tek şeritli yolda -1
+function conflicts(ai: number, ao: number, aw: number, bi: number, bo: number, bw: number) {
+  if (ai === bi) {
+    // Aynı yönden: aynı şeritteki sıradadır; caddede iç şeritten sağa ya da dış şeritten sola dönen öbür şeridi keser
+    if (aw === bw || aw < 0 || bw < 0) return false;
+    const inner = aw === 0 ? ao : bo, outer = aw === 0 ? bo : ao;
+    return inner === rightOf(ai) || outer === leftOf(ai);
+  }
   if (ao === bo) return true; // aynı yola çıkıyorlar
   if (ao === rightOf(ai) || bo === rightOf(bi)) return false; // sağa dönen köşeden döner
   if (ai === (bi + 2) % 4) return ao === leftOf(ai) || bo === leftOf(bi); // karşılıklı: düz-düz serbest, sola dönen keser
@@ -232,6 +238,20 @@ interface Maneuver {
   site?: number; // girip çıktığı otoparkın karesi (otoparkta aynı anda tek manevra)
 }
 
+// İki dönük dikdörtgen (yukarıdan bakınca) üst üste biniyor mu? (ayırıcı eksen testi)
+function boxesTouch(a: Box, b: Box) {
+  for (const h of [a.h, a.h + Math.PI / 2, b.h, b.h + Math.PI / 2]) {
+    const ax = Math.sin(h), az = Math.cos(h);
+    const reach = (o: Box) => {
+      const c = Math.abs(Math.cos(h - o.h)), s = Math.abs(Math.sin(h - o.h));
+      return c * o.len + s * o.wid;
+    };
+    const d = Math.abs((b.x - a.x) * ax + (b.z - a.z) * az);
+    if (d >= reach(a) + reach(b)) return false;
+  }
+  return true;
+}
+
 // Çarpışmayı önlemek için bir aracın ya da yayanın kapladığı yer (bir önceki karedeki)
 export interface Box {
   x: number;
@@ -249,6 +269,8 @@ interface Vehicle extends Mover {
   next?: number; // bir sonraki karede çıkacağı yön (kavşağa girmeden önce seçilir)
   lastJ?: { tile: number; dIn: number; dOut: number }; // en son geçtiği kavşak (arkası hâlâ içindeyken yer tutar)
   vanish?: boolean; // çok uzun sıkıştı: başkasının içinden geçmek yerine yavaşça kaybolur
+  exitWait?: number; // otoparktan yola çıkmadan önce yolun boşalmasını ne kadar bekledi
+  jwait?: number; // yeşil ışıkta kavşağa girmek için ne kadar süredir bekliyor (uzun bekleyene sıra verilir)
   type: number; // araba modeli (otobüste -1)
   paint?: THREE.Color; // boyası
   wide: number; // caddede hangi şerit (0 iç, 1 dış)
@@ -343,14 +365,11 @@ export class Traffic {
   private blocked(me: Box | undefined, people: Box[]) {
     if (!me) return false;
     const fx = Math.sin(me.h), fz = Math.cos(me.h);
+    // Biraz ileriye kaydırılmış kendi kutusu, öndeki (dönük de olsa) kutuya değiyor mu? (ayırıcı eksen testi)
     const hit = (o: Box, extra: number) => {
       const rx = o.x - me.x, rz = o.z - me.z;
-      const ahead = rx * fx + rz * fz;
-      if (ahead <= 0.01) return false;
-      const lat = Math.abs(rx * fz - rz * fx);
-      const dh = o.h - me.h;
-      const c = Math.abs(Math.cos(dh)), s = Math.abs(Math.sin(dh));
-      return ahead < me.len + c * o.len + s * o.wid + extra && lat < me.wid + s * o.len + c * o.wid + 0.01;
+      if (rx * fx + rz * fz <= 0.01) return false;
+      return boxesTouch({ ...me, x: me.x + fx * extra, z: me.z + fz * extra, wid: me.wid * 0.9 }, o);
     };
     for (const o of this.boxes) {
       if (o.id === me.id || !hit(o, 0.06)) continue;
@@ -763,7 +782,21 @@ export class Traffic {
     const occupy = (tile: number, v: Vehicle, dIn: number, dOut: number) => (inside.get(tile) ?? inside.set(tile, []).get(tile)!).push({ v, dIn, dOut });
     for (const v of all) {
       if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
-      if (v.lastJ && v.t < 0.3 && v.lastJ.tile !== v.tile) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
+      // Kavşaktan yeni çıktı: arkası hâlâ kavşağın içindeyse yer tutar
+      if (v.lastJ && v.lastJ.tile !== v.tile && v.t < this.lengthOf(v) / 2 + 0.02) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
+      // Durma çizgisini geçmiş, kavşağa girmek üzere: kavşağı şimdiden tutar
+      if (v.next !== undefined && v.t > STOP + 0.02) {
+        const j = neighbor(v.tile, v.dOut);
+        if (j >= 0 && isJunction(this.city, j)) occupy(j, v, v.dOut, v.next);
+      }
+    }
+    const laneIn = (tile: number, v: Vehicle) => (this.city.tiles[tile]?.grade === 2 ? v.wide : -1);
+    // Yeşilde kavşağa girmeyi bekleyenler (uzun bekleyene sıra verilir)
+    const queue = new Map<number, { v: Vehicle; dIn: number; dOut: number; wait: number }[]>();
+    for (const v of all) {
+      if (!v.jwait || v.next === undefined) continue;
+      const j = neighbor(v.tile, v.dOut);
+      if (j >= 0) (queue.get(j) ?? queue.set(j, []).get(j)!).push({ v, dIn: v.dOut, dOut: v.next, wait: v.jwait });
     }
     // Kavşağa girmeden önce nereye döneceğini seç (yol hakkına bakabilmek için)
     const peek = (v: Vehicle, tile: number) => {
@@ -806,12 +839,31 @@ export class Traffic {
       // Bir sonraki karenin başındaki araç
       const next = neighbor(v.tile, v.dOut);
       if (next >= 0) for (const [t, l] of lanes.get(this.key(v, next, v.dOut)) ?? []) limit = Math.min(limit, 1 + t - (len + l) / 2 - GAP);
-      // Yol hakkı: kavşağın içinde yolunu kesen bir araç varsa girmeden bekle
-      if (next >= 0 && isJunction(this.city, next) && v.t > 0.3) {
+      // Yol hakkı: kavşağın içinde yolunu kesen araç varsa, çıkacağı yolda yer yoksa (kavşağı tıkamasın)
+      // ya da yolunu kesen ve daha uzun süredir bekleyen biri varsa girmeden bekle
+      if (next >= 0 && isJunction(this.city, next) && v.t > 0.3 && v.t <= STOP + 0.02) {
         const out = peek(v, next);
-        const busy = (inside.get(next) ?? []).some(o => o.v !== v && conflicts(v.dOut, out, o.dIn, o.dOut));
-        if (busy) limit = Math.min(limit, Math.max(v.t, STOP));
-      }
+        const w = laneIn(next, v);
+        const cross = (o: { v: Vehicle; dIn: number; dOut: number }) => o.v !== v && conflicts(v.dOut, out, w, o.dIn, o.dOut, laneIn(next, o.v));
+        let wait = (inside.get(next) ?? []).some(cross);
+        // Çıkış yolunun başında yer var mı?
+        const exit = neighbor(next, out);
+        if (!wait && exit >= 0) {
+          for (const [t, l] of lanes.get(this.key(v, exit, out)) ?? []) if (t - l / 2 < len + GAP) wait = true;
+        }
+        const green = isGreen(next, v.dOut);
+        if (!wait && green) wait = (queue.get(next) ?? []).some(o => o.wait > (v.jwait ?? 0) + 1.5 && cross(o));
+        if (wait) {
+          limit = Math.min(limit, Math.max(v.t, STOP));
+          if (green) v.jwait = (v.jwait ?? 0) + dt;
+          // Yeşilde çok uzun kilitlendi (15 sn): başkasının içinden geçmesin, yavaşça kaybolsun
+          if ((v.jwait ?? 0) > 15 && !v.home) v.vanish = true;
+        } else {
+          v.jwait = 0;
+          // Girmeye karar verdi: aynı karede gelen başkası da girmesin
+          occupy(next, v, v.dOut, out);
+        }
+      } else if (v.jwait) v.jwait = 0;
       // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et)
       let go = step;
       if (this.blocked(prev.get(v.id), people)) {
@@ -900,6 +952,14 @@ export class Traffic {
   private maneuver(v: Vehicle, dt: number) {
     const m = v.man!;
     const s = m.segs[m.k];
+    // Yola çıkmadan önce (son kavis) yolda yanından araba geçiyorsa bekle
+    if (m.end === 'road' && m.k === m.segs.length - 1 && m.u < 0.05 && (v.exitWait ?? 0) < 6) {
+      const end = s.p[s.p.length - 1];
+      if (this.busyAt(end, end.clone().sub(s.p[0]).normalize())) {
+        v.exitWait = (v.exitWait ?? 0) + dt;
+        return true;
+      }
+    }
     m.u += (dt * MANEUVER_SPEED) / s.len;
     const total = m.segs.length;
     const progress = (m.k + Math.min(1, m.u)) / total;
@@ -953,8 +1013,11 @@ const PANTS = ['#2b3a55', '#1f2937', '#5b4636', '#3b5b8a', '#6b7280', '#8d6e4c',
 const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#f5cfa0'];
 const HAIR = ['#2b1d14', '#3b2a1e', '#5a3a22', '#d4a85a', '#141414', '#9e9e9e', '#a0522d', '#e8c27a'];
 const UMBRELLAS = ['#e53935', '#1e88e5', '#fdd835', '#43a047', '#8e24aa', '#ff7043', '#ffffff'];
-const HIP = 0.052; // kalçanın yüksekliği
-const SHOULDER = 0.104;
+// Gerçek insan oranları (boy ~0.155, baş boyun ~1/7'si): bacak kalçadan, kol omuzdan sallanır
+const HIP = 0.07; // kalçanın yüksekliği
+const SHOULDER = 0.119;
+const SKIRTS = ['#c2185b', '#7b1fa2', '#1565c0', '#2e7d32', '#ef6c00', '#37474f', '#ad1457', '#00838f'];
+const SHOES = ['#2b2b2b', '#5d4037', '#f5f5f5', '#1a237e', '#3e2723'];
 
 // Kaldırım dışında izlenen yol (kapıdan kaldırıma, kaldırımdan arabaya...)
 interface Walk {
@@ -969,35 +1032,55 @@ interface Walk {
 
 interface Person extends Mover {
   phase: number;
-  look: [number, number, number, number, number]; // gömlek, pantolon, ten, saç, şemsiye
+  look: [number, number, number, number, number, number, number]; // gömlek, pantolon, ten, saç, şemsiye, ayakkabı, biçim (1 uzun saç, 2 etek)
   walk?: Walk;
   away?: number; // eve dönmek için kaç saniyedir yer arıyor
 }
 
 // Parçalar: [geometri, renk listesi seçici]
 function personParts() {
-  const leg = new THREE.CylinderGeometry(0.0085, 0.0075, HIP, 6).translate(0, -HIP / 2, 0);
-  const arm = new THREE.CylinderGeometry(0.0062, 0.0055, 0.046, 5).translate(0, -0.023, 0);
-  const torso = new THREE.CylinderGeometry(0.0195, 0.0155, 0.058, 8).translate(0, HIP + 0.029, 0);
-  const head = new THREE.SphereGeometry(0.0185, 10, 8).translate(0, 0.128, 0);
-  const hair = new THREE.SphereGeometry(0.02, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.52).translate(0, 0.131, -0.002);
-  const canopy = new THREE.ConeGeometry(0.062, 0.028, 10, 1, true).translate(0, 0.205, 0);
-  const stick = new THREE.CylinderGeometry(0.0022, 0.0022, 0.09, 4).translate(0, 0.16, 0);
-  const umbrella = mergeGeometries([canopy.toNonIndexed(), stick.toNonIndexed()], false)!;
-  return { leg, arm, torso, head, hair, umbrella };
+  const merge = (list: THREE.BufferGeometry[]) => mergeGeometries(list.map(g => g.toNonIndexed()), false)!;
+  // Bacak: kalçadan aşağı incelen (uyluk + baldır); ayakkabı ayrı renkte
+  const leg = new THREE.CylinderGeometry(0.0068, 0.0047, HIP - 0.004, 7).translate(0, -(HIP - 0.004) / 2, 0);
+  const shoe = new THREE.BoxGeometry(0.0095, 0.0055, 0.017).translate(0, -HIP + 0.0028, 0.003);
+  // Kol: omuzdan aşağı kol (gömlek rengi), el ayrı (ten rengi)
+  const arm = new THREE.CylinderGeometry(0.0049, 0.0041, 0.05, 6).translate(0, -0.025, 0);
+  const hand = new THREE.SphereGeometry(0.0047, 6, 5).scale(0.85, 1.2, 0.85).translate(0, -0.054, 0);
+  // Gövde: göğüs öne-arkaya basık, yuvarlak omuzlar
+  const chest = new THREE.CylinderGeometry(0.0158, 0.0128, 0.046, 10).scale(1, 1, 0.68).translate(0, HIP + 0.019 + 0.023, 0);
+  const shoulders = new THREE.CapsuleGeometry(0.0072, 0.02, 3, 8).rotateZ(Math.PI / 2).scale(1, 1, 0.85).translate(0, SHOULDER - 0.001, 0);
+  const torso = merge([chest, shoulders]);
+  // Kalça (pantolon rengi) ve etek
+  const hips = new THREE.CylinderGeometry(0.0128, 0.0122, 0.02, 10).scale(1, 1, 0.72).translate(0, HIP + 0.009, 0);
+  const skirt = new THREE.CylinderGeometry(0.0125, 0.0215, 0.038, 12, 1, true).translate(0, HIP - 0.008, 0);
+  // Baş ve boyun (ten rengi), kısa saç, uzun saç (omuza dökülen)
+  const head = merge([
+    new THREE.SphereGeometry(0.0108, 12, 10).scale(0.95, 1.13, 1.02).translate(0, 0.1425, 0),
+    new THREE.CylinderGeometry(0.0043, 0.0049, 0.012, 7).translate(0, 0.1285, 0),
+    new THREE.SphereGeometry(0.0022, 5, 4).translate(0, 0.1405, 0.0105), // burun
+  ]);
+  const hair = new THREE.SphereGeometry(0.0117, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(1, 1.08, 1.06).translate(0, 0.1452, -0.0012);
+  const hairLong = new THREE.BoxGeometry(0.021, 0.03, 0.009).translate(0, 0.131, -0.0085);
+  const canopy = new THREE.ConeGeometry(0.062, 0.028, 10, 1, true).translate(0, 0.215, 0);
+  const stick = new THREE.CylinderGeometry(0.0022, 0.0022, 0.09, 4).translate(0, 0.17, 0);
+  const umbrella = merge([canopy, stick]);
+  return { leg, shoe, arm, hand, torso, hips, skirt, head, hair, hairLong, umbrella };
 }
 
 const pickLook = (): Person['look'] => {
   const pick = (list: unknown[]) => Math.floor(Math.random() * list.length);
-  return [pick(SHIRTS), pick(PANTS), pick(SKINS), pick(HAIR), pick(UMBRELLAS)];
+  const long = Math.random() < 0.42;
+  const style = (long ? 1 : 0) | (long && Math.random() < 0.55 ? 2 : 0);
+  return [pick(SHIRTS), style & 2 ? pick(SKIRTS) : pick(PANTS), pick(SKINS), pick(HAIR), pick(UMBRELLAS), pick(SHOES), style];
 };
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 export class Walkers {
   readonly root = new THREE.Group();
   private people: Person[] = [];
   spots: Box[] = []; // yayaların yerleri (arabalar bakar)
   cars: () => Box[] = () => [];
-  private parts: Record<'torso' | 'head' | 'hair' | 'legL' | 'legR' | 'armL' | 'armR' | 'umbrella', THREE.InstancedMesh>;
+  private parts: Record<'torso' | 'hips' | 'skirt' | 'head' | 'hair' | 'hairLong' | 'legL' | 'legR' | 'shoeL' | 'shoeR' | 'armL' | 'armR' | 'handL' | 'handR' | 'umbrella', THREE.InstancedMesh>;
   private recount = 0;
   private time = 0;
   private colorsDirty = true;
@@ -1017,8 +1100,9 @@ export class Walkers {
       return m;
     };
     this.parts = {
-      torso: mesh(g.torso), head: mesh(g.head), hair: mesh(g.hair),
-      legL: mesh(g.leg), legR: mesh(g.leg), armL: mesh(g.arm), armR: mesh(g.arm),
+      torso: mesh(g.torso), hips: mesh(g.hips), skirt: mesh(g.skirt, THREE.DoubleSide), head: mesh(g.head), hair: mesh(g.hair), hairLong: mesh(g.hairLong),
+      legL: mesh(g.leg), legR: mesh(g.leg), shoeL: mesh(g.shoe), shoeR: mesh(g.shoe),
+      armL: mesh(g.arm), armR: mesh(g.arm), handL: mesh(g.hand), handR: mesh(g.hand),
       umbrella: mesh(g.umbrella, THREE.DoubleSide),
     };
   }
@@ -1079,14 +1163,23 @@ export class Walkers {
     const c = new THREE.Color();
     const p = this.parts;
     this.people.forEach((person, n) => {
-      const [shirt, pants, skin, hair, umb] = person.look;
+      const [shirt, pants, skin, hair, umb, shoe, style] = person.look;
+      const skirt = (style & 2) !== 0;
       p.torso.setColorAt(n, c.set(SHIRTS[shirt]));
       p.armL.setColorAt(n, c);
       p.armR.setColorAt(n, c);
-      p.legL.setColorAt(n, c.set(PANTS[pants]));
+      // Etekli olanın bacakları ten rengi, kalça ve etek etek renginde
+      p.hips.setColorAt(n, c.set(skirt ? SKIRTS[pants] : PANTS[pants]));
+      p.skirt.setColorAt(n, c);
+      p.legL.setColorAt(n, c.set(skirt ? SKINS[skin] : PANTS[pants]));
       p.legR.setColorAt(n, c);
       p.head.setColorAt(n, c.set(SKINS[skin]));
+      p.handL.setColorAt(n, c);
+      p.handR.setColorAt(n, c);
       p.hair.setColorAt(n, c.set(HAIR[hair]));
+      p.hairLong.setColorAt(n, c);
+      p.shoeL.setColorAt(n, c.set(SHOES[shoe]));
+      p.shoeR.setColorAt(n, c);
       p.umbrella.setColorAt(n, c.set(UMBRELLAS[umb]));
     });
     for (const m of Object.values(p)) if (m.instanceColor) m.instanceColor.needsUpdate = true;
@@ -1210,12 +1303,21 @@ export class Walkers {
       this.tmp.updateMatrix();
       if (person.fade > 0.3) this.spots.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: 0.022, wid: 0.025, id: -1 });
       this.base.copy(this.tmp.matrix);
-      for (const m of [p.torso, p.head, p.hair, p.umbrella]) m.setMatrixAt(n, this.base);
-      put(p.legL, n, -0.0095, HIP, step * 0.55);
-      put(p.legR, n, 0.0095, HIP, -step * 0.55);
-      // Şemsiyeyi tutan kol öne kalkar
-      put(p.armL, n, -0.025, SHOULDER, -step * 0.5);
-      put(p.armR, n, 0.025, SHOULDER, rain > 0.25 ? -1.2 : step * 0.5);
+      for (const m of [p.torso, p.hips, p.head, p.hair, p.umbrella]) m.setMatrixAt(n, this.base);
+      const style = person.look[6];
+      p.hairLong.setMatrixAt(n, style & 1 ? this.base : HIDDEN);
+      p.skirt.setMatrixAt(n, style & 2 ? this.base : HIDDEN);
+      const sw = step * 0.5;
+      put(p.legL, n, -0.0068, HIP, sw);
+      put(p.shoeL, n, -0.0068, HIP, sw);
+      put(p.legR, n, 0.0068, HIP, -sw);
+      put(p.shoeR, n, 0.0068, HIP, -sw);
+      // Kollar bacakların tersine sallanır; şemsiyeyi tutan kol öne kalkar
+      const armR = rain > 0.25 ? -1.2 : sw * 0.9;
+      put(p.armL, n, -0.0205, SHOULDER, -sw * 0.9);
+      put(p.handL, n, -0.0205, SHOULDER, -sw * 0.9);
+      put(p.armR, n, 0.0205, SHOULDER, armR);
+      put(p.handR, n, 0.0205, SHOULDER, armR);
     });
     for (const [name, m] of Object.entries(p)) {
       m.count = name === 'umbrella' && rain <= 0.25 ? 0 : this.people.length;
