@@ -4,13 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#7ec8e3" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Aksoy City" />
+    <meta name="theme-color" content="#9fd8f0" />
     <title>Aksoy City</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud">Aksoy City</div>
+
+    <header id="top">
+      <div class="pill" id="money">💰 <b id="money-v">0</b><small id="income-v"></small></div>
+      <div class="pill">👥 <b id="pop-v">0</b></div>
+      <div class="pill">📅 <b id="day-v"></b></div>
+      <span class="spacer"></span>
+      <button class="pill icon" id="sound" aria-label="Ses">🔊</button>
+      <button class="pill icon" id="reset" aria-label="Yeni şehir">⟲</button>
+    </header>
+
+    <div id="chip" hidden></div>
+    <div id="toast"></div>
+    <nav id="tools"></nav>
+
+    <div id="loading">Aksoy City yükleniyor…</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
