@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -560,8 +560,9 @@ export class City {
     let power = 0, water = 0, powerDemand = 0, waterDemand = 0;
     this.tiles.forEach((t, i) => {
       if (t && isUtility(t.kind) && this.isConnected(i)) {
-        power += UTILITIES[t.kind].power;
-        water += UTILITIES[t.kind].water;
+        const mult = UTIL_LEVELS[t.level]?.mult ?? 1;
+        power += UTILITIES[t.kind].power * mult;
+        water += UTILITIES[t.kind].water * mult;
       }
     });
     this.service.power.supply = power;
@@ -644,7 +645,7 @@ export class City {
     let sum = 0;
     for (const t of this.tiles) {
       if (!t) continue;
-      if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep;
+      if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
       if (isService(t.kind)) sum += SERVICES[t.kind].upkeep;
       if (isIndustry(t.kind)) sum += INDUSTRY[t.kind].upkeep;
       if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep;
@@ -786,6 +787,33 @@ export class City {
     if (!next) return 'En üst seviyede';
     if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
     if (this.money < next.money) return 'Yeterli para yok';
+    return null;
+  }
+
+  // Elektrik ve su yapısını yükselt: aynı yerde daha çok üretir
+  utilUpgradeCost(i: number) {
+    const t = this.tiles[i];
+    const next = t && isUtility(t.kind) ? UTIL_LEVELS[t.level + 1] : undefined;
+    return next ? Math.round(COST[t!.kind as UtilKind] * next.cost) : null;
+  }
+
+  utilUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (!t || !isUtility(t.kind)) return 'Burada altyapı binası yok';
+    const next = UTIL_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
+    if (this.money < this.utilUpgradeCost(i)!) return 'Yeterli para yok';
+    return null;
+  }
+
+  upgradeUtility(i: number): string | null {
+    const err = this.utilUpgradeBlocker(i);
+    if (err) return err;
+    this.money -= this.utilUpgradeCost(i)!;
+    this.tiles[i]!.level++;
+    this.addXp(XP.build * 3);
+    this.refresh();
     return null;
   }
 

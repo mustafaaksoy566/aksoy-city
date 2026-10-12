@@ -108,7 +108,8 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
   if (dOut === (dIn + 2) % 4 && isDeadEnd(city, m.tile)) {
     // Dönüş meydanı: kenardan girip adacığın çevresinden yarım daire çizerek geri çık
     const f = fwd(dIn), r = right(dIn);
-    const R = Math.min(0.46, Math.max(lane + 0.1, 0.3));
+    // Arabalar uçtaki adacığın çevresinden döner, yayalar bordürün yanından
+    const R = lane > 0.4 ? Math.min(0.46, lane) : 0.21;
     const at = (u: number, v: THREE.Vector3) => {
       if (u < 0.3) {
         const k = THREE.MathUtils.smoothstep(u / 0.3, 0, 1);
@@ -218,7 +219,20 @@ interface Maneuver {
   fadeOut?: boolean;
 }
 
+// Çarpışmayı önlemek için bir aracın ya da yayanın kapladığı yer (bir önceki karedeki)
+export interface Box {
+  x: number;
+  z: number;
+  h: number; // yön (açı)
+  len: number; // yarı boy
+  wid: number; // yarı en
+  id: number;
+}
+let nextId = 1;
+
 interface Vehicle extends Mover {
+  id?: number;
+  stuck?: number; // önü kapalı bekleme süresi
   type: number; // araba modeli (otobüste -1)
   wide: number; // caddede hangi şerit (0 iç, 1 dış)
   trip: number; // kaç kare daha gezecek; bitince hedefine gider
@@ -240,7 +254,10 @@ export class Traffic {
   private paths: string[] = [];
   private busMesh: THREE.InstancedMesh | null = null;
   private lengths: number[] = []; // her araba modelinin boyu (kare)
+  private widths: number[] = [];
   private busLength = 0.6;
+  private busWidth = 0.22;
+  boxes: Box[] = []; // araçların kapladığı yerler (yayalar da bakar)
   private recount = 0;
   private tmp = new THREE.Object3D();
   private lots = new Map<number, Lot>();
@@ -265,6 +282,7 @@ export class Traffic {
       busGeo.computeBoundingBox();
       const b = busGeo.boundingBox!;
       this.busLength = Math.max(b.max.x - b.min.x, b.max.z - b.min.z);
+      this.busWidth = Math.min(b.max.x - b.min.x, b.max.z - b.min.z);
       this.busMesh = new THREE.InstancedMesh(busGeo, vertexColorMat, 12);
       this.busMesh.count = 0;
       this.busMesh.frustumCulled = false;
@@ -277,6 +295,7 @@ export class Traffic {
       baked.geo.computeBoundingBox();
       const bb = baked.geo.boundingBox!;
       this.lengths.push(Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * CAR_SCALE);
+      this.widths.push(Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * CAR_SCALE);
       const mesh = new THREE.InstancedMesh(baked.geo, baked.mat, MAX_INSTANCES);
       mesh.castShadow = false;
       mesh.count = 0;
@@ -309,6 +328,35 @@ export class Traffic {
 
   private lengthOf(v: Vehicle) {
     return v.type < 0 ? this.busLength : this.lengths[v.type] ?? 0.4;
+  }
+  private widthOf(v: Vehicle) {
+    return v.type < 0 ? this.busWidth : this.widths[v.type] ?? 0.18;
+  }
+
+  // Önünde (gideceği yerde) başka bir araç ya da yaya var mı? Kutular bir önceki karedeki yerler.
+  // İki araç birbirini bekliyorsa kimliği küçük olan geçer (kilitlenmesin).
+  private blocked(me: Box | undefined, people: Box[]) {
+    if (!me) return false;
+    const fx = Math.sin(me.h), fz = Math.cos(me.h);
+    const hit = (o: Box, extra: number) => {
+      const rx = o.x - me.x, rz = o.z - me.z;
+      const ahead = rx * fx + rz * fz;
+      if (ahead <= 0.01) return false;
+      const lat = Math.abs(rx * fz - rz * fx);
+      const dh = o.h - me.h;
+      const c = Math.abs(Math.cos(dh)), s = Math.abs(Math.sin(dh));
+      return ahead < me.len + c * o.len + s * o.wid + extra && lat < me.wid + s * o.len + c * o.wid + 0.01;
+    };
+    for (const o of this.boxes) {
+      if (o.id === me.id || !hit(o, 0.06)) continue;
+      // Karşılıklı bekleme: o da beni bekliyorsa küçük kimlikli geçer
+      const ox = Math.sin(o.h), oz = Math.cos(o.h);
+      const back = (me.x - o.x) * ox + (me.z - o.z) * oz > 0.01;
+      if (back && me.id < o.id) continue;
+      return true;
+    }
+    for (const p of people) if (hit(p, 0.05)) return true;
+    return false;
   }
 
   // Aynı karede aynı şeritte (aynı yönden gelen, caddede aynı şeritteki) araçlar; dönecek olanlar da sıraya girer
@@ -650,8 +698,16 @@ export class Traffic {
       (lanes.get(k) ?? lanes.set(k, []).get(k)!).push([v.t, this.lengthOf(v)]);
     }
 
+    const people = this.walkers?.spots ?? [];
+    const prev = new Map(this.boxes.map(b => [b.id, b]));
     const move = (v: Vehicle) => {
-      if (v.man) return this.maneuver(v, dt);
+      v.id ??= nextId++;
+      if (v.man) {
+        // Otoparka girip çıkarken de önündekini bekle
+        if (this.blocked(prev.get(v.id), people) && (v.stuck = (v.stuck ?? 0) + dt) < 5) return true;
+        v.stuck = 0;
+        return this.maneuver(v, dt);
+      }
       v.fade = Math.min(1, Math.max(0, v.fade + (v.out ? -dt : dt) * 2.2));
       if (v.out && v.fade <= 0) {
         this.release(v);
@@ -666,7 +722,13 @@ export class Traffic {
       // Bir sonraki karenin başındaki araç
       const next = neighbor(v.tile, v.dOut);
       if (next >= 0) for (const [t, l] of lanes.get(this.key(v, next, v.dOut)) ?? []) limit = Math.min(limit, 1 + t - (len + l) / 2 - GAP);
-      const alive = advance(this.city, v, step, true, Math.max(v.t, limit), m => this.choose(m as Vehicle));
+      // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et)
+      let go = step;
+      if (this.blocked(prev.get(v.id), people)) {
+        v.stuck = (v.stuck ?? 0) + dt;
+        if (v.stuck < 6) go = 0;
+      } else v.stuck = 0;
+      const alive = advance(this.city, v, go, true, Math.max(v.t, limit), m => this.choose(m as Vehicle));
       if (!alive) {
         this.release(v);
         return false;
@@ -691,7 +753,15 @@ export class Traffic {
     const put = (type: number, m: THREE.Matrix4) => {
       if (counts[type] < MAX_INSTANCES) this.meshes[type].setMatrixAt(counts[type]++, m);
     };
-    for (const car of this.cars) put(car.type, this.place(car, CAR_Y));
+    this.boxes = [];
+    const remember = (v: Vehicle) => {
+      if (v.fade < 0.3) return;
+      this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0 });
+    };
+    for (const car of this.cars) {
+      put(car.type, this.place(car, CAR_Y));
+      remember(car);
+    }
     // Otoparkta duran arabalar
     for (const lot of this.lots.values()) {
       lot.bays.forEach((p, k) => {
@@ -709,7 +779,10 @@ export class Traffic {
       m.instanceMatrix.needsUpdate = true;
     });
     if (this.busMesh) {
-      this.buses.forEach((b, n) => this.busMesh!.setMatrixAt(n, this.place(b, 0.03)));
+      this.buses.forEach((b, n) => {
+        this.busMesh!.setMatrixAt(n, this.place(b, 0.03));
+        remember(b);
+      });
       this.busMesh.count = this.buses.length;
       this.busMesh.instanceMatrix.needsUpdate = true;
     }
@@ -814,6 +887,8 @@ const pickLook = (): Person['look'] => {
 export class Walkers {
   readonly root = new THREE.Group();
   private people: Person[] = [];
+  spots: Box[] = []; // yayaların yerleri (arabalar bakar)
+  cars: () => Box[] = () => [];
   private parts: Record<'torso' | 'head' | 'hair' | 'legL' | 'legR' | 'armL' | 'armR' | 'umbrella', THREE.InstancedMesh>;
   private recount = 0;
   private time = 0;
@@ -956,8 +1031,38 @@ export class Walkers {
       }
     }
     const before = this.people.length;
+    // Kaldırımda aynı yönde yürüyenler (önündekinin içinden geçmesin)
+    const lanes = new Map<string, number[]>();
+    for (const p of this.people) {
+      if (p.walk) continue;
+      const k = `${p.tile}|${p.dIn}`;
+      (lanes.get(k) ?? lanes.set(k, []).get(k)!).push(p.t);
+    }
+    const cars = this.cars();
+    const pos = new THREE.Vector3();
+    // Önünde araba varsa bekle
+    const carAhead = (x: number, z: number, h: number) => {
+      const fx = Math.sin(h), fz = Math.cos(h);
+      for (const c of cars) {
+        const rx = c.x - x, rz = c.z - z;
+        const ahead = rx * fx + rz * fz;
+        if (ahead < -0.02) continue;
+        const lat = Math.abs(rx * fz - rz * fx);
+        const dh = c.h - h;
+        const along = Math.abs(Math.cos(dh)) * c.len + Math.abs(Math.sin(dh)) * c.wid;
+        const side = Math.abs(Math.sin(dh)) * c.len + Math.abs(Math.cos(dh)) * c.wid;
+        if (ahead < along + 0.06 && lat < side + 0.03) return true;
+      }
+      return false;
+    };
     this.people = this.people.filter(p => {
-      if (p.walk) return this.stepWalk(p, dt);
+      if (p.walk) {
+        const w = p.walk;
+        const a = w.pts[w.k], b = w.pts[w.k + 1];
+        pos.lerpVectors(a, b, Math.min(1, w.u));
+        if (carAhead(pos.x, pos.z, Math.atan2(b.x - a.x, b.z - a.z))) return true;
+        return this.stepWalk(p, dt);
+      }
       if (p.out) {
         p.away = (p.away ?? 0) + dt;
         if (this.goHome(p)) return true;
@@ -967,7 +1072,11 @@ export class Walkers {
           if (p.fade <= 0) return false;
         }
       }
-      return advance(this.city, p, dt * p.speed, false, Math.max(p.t, lightLimit(this.city, p, 0.7)));
+      let limit = lightLimit(this.city, p, 0.7);
+      for (const t of lanes.get(`${p.tile}|${p.dIn}`) ?? []) if (t > p.t + 1e-4) limit = Math.min(limit, t - 0.08);
+      const h = lanePos(this.city, p, this.lane, 0.05, pos);
+      if (carAhead(pos.x, pos.z, h)) limit = p.t;
+      return advance(this.city, p, dt * p.speed, false, Math.max(p.t, limit));
     });
     if (this.people.length !== before) this.colorsDirty = true;
     if (this.colorsDirty) this.paint();
@@ -977,6 +1086,7 @@ export class Walkers {
       this.local.makeRotationX(swing).setPosition(x, y, 0);
       m.setMatrixAt(n, this.out.multiplyMatrices(this.base, this.local));
     };
+    this.spots = [];
     this.people.forEach((person, n) => {
       const w = person.walk;
       if (w) {
@@ -990,6 +1100,7 @@ export class Walkers {
       this.tmp.position.y += Math.abs(step) * 0.005; // adım atarken hafifçe yükselir
       this.tmp.scale.setScalar(THREE.MathUtils.smoothstep(person.fade, 0, 1));
       this.tmp.updateMatrix();
+      if (person.fade > 0.3) this.spots.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: 0.022, wid: 0.025, id: -1 });
       this.base.copy(this.tmp.matrix);
       for (const m of [p.torso, p.head, p.hair, p.umbrella]) m.setMatrixAt(n, this.base);
       put(p.legL, n, -0.0095, HIP, step * 0.55);

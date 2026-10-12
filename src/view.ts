@@ -154,29 +154,64 @@ function signalPost(tile: number) {
 }
 
 // Çıkmaz sokağın ucu: yuvarlak dönüş meydanı, ortasında çimenli adacık ve ağaç
+// Çıkmaz sokak: yol karenin ortasına kadar gelir ve yuvarlak bir uçla biter (yol ile aynı renk ve ölçü:
+// asfalt ±0.45, kenarda ince yüksek bordür, ±0.3'te sarı çizgi). Sarı çizgiler uçta U çizerek birleşir;
+// ortadaki küçük adacığın çevresinden arabalar geri döner.
+const CUL = {
+  asphalt: new THREE.MeshStandardMaterial({ color: '#60676c', roughness: 0.4 }),
+  curb: new THREE.MeshStandardMaterial({ color: '#7d878c', roughness: 0.4 }),
+  yellow: new THREE.MeshStandardMaterial({ color: '#e0ad51', roughness: 0.4 }),
+};
+// Yarım halka (kapalı uç tarafı -z): iç ve dış yarıçap, kalınlık
+function halfRing(r0: number, r1: number, depth: number) {
+  const s = new THREE.Shape();
+  s.absarc(0, 0, r1, 0, Math.PI, false);
+  s.lineTo(-r0, 0);
+  s.absarc(0, 0, r0, Math.PI, 0, true);
+  s.lineTo(r1, 0);
+  // Şekil xy düzleminde çizilir; yere yatırınca +y yönü -z olur (kapalı uç), kalınlık yukarı doğru
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 32 }).rotateX(-Math.PI / 2);
+}
 const culGeo = {
-  disc: new THREE.CylinderGeometry(0.47, 0.47, 0.012, 28),
-  ring: new THREE.CylinderGeometry(0.485, 0.485, 0.02, 28, 1, true),
-  island: new THREE.CylinderGeometry(0.15, 0.16, 0.03, 18),
+  cap: new THREE.CircleGeometry(0.455, 40, 0, Math.PI).rotateX(-Math.PI / 2),
+  curb: halfRing(0.452, 0.5, 0.05),
+  line: halfRing(0.29, 0.31, 0.0016),
+  island: new THREE.CylinderGeometry(0.085, 0.085, 0.03, 24),
+  islandEdge: new THREE.CylinderGeometry(0.1, 0.1, 0.022, 24),
 };
 function culDeSac(mask: number, grade: number) {
   const g = new THREE.Group();
+  const d = [1, 2, 4, 8].indexOf(mask); // yolun geldiği yön
+  // Hepsi yol +z'den geliyormuş gibi çizilir, sonra döndürülür
+  const r = new THREE.Group();
+  r.rotation.y = [Math.PI, Math.PI / 2, 0, -Math.PI / 2][d];
+  g.add(r);
+  // Açık yarı: normal yol (yarı boyda)
+  const stub = makeModel(ROAD_BASES[0][0]);
+  stub.scale.z *= 0.5;
+  stub.position.z = 0.25;
+  r.add(stub);
+  if (grade) {
+    const ex = roadExtras(grade, false, 1, false, 3);
+    ex.scale.z = 0.5;
+    ex.position.z = 0.25;
+    r.add(ex);
+  }
   const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.y = y;
     mesh.receiveShadow = true;
-    g.add(mesh);
+    r.add(mesh);
+    return mesh;
   };
-  add(culGeo.disc, roadDeco.asphalt, 0.047);
-  add(culGeo.ring, roadDeco.curb, 0.05);
-  add(culGeo.island, grade === 1 ? roadDeco.lawn : roadDeco.lawn, 0.066);
-  g.add(prop(PROPS.treeStreet, 0, 0, mask, 0.45));
-  // Yolun geldiği tarafta meydan yola açılsın: yolun ağzına asfalt
-  const d = [1, 2, 4, 8].indexOf(mask);
-  const open = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.012, 0.5), roadDeco.asphalt);
-  open.position.set(DIRS[d][0] * 0.25, 0.047, DIRS[d][1] * 0.25);
-  open.rotation.y = d % 2 ? Math.PI / 2 : 0;
-  g.add(open);
+  // Kapalı yarı: yuvarlak asfalt uç, kenarında bordür, sarı U çizgisi
+  add(culGeo.cap, CUL.asphalt, 0.035);
+  add(culGeo.curb, CUL.curb, 0);
+  add(culGeo.line, CUL.yellow, 0.0352);
+  // Ortada küçük adacık ve ağaç
+  add(culGeo.islandEdge, CUL.curb, 0.046);
+  add(culGeo.island, roadDeco.lawn, 0.05);
+  r.add(prop(PROPS.treeStreet, 0, 0, mask, 0.32));
   return g;
 }
 
@@ -985,6 +1020,14 @@ export class CityView {
       o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {
       o = makeUtility(t.kind);
+      if (t.level > 0) {
+        // Yükseltilmiş yapı: daha büyük (yukarı doğru) ve yıldızlı tabela
+        const w = new THREE.Group();
+        o.scale.y *= 1 + 0.4 * t.level;
+        w.add(o);
+        w.add(starSign(t.level, 1 / ((t.fp ?? 1) * 0.96)));
+        o = w;
+      }
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (t.kind === 'hall') {
       o = makeHall();
@@ -1105,10 +1148,16 @@ export class CityView {
       const m = this.city.isRoad(x + dx, z + dz) ? this.city.roadMask(x + dx, z + dz) : 0;
       return [1, 2, 4, 8].filter(b => m & b).length >= 3;
     });
+    const deadEnd = [1, 2, 4, 8].includes(mask) && !(x === 0 && z === ENTRANCE_Z);
+    const grade = this.city.get(x, z)?.grade ?? 0;
+    if (deadEnd) {
+      // Çıkmaz sokak: yarım yol ve yuvarlak dönüş meydanı (lamba ve süs yok)
+      g.add(culDeSac(mask, grade));
+      return g;
+    }
     const r = makeModel(nearJunction ? 'kaykit/road_straight_crossing' : p.model);
     r.rotation.y = (p.k * Math.PI) / 2;
     g.add(r);
-    const grade = this.city.get(x, z)?.grade ?? 0;
     if (straight && grade) g.add(roadExtras(grade, alongX, alongX ? x : z, nearJunction, Math.floor(hash(x, z, 5) * 1000)));
     if (straight) {
       const along = alongX ? x : z;
@@ -1125,7 +1174,6 @@ export class CityView {
       g.add(signalPost(idx(x, z)));
     }
     if (!straight && grade) g.add(junctionExtras(grade, mask));
-    if ([1, 2, 4, 8].includes(mask) && !(x === 0 && z === ENTRANCE_Z)) g.add(culDeSac(mask, grade));
     return g;
   }
 

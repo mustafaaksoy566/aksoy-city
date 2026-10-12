@@ -49,6 +49,14 @@ export const UTILITIES: Record<UtilKind, { power: number; water: number; upkeep:
   pump: { power: 0, water: 80, upkeep: 8 },
 };
 export const UTIL_KINDS = Object.keys(UTILITIES) as UtilKind[];
+// Elektrik ve su yapıları yükseltilir: bina büyür, aynı yerde kat kat daha çok üretir (az yer kaplasın diye).
+// cost: yapının fiyatının kaç katı, level: gereken şehir seviyesi
+export const UTIL_LEVELS = [
+  { mult: 1, cost: 0, level: 0 },
+  { mult: 2, cost: 1.5, level: 4 },
+  { mult: 3, cost: 3, level: 7 },
+  { mult: 4, cost: 5, level: 10 },
+];
 
 // Hizmet binaları: çevrelerindeki kareleri kapsar. Evler 5. seviyeye çıkmak için dördüne de muhtaç.
 export type ServiceKind = 'police' | 'fire' | 'health' | 'school';

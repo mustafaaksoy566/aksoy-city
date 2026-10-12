@@ -1,6 +1,6 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, MAKER_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
+  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
   INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
@@ -31,6 +31,7 @@ export interface CardActions {
   claim(n: number): void;
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
+  upgradeUtil(i: number): void;
   openCatalog(group: string): void;
   ship(n: number): void;
   upgradeRoad(i: number): void;
@@ -132,7 +133,7 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
   const upkeep = { util: 0, service: 0, industry: 0, decor: 0 };
   for (const t of city.tiles) {
     if (!t) continue;
-    if (isUtility(t.kind)) upkeep.util += UTILITIES[t.kind].upkeep;
+    if (isUtility(t.kind)) upkeep.util += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
     else if (isService(t.kind)) upkeep.service += SERVICES[t.kind].upkeep;
     else if (isIndustry(t.kind)) upkeep.industry += INDUSTRY[t.kind].upkeep;
     else if (isDecor(t.kind)) upkeep.decor += DECOR[t.kind].upkeep;
@@ -478,16 +479,27 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
 
   if (isUtility(t.kind)) {
     const u = UTILITIES[t.kind];
+    const mult = UTIL_LEVELS[t.level]?.mult ?? 1;
+    const next = UTIL_LEVELS[t.level + 1];
+    const cost = city.utilUpgradeCost(i);
+    const blocker = city.utilUpgradeBlocker(i);
+    const lines: InfoCard['lines'] = [road];
+    if (next) lines.push({ text: `⬆️ Yükseltince bina büyür, aynı yerde ${next.mult} kat ${u.power ? 'elektrik' : 'su'} verir.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
+    else lines.push({ text: '⭐ En üst seviyede: en çok üretim.' });
     return {
       title: TOOL_INFO[t.kind].label,
       subtitle: u.power ? 'Elektrik üretir' : 'Su verir',
       thumb: t.kind,
       tone: groupColor(t.kind),
       stats: [
-        { icon: u.power ? '⚡' : '💧', value: `+${u.power || u.water}`, label: u.power ? 'Elektrik' : 'Su' },
-        { icon: '🔧', value: `−${u.upkeep}`, label: 'Günlük bakım' },
+        { icon: u.power ? '⚡' : '💧', value: `+${(u.power || u.water) * mult}`, label: u.power ? 'Elektrik' : 'Su' },
+        { icon: '⭐', value: `${t.level + 1}/${UTIL_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
+        { icon: '🔧', value: `−${Math.round(u.upkeep * (1 + t.level * 0.5))}`, label: 'Günlük bakım' },
       ],
-      lines: [road],
+      lines,
+      actions: next && cost !== null
+        ? [{ label: `Yükselt ⭐${t.level + 2}  💰${fmt(cost)}`, enabled: blocker === null, primary: true, run: () => act.upgradeUtil(i) }]
+        : undefined,
     };
   }
 

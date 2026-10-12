@@ -163,6 +163,7 @@ scene.add(traffic.root);
 const walkers = new Walkers(city);
 scene.add(walkers.root);
 traffic.link(walkers);
+walkers.cars = () => traffic.boxes;
 const trains = new Trains(city);
 scene.add(trains.root);
 const sky = new Sky(city);
@@ -318,6 +319,19 @@ const cardActions: CardActions = {
       view.refresh([i], true);
       play('grow', 0.6);
       toast(`⭐ ${TOOL_INFO[city.tiles[i]!.kind as BuildTool].label} ${city.tiles[i]!.level + 1}. seviyeye yükseldi: daha hızlı üretiyor!`);
+    }
+    afterChange();
+  },
+  upgradeUtil(i) {
+    const err = city.upgradeUtility(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      const t = city.tiles[i]!;
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`⭐ ${TOOL_INFO[t.kind as BuildTool].label} ${t.level + 1}. seviyeye yükseldi: ${t.level + 1} kat üretiyor!`);
     }
     afterChange();
   },
