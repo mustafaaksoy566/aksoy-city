@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { SIZE, BOAT_MODELS } from './config';
 import { makeModel } from './assets';
-import { mat, part } from './utilities';
 import { makeAirliner } from './planes';
+import { busModel } from './vehicles';
 import { RUNWAY } from './landmarks';
 import { SEA_Y } from './water';
 import { FACING_TURNS, tileCenter } from './view';
@@ -17,26 +17,10 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 // --- Basit modeller ---
 
+// Şehir otobüsü (vehicles.ts'de kodla çizilir): uzunluk +z yönünde, ön taraf +z, taban y = 0.
+// Düz renkli parçalardan oluşur; trafik ve otoyol bakeModel ile tek geometriye çevirir.
 export function makeBus(): THREE.Object3D {
-  const g = new THREE.Group();
-  const body = mat('#1e6fd9');
-  const white = mat('#f4f4f2');
-  const glass = mat('#2b3440');
-  const tire = mat('#1d1f22');
-  // Gövde (uzunluk +z yönünde, ön taraf +z)
-  g.add(part(new THREE.BoxGeometry(0.22, 0.12, 0.6), body, 0, 0.1, 0));
-  g.add(part(new THREE.BoxGeometry(0.225, 0.07, 0.56), glass, 0, 0.19, -0.01));
-  g.add(part(new THREE.BoxGeometry(0.22, 0.03, 0.6), white, 0, 0.235, 0));
-  g.add(part(new THREE.BoxGeometry(0.2, 0.08, 0.01), glass, 0, 0.17, 0.301)); // ön cam
-  g.add(part(new THREE.BoxGeometry(0.12, 0.025, 0.012), mat('#ffd34d'), 0, 0.225, 0.302)); // hat tabelası
-  for (const z of [-0.19, 0.19]) {
-    for (const x of [-0.105, 0.105]) {
-      const w = part(new THREE.CylinderGeometry(0.045, 0.045, 0.03, 10), tire, x, 0.045, z);
-      w.rotation.z = Math.PI / 2;
-      g.add(w);
-    }
-  }
-  return g;
+  return busModel();
 }
 
 const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', flatShading: true, roughness: 1, transparent: true, opacity: 0.92 });

@@ -1,9 +1,8 @@
 import * as THREE from 'three';
-import { SIZE, TRAIN_MODELS } from './config';
+import { SIZE } from './config';
 import { City, DIRS, idx, inBounds } from './city';
-import { makeModel } from './assets';
-import { bakeTextured } from './batcher';
 import { tileCenter } from './view';
+import { trainCar } from './vehicles';
 
 // Tren: öndeki vagon rayları izler, diğer vagonlar onun geçtiği yoldan gelir.
 // Her istasyon için bir tren (en fazla MAX_TRAINS).
@@ -11,6 +10,14 @@ import { tileCenter } from './view';
 const MAX_TRAINS = 3;
 const Y = 0.065;
 const CAR_GAPS = [0, 0.86, 1.72]; // vagonların öndeki vagona uzaklığı (kare)
+
+// Vagonlar kodla çizilir (vehicles.ts): gövde köşe renkli; yolcu camları ('window') ve farlar ('headlight')
+// ayrı malzemede, gece yanarlar (DayNight bu adlara bakar)
+const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.18 });
+const glassMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.35 });
+glassMat.name = 'window';
+const lampMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, emissive: '#000000' });
+lampMat.name = 'headlight';
 
 interface Train {
   tile: number;
@@ -26,8 +33,9 @@ const fwd = (d: number) => new THREE.Vector3(DIRS[d][0], 0, DIRS[d][1]);
 export class Trains {
   readonly root = new THREE.Group();
   private trains: Train[] = [];
-  private head: THREE.InstancedMesh | null = null;
-  private mid: THREE.InstancedMesh | null = null;
+  private head: THREE.InstancedMesh[] = []; // kabinli vagon: gövde ve camlar
+  private mid: THREE.InstancedMesh[] = []; // ortadaki yolcu vagonu: gövde ve camlar
+  private lamps: THREE.InstancedMesh[] = []; // kabinli vagonun farları: öndeki yanar, arkadaki sönük
   private recount = 0;
   private tmp = new THREE.Object3D();
   private a = new THREE.Vector3();
@@ -37,17 +45,19 @@ export class Trains {
   constructor(private city: City) {}
 
   init() {
-    const head = bakeTextured(makeModel(TRAIN_MODELS.head));
-    const mid = bakeTextured(makeModel(TRAIN_MODELS.mid));
-    if (!head || !mid) return;
-    this.head = new THREE.InstancedMesh(head.geo, head.mat, MAX_TRAINS * 2);
-    this.mid = new THREE.InstancedMesh(mid.geo, mid.mat, MAX_TRAINS);
-    for (const m of [this.head, this.mid]) {
+    const head = trainCar('head'), mid = trainCar('mid');
+    const make = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number, shadow: boolean) => {
+      const m = new THREE.InstancedMesh(geo, mat, n);
       m.count = 0;
       m.frustumCulled = false;
-      m.castShadow = true;
+      m.castShadow = shadow;
+      m.receiveShadow = true;
       this.root.add(m);
-    }
+      return m;
+    };
+    this.head = [make(head.body, bodyMat, MAX_TRAINS * 2, true), make(head.glass, glassMat, MAX_TRAINS * 2, false)];
+    this.mid = [make(mid.body, bodyMat, MAX_TRAINS, true), make(mid.glass, glassMat, MAX_TRAINS, false)];
+    this.lamps = [make(head.lights, lampMat, MAX_TRAINS, false), make(head.lights, bodyMat, MAX_TRAINS, false)];
   }
 
   setCity(city: City) {
@@ -80,7 +90,7 @@ export class Trains {
   }
 
   update(dt: number) {
-    if (!this.head || !this.mid) return;
+    if (!this.head.length) return;
     this.recount -= dt;
     if (this.recount <= 0) {
       this.recount = 1;
@@ -95,7 +105,7 @@ export class Trains {
       } else if (this.trains.length > wanted) this.trains.pop();
     }
 
-    let heads = 0, mids = 0;
+    let heads = 0, mids = 0, lit = 0, unlit = 0;
     this.trains = this.trains.filter(tr => {
       // Ray yıkıldıysa tren kaybolur
       if (!this.city.isRail(tr.tile % SIZE, Math.floor(tr.tile / SIZE))) return false;
@@ -127,14 +137,27 @@ export class Trains {
         const ang = Math.atan2(front.x - back.x, front.z - back.z);
         this.tmp.rotation.set(0, k === CAR_GAPS.length - 1 ? ang + Math.PI : ang, 0);
         this.tmp.updateMatrix();
-        if (k === 1) this.mid!.setMatrixAt(mids++, this.tmp.matrix);
-        else this.head!.setMatrixAt(heads++, this.tmp.matrix);
+        const m = this.tmp.matrix;
+        if (k === 1) {
+          for (const mesh of this.mid) mesh.setMatrixAt(mids, m);
+          mids++;
+        } else {
+          for (const mesh of this.head) mesh.setMatrixAt(heads, m);
+          heads++;
+          // Öndeki kabinin farları yanar, en arkadakinin farları sönük
+          if (k === 0) this.lamps[0].setMatrixAt(lit++, m);
+          else this.lamps[1].setMatrixAt(unlit++, m);
+        }
       });
       return true;
     });
-    this.head.count = heads;
-    this.mid.count = mids;
-    this.head.instanceMatrix.needsUpdate = this.mid.instanceMatrix.needsUpdate = true;
+    const counts: [THREE.InstancedMesh[], number][] = [[this.head, heads], [this.mid, mids], [[this.lamps[0]], lit], [[this.lamps[1]], unlit]];
+    for (const [list, n] of counts) {
+      for (const m of list) {
+        m.count = n;
+        m.instanceMatrix.needsUpdate = true;
+      }
+    }
   }
 
   // Öndeki vagonun izinden, baştan d kare gerideki nokta

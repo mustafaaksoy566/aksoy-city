@@ -461,9 +461,6 @@ export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck'), 
 // Denizde dolaşan gemi ve tekneler (Kenney Watercraft Kit)
 export const BOAT_MODELS = ['ship-cargo-a', 'boat-sail-a', 'ship-ocean-liner-small', 'boat-speed-a', 'ship-cargo-b', 'boat-sail-b', 'boat-tug-a', 'boat-fishing-small'].map(n => `kenney-boats/${n}`);
 
-// Tren (Kenney Train Kit): öndeki ve arkadaki kabinli vagon, ortada yolcu vagonu
-export const TRAIN_MODELS = { head: 'kenney-train/train-electric-city-a', mid: 'kenney-train/train-electric-city-b' };
-
 // Fabrika ve depo binaları (Kenney City Kit Industrial)
 export const INDUSTRY_MODELS = {
   factory: ['a', 'b', 'e', 'f', 'l', 'm', 'n'].map(l => ki(`building-${l}`)),
@@ -517,8 +514,6 @@ export const ALL_MODELS = [
     ...CAR_MODELS,
     ...Object.values(PROPS),
     ...BOAT_MODELS,
-    TRAIN_MODELS.head,
-    TRAIN_MODELS.mid,
     ...INDUSTRY_MODELS.factory,
     ...INDUSTRY_MODELS.depot,
   ]),
