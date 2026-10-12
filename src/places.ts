@@ -493,7 +493,7 @@ export function beach() {
 // arabalar, tepede lambalar; arkada camlı merdiven kulesi ve "P" tabelası, önde giriş bariyeri ve gişe.
 const PARK_CON = pm('#d9d6d0', 0.9);
 const PARK_DARK = pm('#8f949b', 0.9);
-const pMat = (() => {
+export const pMat = (() => {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const x = c.getContext('2d')!;

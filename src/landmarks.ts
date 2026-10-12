@@ -8,7 +8,7 @@ import { SEA_Y } from './water';
 import { HISTORIC } from './historic';
 import { lake, hill, volley, casino } from './extras';
 import { ferrisWheel, funfair, museum, fountain, statue, observatory } from './fun';
-import { station, busStop, metro, airport, university, beach, palm, RUNWAY } from './places';
+import { station, busStop, metro, airport, university, beach, palm, RUNWAY, pMat } from './places';
 import { KIT } from './towers';
 import { signMat } from './signs';
 import { pm, M as PM, BULB, BULB_GEO, WATER, SPRAY, FLOWERS, PAINT, UP, type V3, add, box, cyl, rod, item, bench, lamp, flowerBed, planter } from './parts';
@@ -32,36 +32,47 @@ const M = {
 
 // Otopark (1x1): asfalt, arka sırada üç park yeri, önü yola açık; köşede mavi "P" tabelası.
 // Park eden arabaları trafik çizer (traffic.ts), burada sadece zemin var.
+// Otopark (1x1): asfalt, arka sırada üç park yeri (tekerlek takozları, biri engelli, birinde şarj direği),
+// önü yola açık; kenarlarda bordür, köşelerde çalı, iki lamba, ödeme makinesi ve mavi "P" tabelası.
+// Park eden arabaları trafik çizer (traffic.ts); park yerlerinin yeri değişmemeli (BAYS: x -0.3, 0, 0.3; arkası z -0.47).
+const LOT = {
+  asphalt: pm('#4f5560', 0.95),
+  line: pm('#f4f4f2', 0.8),
+  stop: pm('#c9c5bc', 0.9),
+  curb: pm('#d9d6cf', 0.9),
+  blue: pm('#1e6fd9', 0.8),
+  charger: pm('#2e7d32', 0.6),
+};
 function parkingLot() {
   const g = new THREE.Group();
   const st = new THREE.Group();
-  st.add(part(new THREE.BoxGeometry(0.98, 0.036, 0.98), mat('#555b63'), 0, 0.018, 0));
-  const white = mat('#f4f4f2');
-  // Park yeri çizgileri ve arka çizgi
-  for (const x of [-0.45, -0.15, 0.15, 0.45]) st.add(part(new THREE.BoxGeometry(0.014, 0.003, 0.44), white, x, 0.037, -0.25));
-  st.add(part(new THREE.BoxGeometry(0.92, 0.003, 0.014), white, 0, 0.037, -0.47));
+  box(st, 0.98, 0.034, 0.98, LOT.asphalt, 0, 0, 0);
+  // Park yeri çizgileri, arka çizgi, tekerlek takozları
+  for (const x of [-0.45, -0.15, 0.15, 0.45]) box(st, 0.014, 0.003, 0.44, LOT.line, x, 0.034, -0.25);
+  box(st, 0.92, 0.003, 0.014, LOT.line, 0, 0.034, -0.47);
+  for (const x of [-0.3, 0, 0.3]) box(st, 0.12, 0.014, 0.022, LOT.stop, x, 0.034, -0.42);
+  // Sağdaki yer engelliler için (mavi zemin ve işaret), soldakinde elektrikli araç şarj direği
+  box(st, 0.27, 0.002, 0.42, LOT.blue, 0.3, 0.034, -0.25);
+  add(st, new THREE.CircleGeometry(0.035, 16).rotateX(-Math.PI / 2), LOT.line, 0.3, 0.037, -0.16);
+  box(st, 0.034, 0.09, 0.024, LOT.charger, -0.3, 0.034, -0.465);
+  box(st, 0.024, 0.02, 0.004, BULB, -0.3, 0.09, -0.452);
   // Koridorda yön oku
-  st.add(part(new THREE.BoxGeometry(0.03, 0.003, 0.16), white, 0, 0.037, 0.2));
-  for (const s of [-1, 1]) {
-    const a = part(new THREE.BoxGeometry(0.03, 0.003, 0.09), white, s * 0.025, 0.037, 0.12);
-    a.rotation.y = s * 0.7;
-    st.add(a);
+  box(st, 0.03, 0.003, 0.16, LOT.line, 0, 0.034, 0.2);
+  for (const sx of [-1, 1]) {
+    const ar = box(st, 0.03, 0.003, 0.09, LOT.line, sx * 0.025, 0.034, 0.12);
+    ar.rotation.y = sx * 0.7;
   }
-  // Kenarlarda bordür ve çiçeklik
-  const curb = mat('#d9d6cf');
-  st.add(part(new THREE.BoxGeometry(0.98, 0.05, 0.03), curb, 0, 0.025, -0.485));
-  for (const s of [-1, 1]) {
-    st.add(part(new THREE.BoxGeometry(0.03, 0.05, 0.98), curb, s * 0.485, 0.025, 0));
-    st.add(part(new THREE.BoxGeometry(0.1, 0.05, 0.1), mat('#5aa646'), s * 0.43, 0.06, 0.43));
-  }
-  // "P" tabelası
-  const blue = mat('#1565c0');
-  st.add(part(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 6), M.steel, 0.43, 0.15, 0.3));
-  st.add(part(new THREE.BoxGeometry(0.012, 0.1, 0.1), blue, 0.43, 0.32, 0.3));
-  st.add(part(new THREE.BoxGeometry(0.014, 0.06, 0.012), white, 0.43, 0.32, 0.28));
-  st.add(part(new THREE.BoxGeometry(0.014, 0.012, 0.03), white, 0.43, 0.345, 0.29));
-  st.add(part(new THREE.BoxGeometry(0.014, 0.012, 0.03), white, 0.43, 0.32, 0.29));
-  st.add(part(new THREE.BoxGeometry(0.014, 0.03, 0.012), white, 0.43, 0.333, 0.303));
+  // Bordürler (önü açık), köşelerde çalı
+  box(st, 0.98, 0.05, 0.03, LOT.curb, 0, 0, -0.485);
+  for (const sx of [-1, 1]) box(st, 0.03, 0.05, 0.98, LOT.curb, sx * 0.485, 0, 0);
+  for (const sx of [-1, 1]) st.add(tree(PROPS.bush, sx * 0.47, -0.47, 1, sx, 0.45));
+  // Lambalar, ödeme makinesi, P tabelası
+  lamp(st, -0.475, -0.05, 1, 0.3);
+  lamp(st, 0.475, -0.05, 1, 0.3);
+  box(st, 0.05, 0.11, 0.035, PM.iron, -0.43, 0.034, 0.42);
+  box(st, 0.034, 0.03, 0.004, windowMat, -0.43, 0.1, 0.438);
+  cyl(st, 0.006, 0.008, 0.3, PM.steel, 0.43, 0.034, 0.3, 6);
+  box(st, 0.11, 0.11, 0.01, pMat, 0.43, 0.29, 0.3);
   g.add(mergeStatic([st]));
   return g;
 }
