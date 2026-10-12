@@ -4,6 +4,7 @@ import { makeModel } from './assets';
 import { mat, part } from './utilities';
 import { makeAirliner } from './planes';
 import { RUNWAY } from './landmarks';
+import { SEA_Y } from './water';
 import { FACING_TURNS, tileCenter } from './view';
 import type { City } from './city';
 
@@ -131,7 +132,7 @@ export class Sky {
     BOAT_MODELS.forEach((path, k) => {
       const b = makeModel(path);
       const dir = new THREE.Vector3(k % 2 ? -1 : 1, 0, 0);
-      b.position.set(-80 + k * 22, -0.33, -HALF - 14 - (k % 4) * 7);
+      b.position.set(-80 + k * 22, SEA_Y - 0.04, -HALF - 16 - (k % 4) * 7);
       b.rotation.y = Math.atan2(dir.x, dir.z);
       this.root.add(b);
       this.boats.push({ obj: b, speed: 0.6 + (k % 3) * 0.4, dir, limit: 100 });
@@ -231,7 +232,7 @@ export class Sky {
     }
     this.boats.forEach((b, k) => {
       move(b);
-      b.obj.position.y = -0.33 + Math.sin(this.time * 1.5 + k) * 0.03; // dalgada sallanma
+      b.obj.position.y = SEA_Y - 0.04 + Math.sin(this.time * 1.5 + k) * 0.03; // dalgada sallanma
     });
 
     this.updateAirports(dt);

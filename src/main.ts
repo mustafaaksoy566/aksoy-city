@@ -11,13 +11,15 @@ import {
 import { Sky } from './sky';
 import { CameraRig } from './camera';
 import { Weather } from './weather';
+import { updateWater } from './water';
+import { Fireworks } from './fireworks';
 import { questDone } from './quests';
 import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
 import { railPiece } from './rails';
-import { DayNight, CYCLE_DAYS } from './daynight';
+import { DayNight, CYCLE_DAYS, phase } from './daynight';
 import { renderThumbs } from './thumbs';
 import { makeUtility } from './utilities';
 import { makeService, makeHall } from './services';
@@ -29,12 +31,13 @@ import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
-  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, fmt, type Quality,
+  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, type Quality,
 } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
 const QUALITY_KEY = 'aksoy-city-quality';
 const RAIN_KEY = 'aksoy-city-rain';
+const NAME_KEY = 'aksoy-city-name';
 
 const readPref = (key: string) => {
   try {
@@ -106,6 +109,7 @@ const grid = new THREE.GridHelper(SIZE, SIZE, '#ffffff', '#ffffff');
 (grid.material as THREE.Material).transparent = true;
 (grid.material as THREE.Material).opacity = 0.18;
 grid.position.y = -0.01;
+grid.visible = false; // ızgara sadece bir şey inşa ederken görünür
 scene.add(grid);
 
 // --- Şehir ---
@@ -132,6 +136,7 @@ function save() {
 let city = loadCity();
 const view = new CityView(city);
 scene.add(view.root);
+view.showLandShade(false);
 const traffic = new Traffic(city);
 scene.add(traffic.root);
 const walkers = new Walkers(city);
@@ -144,6 +149,19 @@ const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);
 const dayNight = new DayNight(scene, hemi, sun);
+scene.add(dayNight.dome);
+const fireworks = new Fireworks();
+scene.add(fireworks.root);
+// Havai fişeklerin atılacağı yerler: lunapark, stadyum, dönme dolap
+let showSpots: THREE.Vector3[] = [];
+function findShowSpots() {
+  showSpots = [];
+  city.tiles.forEach((t, i) => {
+    if (!t || (t.kind !== 'funfair' && t.kind !== 'stadium' && t.kind !== 'wheel')) return;
+    const n = t.fp ?? 1;
+    showSpots.push(tileCenter((i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2));
+  });
+}
 
 const updateStats = () =>
   setStats({
@@ -155,7 +173,11 @@ const updateStats = () =>
     storage: { used: city.storageUsed, cap: city.storageCap },
     happiness: city.happiness,
     questsReady: city.quests.filter(q => questDone(city, q)).length,
+    day: city.day,
+    night: phase(((city.day % CYCLE_DAYS) + 0.5) / CYCLE_DAYS).night > 0.5,
   });
+let cityName = readPref(NAME_KEY) || 'Aksoy City';
+setCityName(cityName);
 
 // Seviye atlanınca kutla ve yeni açılanları göster
 function checkLevelUps() {
@@ -315,7 +337,7 @@ function renderCard() {
     openCard === 'storage' ? describeStorage(city)
     : openCard === 'quests' ? describeQuests(city, cardActions)
     : openCard === 'budget' ? describeBudget(city, cardActions)
-    : openCard === 'city' ? describeCity(city)
+    : openCard === 'city' ? describeCity(city, cityName)
     : openCard === 'power' || openCard === 'water' ? describeUtility(city, openCard, cardActions)
     : openCard === 'hall' ? describeHall(city, cardActions)
     : describeTile(city, openCard, cardActions);
@@ -355,6 +377,7 @@ function toggleCard(key: CardKey) {
 
 // Bir şey değişince her yeri güncelle ve kaydet
 function afterChange() {
+  findShowSpots();
   showEvents();
   checkLevelUps();
   view.updateIcons();
@@ -442,6 +465,8 @@ function pickTool(t: Tool) {
   showCoverage();
   setChip(null);
   setMode(t);
+  grid.visible = t !== 'pan';
+  view.showLandShade(t !== 'pan');
   applyControls();
   play('click', 0.4);
 }
@@ -516,7 +541,7 @@ document.querySelector('#mode .mode-done')!.addEventListener('click', () => pick
 // Üstteki göstergeler
 const cardButtons: [string, CardKey][] = [
   ['storage', 'storage'], ['quests', 'quests'], ['money', 'budget'], ['pop', 'city'], ['lvl', 'city'],
-  ['power', 'power'], ['water', 'water'], ['happy', 'hall'],
+  ['power', 'power'], ['water', 'water'], ['happy', 'hall'], ['clock', 'city'],
 ];
 for (const [id, key] of cardButtons) document.getElementById(id)!.addEventListener('click', () => toggleCard(key));
 
@@ -558,7 +583,7 @@ async function resetCity() {
 document.getElementById('settings')!.addEventListener('click', () => {
   play('click', 0.3);
   openSettings(
-    { sound: !isMuted(), quality, rain: weather.enabled },
+    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName },
     {
       sound: on => setMuted(!on),
       quality: applyQuality,
@@ -567,6 +592,11 @@ document.getElementById('settings')!.addEventListener('click', () => {
         writePref(RAIN_KEY, on ? '1' : '0');
       },
       reset: resetCity,
+      rename: name => {
+        cityName = name;
+        writePref(NAME_KEY, name);
+        setCityName(name);
+      },
     },
   );
 });
@@ -584,6 +614,7 @@ document.getElementById('compass')!.addEventListener('click', () => {
   play('click', 0.3);
 });
 window.addEventListener('keydown', e => {
+  if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
   if (e.key === 'q' || e.key === 'Q') rig.rotateBy(-Math.PI / 4);
   if (e.key === 'e' || e.key === 'E') rig.rotateBy(Math.PI / 4);
   if (e.key === 'Escape') {
@@ -652,6 +683,9 @@ function frame() {
   trains.update(dt);
   sky.update(dt);
   weather.update(dt, rig.target);
+  updateWater(clock.elapsedTime);
+  dayNight.dome.position.copy(camera.position);
+  fireworks.update(dt, phase(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS).night, showSpots);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
@@ -690,7 +724,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'trade', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {

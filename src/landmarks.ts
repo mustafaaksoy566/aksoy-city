@@ -3,6 +3,7 @@ import { DECOR_MODELS, PROPS, type DecorKind } from './config';
 import { part, mat, pad, windowMat, showcaseMat } from './utilities';
 import { makeModel } from './assets';
 import { makeAirliner } from './planes';
+import { mergeStatic } from './batcher';
 
 // Simge yapılar: çeşme ve heykel hazır model, dönme dolap ve stadyum basit şekillerden.
 
@@ -365,7 +366,154 @@ function metro() {
   return g;
 }
 
+// Saat kulesi: taş gövde, dört yüzde saat, sivri çatı, çevresinde çiçekli meydan
+function clockTower() {
+  const g = new THREE.Group();
+  g.add(part(new THREE.BoxGeometry(0.92, 0.04, 0.92), mat('#d8d2c4'), 0, 0.02, 0));
+  const stone = mat('#c9a77c');
+  const light = mat('#e8dcc4');
+  for (const [x, z] of [[-0.32, -0.32], [0.32, -0.32], [-0.32, 0.32], [0.32, 0.32]]) {
+    g.add(part(new THREE.BoxGeometry(0.16, 0.04, 0.16), mat('#5aa53c'), x, 0.06, z));
+    for (let k = 0; k < 3; k++) g.add(part(new THREE.SphereGeometry(0.022, 6, 4), mat(k % 2 ? '#e53935' : '#fdd835'), x - 0.04 + k * 0.04, 0.09, z + (k - 1) * 0.03));
+  }
+  g.add(part(new THREE.BoxGeometry(0.26, 0.1, 0.26), light, 0, 0.09, 0));
+  g.add(part(new THREE.BoxGeometry(0.18, 0.62, 0.18), stone, 0, 0.45, 0));
+  for (const s of [-1, 1]) {
+    g.add(part(new THREE.BoxGeometry(0.02, 0.6, 0.19), light, s * 0.08, 0.45, 0));
+    g.add(part(new THREE.BoxGeometry(0.19, 0.6, 0.02), light, 0, 0.45, s * 0.08));
+  }
+  g.add(part(new THREE.BoxGeometry(0.22, 0.2, 0.22), light, 0, 0.86, 0));
+  // Dört yüzde saat kadranı ve akrep-yelkovan
+  const white = mat('#ffffff');
+  const dark = mat('#2b2f36');
+  for (let k = 0; k < 4; k++) {
+    const face = new THREE.Group();
+    face.rotation.y = (k * Math.PI) / 2;
+    face.add(part(new THREE.CylinderGeometry(0.07, 0.07, 0.01, 18).rotateX(Math.PI / 2), white, 0, 0.86, 0.112));
+    face.add(part(new THREE.BoxGeometry(0.008, 0.055, 0.004), dark, 0, 0.88, 0.119));
+    const hour = part(new THREE.BoxGeometry(0.008, 0.04, 0.004), dark, 0.012, 0.86, 0.119);
+    hour.rotation.z = -Math.PI / 2.5;
+    face.add(hour);
+    g.add(face);
+  }
+  g.add(part(new THREE.BoxGeometry(0.25, 0.03, 0.25), stone, 0, 0.975, 0));
+  g.add(part(new THREE.ConeGeometry(0.17, 0.3, 4).rotateY(Math.PI / 4), mat('#5d6d7e'), 0, 1.14, 0));
+  g.add(part(new THREE.SphereGeometry(0.025, 8, 6), mat('#e0b84c'), 0, 1.3, 0));
+  // Banklar
+  for (const [x, z, r] of [[0, 0.3, Math.PI], [0, -0.3, 0]] as [number, number, number][]) {
+    const b = makeModel(PROPS.bench);
+    b.position.set(x, 0.04, z);
+    b.rotation.y = r;
+    g.add(b);
+  }
+  return g;
+}
+
+const pyramidGlass = new THREE.MeshStandardMaterial({ color: '#8fd0ef', transparent: true, opacity: 0.78, roughness: 0.1, metalness: 0.3 });
+
+// Müze (2x2): sütunlu klasik bina, geniş merdiven, önde cam piramit ve renkli afişler
+function museum() {
+  const g = new THREE.Group();
+  const marble = mat('#f1ece2');
+  const slate = mat('#5d6d7e');
+  g.add(part(new THREE.BoxGeometry(0.98, 0.03, 0.98), mat('#e3ddd0'), 0, 0.015, 0));
+  // Bina
+  g.add(part(new THREE.BoxGeometry(0.76, 0.22, 0.4), marble, 0, 0.14, -0.2));
+  g.add(part(new THREE.BoxGeometry(0.8, 0.03, 0.44), slate, 0, 0.265, -0.2));
+  for (let k = 0; k < 6; k++) g.add(part(new THREE.BoxGeometry(0.05, 0.09, 0.006), windowMat, -0.3 + k * 0.12, 0.15, -0.402 + 0.004 + 0.4));
+  // Sütunlu giriş ve alınlık
+  g.add(part(new THREE.BoxGeometry(0.5, 0.025, 0.12), marble, 0, 0.04, 0.06));
+  for (let k = 0; k < 3; k++) g.add(part(new THREE.BoxGeometry(0.5 + k * 0.06, 0.012, 0.04), marble, 0, 0.012 + k * 0.012, 0.15 - k * 0.03));
+  for (let k = 0; k < 6; k++) g.add(part(new THREE.CylinderGeometry(0.014, 0.016, 0.18, 10), marble, -0.2 + k * 0.08, 0.14, 0.07));
+  g.add(part(new THREE.BoxGeometry(0.5, 0.03, 0.08), marble, 0, 0.245, 0.06));
+  const tri = new THREE.Shape([new THREE.Vector2(-0.26, 0), new THREE.Vector2(0.26, 0), new THREE.Vector2(0, 0.08)]);
+  g.add(part(new THREE.ExtrudeGeometry(tri, { depth: 0.08, bevelEnabled: false }), marble, 0, 0.26, 0.02));
+  // Afişler
+  for (const [x, c] of [[-0.3, '#c62828'], [0.3, '#1565c0']] as [number, string][]) g.add(part(new THREE.BoxGeometry(0.06, 0.14, 0.006), mat(c), x, 0.15, 0.003));
+  // Cam piramit
+  const pyr = part(new THREE.ConeGeometry(0.11, 0.13, 4).rotateY(Math.PI / 4), pyramidGlass, -0.24, 0.095, 0.3);
+  g.add(pyr);
+  g.add(part(new THREE.BoxGeometry(0.17, 0.012, 0.17), mat('#9aa3ad'), -0.24, 0.033, 0.3));
+  g.add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.012, 16), mat('#4fb3e8'), 0.22, 0.036, 0.3));
+  for (const [x, z] of [[0.42, 0.42], [-0.42, 0.42], [0.42, -0.44], [-0.44, -0.44]] as [number, number][]) g.add(tree(PROPS.treeSmall, x, z, 2, x * 5, 0.6));
+  return g;
+}
+
+// Lunapark (3x3): dönen atlıkarınca, hız treni, bilet gişesi, büfeler ve bayraklar.
+// Sabit parçalar tek parça halinde birleştirilir (telefon yorulmasın), hareket edenler ayrı kalır.
+function funfair() {
+  const g = new THREE.Group();
+  const st = new THREE.Group(); // sabit parçalar
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#efe2c6'), 0, 0.01, 0));
+  st.add(part(new THREE.BoxGeometry(0.36, 0.006, 0.98), mat('#d9c7a2'), -0.1, 0.022, 0));
+  // Atlıkarınca tabanı
+  const cx = -0.24, cz = 0.18;
+  st.add(part(new THREE.CylinderGeometry(0.17, 0.18, 0.025, 20), mat('#b0bec5'), cx, 0.03, cz));
+  const carousel = new THREE.Group();
+  carousel.position.set(cx, 0.04, cz);
+  const ci = new THREE.Group();
+  ci.add(part(new THREE.CylinderGeometry(0.15, 0.15, 0.015, 20), mat('#fff3e0'), 0, 0.01, 0));
+  ci.add(part(new THREE.CylinderGeometry(0.018, 0.018, 0.2, 8), mat('#e0b84c'), 0, 0.11, 0));
+  const canopy = ['#e53935', '#ffffff'];
+  for (let k = 0; k < 8; k++) {
+    const seg = part(new THREE.ConeGeometry(0.18, 0.08, 3, 1, false, (k / 8) * Math.PI * 2, Math.PI / 4), mat(canopy[k % 2]), 0, 0.25, 0);
+    ci.add(seg);
+  }
+  ci.add(part(new THREE.SphereGeometry(0.02, 8, 6), mat('#e0b84c'), 0, 0.3, 0));
+  const horses = ['#ffffff', '#ffcc80', '#90caf9', '#f48fb1'];
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    const x = Math.cos(a) * 0.11, z = Math.sin(a) * 0.11;
+    ci.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.2, 4), mat('#e0b84c'), x, 0.11, z));
+    const h = part(new THREE.BoxGeometry(0.018, 0.03, 0.05), mat(horses[k % 4]), x, 0.06 + (k % 2) * 0.03, z);
+    h.rotation.y = -a;
+    ci.add(h);
+  }
+  carousel.add(mergeStatic([ci]));
+  g.add(carousel);
+  // Hız treni rayı: kapalı, inişli çıkışlı döngü
+  const pts = [
+    [0.05, 0.06, 0.42], [0.3, 0.1, 0.42], [0.42, 0.3, 0.3], [0.42, 0.42, 0.0], [0.4, 0.2, -0.25], [0.28, 0.08, -0.4],
+    [0.05, 0.3, -0.42], [-0.15, 0.12, -0.38], [-0.32, 0.06, -0.3], [-0.38, 0.2, -0.12], [-0.12, 0.1, -0.1], [0.12, 0.26, 0.05],
+    [0.2, 0.12, 0.25],
+  ].map(([x, y, z]) => new THREE.Vector3(x, y, z));
+  const curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.4);
+  st.add(part(new THREE.TubeGeometry(curve, 160, 0.008, 5, true), mat('#d32f2f'), 0, 0, 0));
+  for (let k = 0; k < 26; k++) {
+    const p = curve.getPointAt(k / 26);
+    st.add(part(new THREE.CylinderGeometry(0.004, 0.004, p.y, 4), mat('#eceff1'), p.x, p.y / 2, p.z));
+  }
+  const cars: THREE.Object3D[] = [];
+  ['#1e88e5', '#fdd835', '#43a047'].forEach(c => {
+    const car = new THREE.Group();
+    car.add(part(new THREE.BoxGeometry(0.03, 0.022, 0.045), mat(c), 0, 0.02, 0));
+    g.add(car);
+    cars.push(car);
+  });
+  // Bilet gişesi, büfeler, bayraklar
+  st.add(part(new THREE.BoxGeometry(0.1, 0.09, 0.08), mat('#ffffff'), -0.1, 0.065, 0.43));
+  st.add(part(new THREE.ConeGeometry(0.08, 0.06, 4).rotateY(Math.PI / 4), mat('#8e24aa'), -0.1, 0.14, 0.43));
+  for (const [x, z, c] of [[-0.42, -0.1, '#ff7043'], [-0.42, -0.3, '#26a69a']] as [number, number, string][]) {
+    st.add(part(new THREE.BoxGeometry(0.08, 0.07, 0.08), mat('#ffffff'), x, 0.055, z));
+    st.add(part(new THREE.BoxGeometry(0.1, 0.012, 0.1), mat(c), x, 0.1, z));
+  }
+  const flags = ['#e53935', '#fdd835', '#1e88e5', '#43a047'];
+  for (let k = 0; k < 6; k++) {
+    const x = -0.45 + k * 0.18;
+    st.add(part(new THREE.CylinderGeometry(0.003, 0.003, 0.2, 4), mat('#eceff1'), x, 0.1, 0.47));
+    st.add(part(new THREE.BoxGeometry(0.035, 0.022, 0.003), mat(flags[k % 4]), x + 0.018, 0.19, 0.47));
+  }
+  for (const [x, z] of [[-0.44, 0.44], [0.46, 0.46], [-0.46, -0.46]] as [number, number][]) st.add(tree(PROPS.treeSmall, x, z, 3, x * 4, 0.6));
+  g.add(mergeStatic([st]));
+  g.userData.carousel = carousel;
+  g.userData.coaster = { curve, cars, t: 0 };
+  return g;
+}
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  if (kind === 'clocktower') return clockTower();
+  if (kind === 'museum') return museum();
+  if (kind === 'funfair') return funfair();
   if (kind === 'beach') return beach();
   if (kind === 'metro') return metro();
   if (kind === 'uni') return university();
@@ -382,8 +530,23 @@ export function makeDecor(kind: DecorKind): THREE.Object3D {
   return g;
 }
 
-// Dönme dolap dönsün, kabinler hep düz dursun
+// Dönme dolap dönsün, kabinler hep düz dursun; atlıkarınca dönsün, hız treni rayda ilerlesin
+const ahead = new THREE.Vector3();
 export function animateDecor(obj: THREE.Object3D, dt: number) {
+  const car = obj.userData.carousel as THREE.Object3D | undefined;
+  if (car) car.rotation.y += dt * 0.8;
+  const co = obj.userData.coaster as { curve: THREE.CatmullRomCurve3; cars: THREE.Object3D[]; t: number } | undefined;
+  if (co) {
+    // Aşağıdayken hızlı, yukarıdayken yavaş
+    const h = co.curve.getPointAt(co.t % 1).y;
+    co.t = (co.t + dt * (0.09 - h * 0.12)) % 1;
+    co.cars.forEach((c, k) => {
+      const u = (co.t - k * 0.022 + 1) % 1;
+      c.position.copy(co.curve.getPointAt(u));
+      co.curve.getPointAt((u + 0.004) % 1, ahead);
+      c.lookAt(ahead.applyMatrix4(c.parent!.matrixWorld));
+    });
+  }
   const w = obj.userData.wheel as { wheel: THREE.Object3D; cabins: THREE.Object3D[] } | undefined;
   if (!w) return;
   w.wheel.rotation.z += dt * 0.25;

@@ -3,7 +3,8 @@ import * as THREE from 'three';
 // Kamera kontrolü (harita uygulamaları gibi):
 // - Tek parmak: haritayı tutup sürükle (tutulan yer parmağın altında kalır)
 // - İki parmak: sıkıştırıp aç = yakınlaştır, çevir = döndür, birlikte kaydır = kaydır
-// - Fare: sol tuş sürükle (gez modunda), tekerlek yakınlaştır, sağ tuş ile döndür
+// - Fare: sol tuş (gez modunda) ya da sağ tuş (her zaman) ile kaydır, tekerlek yakınlaştır,
+//   orta tuş ya da Alt + sol tuş ile döndür. Klavye: oklar/WASD kaydır, Q/E döndür, +/- yakınlaştır
 const ZOOM_POWER = 1.35; // sıkıştırma ne kadar hızlı yakınlaştırsın (1 = parmaklarla birebir)
 
 export class CameraRig {
@@ -25,6 +26,7 @@ export class CameraRig {
   private ray = new THREE.Raycaster();
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private ndc = new THREE.Vector2();
+  private keys = new Set<string>();
 
   constructor(private camera: THREE.PerspectiveCamera, private el: HTMLElement, private limit: number) {
     el.addEventListener('pointerdown', e => this.down(e));
@@ -35,6 +37,13 @@ export class CameraRig {
     el.addEventListener('contextmenu', e => e.preventDefault());
     // Safari'nin kendi sayfa yakınlaştırmasını engelle
     document.addEventListener('gesturestart', e => e.preventDefault());
+    // Klavyeyle kaydırma (yazı yazılan bir kutu seçiliyse değil)
+    window.addEventListener('keydown', e => {
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      this.keys.add(e.key.toLowerCase());
+    });
+    window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('blur', () => this.keys.clear());
   }
 
   // Yakınlaştıkça kamera biraz yatar (yakında şehir daha görkemli, uzakta harita gibi)
@@ -83,11 +92,11 @@ export class CameraRig {
     this.velocity.set(0, 0);
     if (e.pointerType === 'mouse') {
       this.el.setPointerCapture(e.pointerId);
-      if (e.button === 2) {
+      if (e.button === 1 || (e.button === 0 && e.altKey)) {
         this.rotating = { x: e.clientX };
         return;
       }
-      if (e.button === 1 || (e.button === 0 && this.singlePan())) {
+      if (e.button === 2 || (e.button === 0 && this.singlePan())) {
         this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         this.grab = this.groundAt(e.clientX, e.clientY);
       }
@@ -178,8 +187,26 @@ export class CameraRig {
     this.keepUnder(before, e.clientX, e.clientY);
   }
 
+  // Klavye: oklar/WASD ile bakılan yöne göre kaydır, +/- ile yakınlaştır
+  private keyMove(dt: number) {
+    if (!this.keys.size) return;
+    const k = this.keys;
+    const fwd = (k.has('w') || k.has('arrowup') ? 1 : 0) - (k.has('s') || k.has('arrowdown') ? 1 : 0);
+    const side = (k.has('d') || k.has('arrowright') ? 1 : 0) - (k.has('a') || k.has('arrowleft') ? 1 : 0);
+    const zoom = (k.has('-') || k.has('_') ? 1 : 0) - (k.has('+') || k.has('=') ? 1 : 0);
+    if (!fwd && !side && !zoom) return;
+    const speed = this.distance * 0.9 * dt;
+    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    this.target.x += (-s * fwd + c * side) * speed;
+    this.target.z += (-c * fwd - s * side) * speed;
+    this.distance *= Math.pow(1.8, zoom * dt);
+    this.clamp();
+    this.apply();
+  }
+
   // Haritayı bırakılan yerde biraz kaydır, döndürme animasyonunu ilerlet
   update(dt: number) {
+    this.keyMove(dt);
     if (this.turn) {
       this.turn.t = Math.min(1, this.turn.t + dt / 0.5);
       const k = 1 - Math.pow(1 - this.turn.t, 3);

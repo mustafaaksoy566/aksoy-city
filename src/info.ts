@@ -153,13 +153,13 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
 }
 
 // Nüfus ya da seviye göstergesine dokununca: şehrin genel durumu
-export function describeCity(city: City): InfoCard {
+export function describeCity(city: City, name = 'Aksoy City'): InfoCard {
   const p = city.levelProgress;
   const homes = city.tiles.filter(t => t?.kind === 'res' && t.level > 0).length;
   const shops = city.tiles.filter(t => t?.kind === 'com' && t.level > 0).length;
   return {
-    title: 'Aksoy City',
-    subtitle: `Şehir seviyesi ${p.level}`,
+    title: name,
+    subtitle: `Şehir seviyesi ${p.level} · ${fmt(city.day)}. gün`,
     icon: '🏙️',
     tone: '#1e6fd9',
     stats: [

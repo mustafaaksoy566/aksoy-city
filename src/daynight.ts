@@ -8,6 +8,31 @@ const SKY_DAY = new THREE.Color('#9fd8f0');
 const SKY_DUSK = new THREE.Color('#f4a26b');
 const SKY_NIGHT = new THREE.Color('#16223f');
 const SKY_RAIN = new THREE.Color('#8d99a6');
+const TOP_DAY = new THREE.Color('#3f8fe0');
+const TOP_NIGHT = new THREE.Color('#060b1e');
+
+// Gökyüzü kubbesi: ufuktan tepeye renk geçişi (kameranın etrafında durur)
+function makeDome() {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } },
+    vertexShader: `varying vec3 vDir;
+      void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 top; uniform vec3 horizon; varying vec3 vDir;
+      void main() {
+        float h = clamp(vDir.y, 0.0, 1.0);
+        gl_FragColor = vec4(mix(horizon, top, pow(smoothstep(0.0, 0.65, h), 0.7)), 1.0);
+        #include <colorspace_fragment>
+      }`,
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(300, 24, 12), mat);
+  dome.renderOrder = -10;
+  dome.frustumCulled = false;
+  return dome;
+}
 const SUN_DAY = new THREE.Color('#fff6e0');
 const SUN_DUSK = new THREE.Color('#ffae6b');
 const WINDOW_GLOW = new THREE.Color('#ffd27a');
@@ -27,6 +52,7 @@ export class DayNight {
   private lights = new Set<THREE.MeshStandardMaterial>();
   private scanTimer = 0;
   private lastNight = -1;
+  readonly dome = makeDome();
 
   constructor(
     private scene: THREE.Scene,
@@ -57,6 +83,9 @@ export class DayNight {
     const sky = this.scene.background as THREE.Color;
     sky.copy(SKY_DAY).lerp(SKY_DUSK, dusk * 0.6).lerp(SKY_RAIN, gloom * 0.75).lerp(SKY_NIGHT, night);
     (this.scene.fog as THREE.Fog).color.copy(sky);
+    const u = (this.dome.material as THREE.ShaderMaterial).uniforms;
+    u.horizon.value.copy(sky);
+    u.top.value.copy(TOP_DAY).lerp(SKY_RAIN, gloom * 0.7).lerp(SKY_DUSK, dusk * 0.25).lerp(TOP_NIGHT, night);
     this.sun.intensity = THREE.MathUtils.lerp(2.2, 0.25, night) * (1 - 0.5 * gloom);
     this.sun.color.copy(SUN_DAY).lerp(SUN_DUSK, dusk);
     this.hemi.intensity = THREE.MathUtils.lerp(1.0, 0.35, night) * (1 - 0.2 * gloom);

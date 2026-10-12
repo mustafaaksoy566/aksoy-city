@@ -4,7 +4,7 @@ import {
 } from './config';
 import { isUtility, isService, isDecor, type Service } from './city';
 import type { InfoCard } from './info';
-import { icon, fillIcons } from './icons';
+import { icon, fillIcons, ICONS } from './icons';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const fmt = (n: number) => n.toLocaleString('tr-TR');
@@ -111,6 +111,7 @@ export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo,
     );
     const g = BUILD_GROUPS.find(x => x.group === group)!;
     cards.replaceChildren(...g.tools.map(t => card(t, g)));
+    requestAnimationFrame(arrows);
   };
 
   const close = () => {
@@ -118,6 +119,16 @@ export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo,
     syncSheet();
   };
   panel.querySelector('.cat-close')!.addEventListener('click', close);
+  // Bilgisayarda: tekerlek yana kaydırsın, fareyle tutup sürüklenebilsin, oklar kaydırsın
+  for (const row of [cards, tabs] as HTMLElement[]) scrollable(row);
+  panel.querySelector('.cat-arrow.left')!.addEventListener('click', () => cards.scrollBy({ left: -360, behavior: 'smooth' }));
+  panel.querySelector('.cat-arrow.right')!.addEventListener('click', () => cards.scrollBy({ left: 360, behavior: 'smooth' }));
+  const arrows = () => {
+    const max = cards.scrollWidth - cards.clientWidth;
+    panel.querySelector<HTMLElement>('.cat-arrow.left')!.classList.toggle('off', cards.scrollLeft <= 2);
+    panel.querySelector<HTMLElement>('.cat-arrow.right')!.classList.toggle('off', cards.scrollLeft >= max - 2);
+  };
+  cards.addEventListener('scroll', arrows);
   document.getElementById('app')!.addEventListener('pointerdown', () => !panel.hidden && close());
 
   return {
@@ -131,6 +142,39 @@ export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo,
     close,
     isOpen: () => !panel.hidden,
   };
+}
+
+// Yatay kayan satır: fare tekerleği yana kaydırır, fareyle tutup sürüklenebilir (sürüklerken tıklama sayılmaz)
+function scrollable(row: HTMLElement) {
+  row.addEventListener('wheel', e => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    row.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+  let drag: { x: number; left: number; moved: boolean } | null = null;
+  row.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    drag = { x: e.clientX, left: row.scrollLeft, moved: false };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    if (Math.abs(dx) > 5) drag.moved = true;
+    if (drag.moved) {
+      row.style.scrollSnapType = 'none';
+      row.scrollLeft = drag.left - dx;
+    }
+  });
+  window.addEventListener('pointerup', () => {
+    if (drag?.moved) {
+      // Sürükleme bitince hemen gelen tıklamayı yut
+      const stop = (ev: Event) => ev.stopPropagation();
+      row.addEventListener('click', stop, { capture: true, once: true });
+      setTimeout(() => row.removeEventListener('click', stop, { capture: true }), 50);
+    }
+    row.style.scrollSnapType = '';
+    drag = null;
+  });
 }
 
 // Panel ya da kart açıkken alttaki düğmeler gizlensin
@@ -166,6 +210,13 @@ export interface Stats {
   storage: { used: number; cap: number };
   happiness: number;
   questsReady: number;
+  day: number;
+  night: boolean;
+}
+
+// Üstte şehrin adı
+export function setCityName(name: string) {
+  $('city-name').textContent = name;
 }
 
 export function setStats(s: Stats) {
@@ -183,6 +234,12 @@ export function setStats(s: Stats) {
   $('storage-v').textContent = `${fmt(s.storage.used)}/${fmt(s.storage.cap)}`;
   $('storage').classList.toggle('short', s.storage.used >= s.storage.cap);
   $('happy-v').textContent = `%${Math.round(s.happiness * 100)}`;
+  $('day-v').textContent = `${fmt(s.day)}. gün`;
+  const clock = $('clock-ic');
+  if (clock.dataset.night !== String(s.night)) {
+    clock.dataset.night = String(s.night);
+    clock.innerHTML = ICONS[s.night ? 'moon' : 'sun'];
+  }
   const badge = $('quests-badge');
   badge.textContent = String(s.questsReady);
   badge.hidden = s.questsReady === 0;
@@ -406,12 +463,13 @@ export function confirmDialog(title: string, text: string, ok: string): Promise<
 }
 
 export type Quality = 'high' | 'mid' | 'low';
-export interface SettingsState { sound: boolean; quality: Quality; rain: boolean }
+export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string }
 export interface SettingsHandlers {
   sound(on: boolean): void;
   quality(q: Quality): void;
   rain(on: boolean): void;
   reset(): void;
+  rename(name: string): void;
 }
 
 export function openSettings(state: SettingsState, on: SettingsHandlers) {
@@ -419,6 +477,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
   const q: [Quality, string][] = [['high', 'Yüksek'], ['mid', 'Orta'], ['low', 'Düşük']];
   el.innerHTML = `<div class="dlg">
     <h2>${icon('gear')}Ayarlar</h2>
+    <label class="row name-row"><span>Şehrin adı</span><input id="city-input" maxlength="18" value="${esc(state.name)}" autocomplete="off" spellcheck="false"></label>
     <div class="row">${icon(state.sound ? 'soundOn' : 'soundOff')}<span>Ses efektleri</span><button class="switch${state.sound ? ' on' : ''}" data-k="sound" aria-label="Ses"></button></div>
     <div class="row">${icon('rain')}<span>Yağmur</span><button class="switch${state.rain ? ' on' : ''}" data-k="rain" aria-label="Yağmur"></button></div>
     <div class="row">${icon('screen')}<span>Grafik</span><span class="segc">${q.map(([k, l]) => `<button data-q="${k}" class="${state.quality === k ? 'on' : ''}">${l}</button>`).join('')}</span></div>
@@ -443,6 +502,8 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
       on.quality(b.dataset.q as Quality);
     }),
   );
+  const input = el.querySelector<HTMLInputElement>('#city-input')!;
+  input.addEventListener('input', () => on.rename(input.value.trim() || 'Aksoy City'));
   el.querySelector('[data-close]')!.addEventListener('click', () => (el.hidden = true));
   el.querySelector('.danger-row')!.addEventListener('click', () => {
     el.hidden = true;

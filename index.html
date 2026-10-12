@@ -15,13 +15,13 @@
 
     <!-- Üst bilgi: seviye, nüfus, para -->
     <header id="hud">
-      <button id="lvl" aria-label="Şehir seviyesi">
+      <button id="lvl" aria-label="Şehir seviyesi" title="Şehir seviyesi">
         <span class="lvl-star"><span data-icon="star"></span><b id="lvl-v">1</b></span>
-        <span class="lvl-info"><small>Seviye</small><span class="xp"><i id="xp-bar"></i></span></span>
+        <span class="lvl-info"><small id="city-name">Aksoy City</small><span class="xp"><i id="xp-bar"></i></span></span>
       </button>
-      <button id="pop" class="cap" aria-label="Nüfus"><span class="cap-ic" data-icon="people"></span><b id="pop-v">0</b></button>
+      <button id="pop" class="cap" aria-label="Nüfus" title="Nüfus"><span class="cap-ic" data-icon="people"></span><b id="pop-v">0</b></button>
       <span class="spacer"></span>
-      <button id="money" class="cap money" aria-label="Bütçe">
+      <button id="money" class="cap money" aria-label="Bütçe" title="Bütçe">
         <span class="cap-ic" data-icon="coin"></span>
         <span class="mv"><b id="money-v">0</b><small id="income-v"></small></span>
       </button>
@@ -29,27 +29,28 @@
 
     <!-- Elektrik, su ve mutluluk -->
     <div id="res">
-      <button id="power" class="seg" aria-label="Elektrik"><span class="seg-ic" data-icon="bolt"></span><b id="power-v">0/0</b></button>
-      <button id="water" class="seg" aria-label="Su"><span class="seg-ic" data-icon="drop"></span><b id="water-v">0/0</b></button>
-      <button id="happy" class="seg" aria-label="Mutluluk"><span class="seg-ic" data-icon="smile"></span><b id="happy-v">%0</b></button>
+      <button id="power" class="seg" aria-label="Elektrik" title="Elektrik: kullanılan / üretilen"><span class="seg-ic" data-icon="bolt"></span><b id="power-v">0/0</b></button>
+      <button id="water" class="seg" aria-label="Su" title="Su: kullanılan / üretilen"><span class="seg-ic" data-icon="drop"></span><b id="water-v">0/0</b></button>
+      <button id="happy" class="seg" aria-label="Mutluluk" title="Mutluluk"><span class="seg-ic" data-icon="smile"></span><b id="happy-v">%0</b></button>
+      <button id="clock" class="seg" aria-label="Gün" title="Gün"><span class="seg-ic" id="clock-ic" data-icon="sun"></span><b id="day-v">1</b></button>
     </div>
 
     <!-- Sağ kenar düğmeleri -->
     <div id="side">
-      <button id="quests" class="rbtn" aria-label="Görevler"><span data-icon="quests"></span><span id="quests-badge" class="badge" hidden>0</span></button>
-      <button id="storage" class="rbtn" aria-label="Depo"><span data-icon="box"></span><small id="storage-v" class="rlabel">0/20</small></button>
-      <button id="settings" class="rbtn" aria-label="Ayarlar"><span data-icon="gear"></span></button>
+      <button id="quests" class="rbtn" aria-label="Görevler" title="Görevler"><span data-icon="quests"></span><span id="quests-badge" class="badge" hidden>0</span></button>
+      <button id="storage" class="rbtn" aria-label="Depo" title="Depo"><span data-icon="box"></span><small id="storage-v" class="rlabel">0/20</small></button>
+      <button id="settings" class="rbtn" aria-label="Ayarlar" title="Ayarlar"><span data-icon="gear"></span></button>
     </div>
 
     <!-- Pusula: harita iki parmakla döndürülür; pusulaya dokununca ilk açıya döner -->
     <div id="cam">
-      <button id="compass" class="rbtn" aria-label="Kuzeye çevir"><span class="needle" data-icon="compass"></span><small class="rlabel">Pusula</small></button>
+      <button id="compass" class="rbtn" aria-label="Kuzeye çevir" title="İlk açıya dön (bilgisayarda: orta tuş ya da Q/E ile döndür)"><span class="needle" data-icon="compass"></span><small class="rlabel">Pusula</small></button>
     </div>
 
     <!-- Ana düğmeler: yık ve inşa et -->
     <div id="actions">
-      <button id="bulldoze" class="abtn red" aria-label="Yık"><span data-icon="bulldozer"></span><em>Yık</em></button>
-      <button id="build" class="abtn big" aria-label="İnşa et"><span data-icon="build"></span><em>İnşa Et</em></button>
+      <button id="bulldoze" class="abtn red" aria-label="Yık" title="Yık"><span data-icon="bulldozer"></span><em>Yık</em></button>
+      <button id="build" class="abtn big" aria-label="İnşa et" title="İnşa et"><span data-icon="build"></span><em>İnşa Et</em></button>
     </div>
 
     <!-- Seçili araç çubuğu -->
@@ -64,7 +65,10 @@
       <button class="cat-close" aria-label="Kapat"><span data-icon="close"></span></button>
       <div class="tabs"></div>
       <div class="cards"></div>
+      <button class="cat-arrow left" aria-label="Sola kaydır">‹</button>
+      <button class="cat-arrow right" aria-label="Sağa kaydır">›</button>
     </section>
+    <div id="vignette"></div>
 
     <div id="chip" hidden></div>
     <div id="toast"></div>

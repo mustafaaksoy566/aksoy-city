@@ -148,13 +148,18 @@ export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 
 
 // Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
 // covers: bu hizmetin alanını da kapsar (üniversite = okul), income: günlük turist geliri, road: yol kenarına kurulur
-export type DecorKind = 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'uni' | 'airport' | 'beach' | 'metro';
+export type DecorKind =
+  | 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'uni' | 'airport' | 'beach' | 'metro'
+  | 'clocktower' | 'museum' | 'funfair';
 export interface DecorInfo { radius: number; happy: number; upkeep: number; covers?: ServiceKind; income?: number; road?: boolean }
 export const DECOR: Record<DecorKind, DecorInfo> = {
   uni: { radius: 11, happy: 0.1, upkeep: 20, covers: 'school', road: true }, // üniversite: geniş okul alanı
   airport: { radius: 8, happy: 0.06, upkeep: 30, income: 450, road: true }, // havalimanı: turist getirir
   beach: { radius: 7, happy: 0.16, upkeep: 4, income: 150, road: true }, // plaj: nehir kıyısına, turist getirir
   metro: { radius: 7, happy: 0.14, upkeep: 10, road: true }, // metro istasyonu: çevresi rahat ulaşır
+  clocktower: { radius: 5, happy: 0.12, upkeep: 2 }, // saat kulesi
+  museum: { radius: 9, happy: 0.15, upkeep: 15, income: 220, road: true }, // müze: turist getirir
+  funfair: { radius: 10, happy: 0.22, upkeep: 14, income: 260, road: true }, // lunapark: atlıkarınca ve hız treni
   busstop: { radius: 4, happy: 0.05, upkeep: 1 }, // otobüs durağı: otobüsler dolaşır
   station: { radius: 8, happy: 0.12, upkeep: 8 }, // tren istasyonu: ulaşım çevreyi mutlu eder
   fountain: { radius: 4, happy: 0.1, upkeep: 1 },
@@ -177,13 +182,13 @@ export const COST: Record<BuildTool, number> = {
   wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
-  bakery: 1500, fashion: 2000, port: 8000, beach: 3000, metro: 4000,
+  bakery: 1500, fashion: 2000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000,
 };
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -195,7 +200,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   school: 5, pump: 5,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
   market: 4, furniture: 6, uni: 7, airport: 9,
-  beach: 6, bakery: 7, port: 8, fashion: 8, metro: 10,
+  beach: 6, bakery: 7, port: 8, fashion: 8, metro: 10, clocktower: 4, museum: 8, funfair: 9,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -230,6 +235,9 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   port: { icon: '🚢', label: 'Liman', hint: 'Liman nehir kıyısına kurulur. Komşu şehirlerin siparişlerini gemiyle gönder.' },
   beach: { icon: '🏖️', label: 'Plaj', hint: 'Plaj nehir kıyısına kurulur. Turist getirir, çevreyi çok mutlu eder.' },
   metro: { icon: 'Ⓜ️', label: 'Metro', hint: 'Metro istasyonu: çevresindeki evleri mutlu eder.' },
+  clocktower: { icon: '🕰️', label: 'Saat Kulesi', hint: 'Saat kulesi: meydanın simgesi, çevresini mutlu eder.' },
+  museum: { icon: '🏛️', label: 'Müze', hint: 'Müze: turist getirir, geniş bir alanı mutlu eder.' },
+  funfair: { icon: '🎢', label: 'Lunapark', hint: 'Lunapark: hız treni ve atlıkarınca. Çok turist getirir, geceleri havai fişek atılır.' },
   fountain: { icon: '⛲', label: 'Çeşme', hint: 'Meydan çeşmesi: çevresindeki evleri mutlu eder.' },
   statue: { icon: '🗿', label: 'Heykel', hint: 'Atlı heykel: çevresindeki evleri mutlu eder.' },
   wheel: { icon: '🎡', label: 'Dönme dolap', hint: 'Dönme dolap: geniş bir alanı çok mutlu eder.' },
@@ -246,7 +254,7 @@ export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'utils', icon: '⚡', label: 'Altyapı', color: '#f59f00', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion', 'trade', 'port'] },
-  { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'beach', 'wheel', 'stadium'] },
+  { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'clocktower', 'beach', 'wheel', 'museum', 'funfair', 'stadium'] },
 ];
 
 // Modeller: KayKit City Builder Bits (kk/), Kenney City Kit 2.1 gökdelenleri (k2/), Kenney başlangıç paketi (k/)

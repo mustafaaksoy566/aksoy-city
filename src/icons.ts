@@ -45,6 +45,8 @@ export const ICONS = {
   soundOn: svg(`${SPEAKER}<path d="M20.8 11.5a6 6 0 0 1 0 9M24.4 8a11 11 0 0 1 0 16" fill="none" stroke="#1f2d3d" stroke-width="2.3" stroke-linecap="round"/>`),
   soundOff: svg(`${SPEAKER}<path d="M21 12l7 8M28 12l-7 8" stroke="#e53935" stroke-width="2.8" stroke-linecap="round"/>`),
   rotateRight: svg(ROTATE),
+  sun: svg(`<g stroke="#1f2d3d" stroke-width="2" stroke-linecap="round">${[0, 45, 90, 135, 180, 225, 270, 315].map(a => `<path d="M16 3.5v4" transform="rotate(${a} 16 16)" stroke="#ffb300"/>`).join('')}</g><circle cx="16" cy="16" r="7" fill="#ffd23f" ${S}/>`),
+  moon: svg(`<path d="M20 4.5a11.5 11.5 0 1 0 7.5 18.5A9.5 9.5 0 0 1 20 4.5z" fill="#ffe08a" ${S}/><circle cx="14" cy="18" r="1.6" fill="#e8c35a"/><circle cx="18.5" cy="23" r="1.1" fill="#e8c35a"/>`),
   compass: svg(`<circle cx="16" cy="16" r="13" fill="#eef4fa" ${S}/><path d="M16 4.5l4 11.5h-8z" fill="#e53935" ${S}/><path d="M16 27.5l-4-11.5h8z" fill="#9fb0c2" ${S}/><circle cx="16" cy="16" r="2" fill="#1f2d3d"/>`),
   rotateLeft: svg(`<g transform="translate(32 0) scale(-1 1)">${ROTATE}</g>`),
   build: svg(`<g transform="rotate(-38 16 16)">

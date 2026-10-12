@@ -4,11 +4,12 @@ import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, i
 import { makeDecor, animateDecor } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
+import { riverMat, worldUV, RIVER_Y } from './water';
 
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
-  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.getObjectByName('flames'));
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.getObjectByName('flames'));
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -245,7 +246,6 @@ function park(variant: number, x: number, z: number) {
 }
 
 // Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
-const waterMat = new THREE.MeshStandardMaterial({ color: '#3fa7dd', roughness: 0.25, metalness: 0.05 });
 const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
 function river() {
   const g = new THREE.Group();
@@ -257,9 +257,15 @@ function river() {
     mesh.receiveShadow = true;
     g.add(mesh);
   };
-  // Doğu kolu (kuzeyden köşeye) ve güney kolu (batıdan köşeye)
-  add(2, len, a + 1, len / 2, waterMat, -0.005);
-  add(len, 2, len / 2, a + 1, waterMat, -0.005);
+  // Su: doğu kolu (kuzeyden köşeye) ve güney kolu (batıdan köşeye), şehir dışındaki nehirle aynı yükseklikte
+  const water = (w: number, d: number, x: number, z: number) => {
+    const geo = worldUV(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2).translate(x - SIZE / 2, RIVER_Y, z - SIZE / 2));
+    const mesh = new THREE.Mesh(geo, riverMat);
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  water(2, len, a + 1, len / 2);
+  water(len - 2, 2, (len - 2) / 2, a + 1);
   // Kıyı şeritleri
   add(0.12, len - 2, a + 0.06, (len - 2) / 2, bankMat, -0.004);
   add(0.12, len, b + 0.94, len / 2, bankMat, -0.004);
@@ -324,8 +330,9 @@ export class CityView {
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
   private time = 0;
-  private land = new THREE.Group(); // satın alınmamış arazinin koyu örtüsü
-  private landMat = new THREE.MeshBasicMaterial({ color: '#1d3b24', transparent: true, opacity: 0.38, depthWrite: false });
+  private land = new THREE.Group(); // satılık arazilerin "+" işaretleri
+  private landShade = new THREE.Group(); // satın alınmamış arazinin koyu örtüsü (sadece inşa ederken)
+  private landMat = new THREE.MeshBasicMaterial({ color: '#1d3b24', transparent: true, opacity: 0.26, depthWrite: false });
 
   constructor(private city: City) {
     const geo = new THREE.PlaneGeometry(0.94, 0.94).rotateX(-Math.PI / 2);
@@ -352,6 +359,8 @@ export class CityView {
   updateLand() {
     for (let c = 0; c < PLOTS * PLOTS; c++) this.dirty.add(c);
     this.land.clear();
+    this.landShade.clear();
+    this.land.add(this.landShade);
     const geo = new THREE.PlaneGeometry(PLOT, PLOT).rotateX(-Math.PI / 2);
     for (let p = 0; p < PLOTS * PLOTS; p++) {
       if (this.city.owned[p]) continue;
@@ -359,7 +368,7 @@ export class CityView {
       const m = new THREE.Mesh(geo, this.landMat);
       m.position.set((px + 0.5) * PLOT - SIZE / 2, 0.09, (pz + 0.5) * PLOT - SIZE / 2);
       m.renderOrder = 1;
-      this.land.add(m);
+      this.landShade.add(m);
       const next = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => this.city.owned[(pz + dz) * PLOTS + px + dx] === 1 && px + dx >= 0 && px + dx < PLOTS && pz + dz >= 0 && pz + dz < PLOTS);
       if (next) {
         const s = new THREE.Sprite(ICON_MATS.sale);
@@ -368,6 +377,11 @@ export class CityView {
         this.land.add(s);
       }
     }
+  }
+
+  // İnşa ederken satın alınmamış arazi koyulaşsın; gezerken doğal görünsün
+  showLandShade(on: boolean) {
+    this.landShade.visible = on;
   }
 
   setCity(city: City) {
