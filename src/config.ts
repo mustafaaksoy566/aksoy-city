@@ -8,6 +8,11 @@ export const START_PLOT_MIN = 1; // başta sahip olunan parçalar: 1..4 (her iki
 export const START_PLOT_MAX = 4;
 export const OLD_SIZE = 32; // eski kayıtlar 32x32 haritadaydı
 export const LAND = { price: 1500, step: 750, level: 3 }; // her yeni parça bir öncekinden pahalı
+
+// Nehir: başlangıç arazisinin doğusundan ve güneyinden geçer, kuzeyde denize dökülür.
+// Su üstüne sadece yol ya da ray (köprü) yapılabilir; köprü normalden pahalıdır.
+export const RIVER = [SIZE - 7, SIZE - 6]; // nehrin kapladığı iki sıra (x ve z için)
+export const BRIDGE_COST = 6; // köprü, normal yol/rayın kaç katı
 export const DAY_SECONDS = 4; // bir oyun günü kaç saniye sürer
 export const START_MONEY = 3000;
 export const TAX_PER_PERSON = 0.5; // kişi başı günlük vergi

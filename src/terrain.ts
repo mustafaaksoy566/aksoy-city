@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, ENTRANCE_Z } from './config';
+import { SIZE, ENTRANCE_Z, RIVER } from './config';
 import { makeModel } from './assets';
 import { mergeStatic } from './batcher';
 
@@ -28,10 +28,17 @@ const fbm = (x: number, z: number) => noise(x * 0.06, z * 0.06) * 0.65 + noise(x
 // (kamera kuzeybatıya baktığı için deniz ve tepeler ufukta görünür)
 const coast = (x: number, z: number) => -z - HALF - 5 + x * 0.3 + (fbm(x + 50, z) - 0.5) * 8;
 
+// Nehrin harita dışındaki devamı (dünya koordinatında): kuzeye denize ve batıya doğru
+const RIVER_LO = RIVER[0] - HALF, RIVER_HI = RIVER[1] + 1 - HALF;
+function riverOutside(x: number, z: number) {
+  return (x >= RIVER_LO && x <= RIVER_HI && z < -HALF) || (z >= RIVER_LO && z <= RIVER_HI && x < -HALF);
+}
+
 export function heightAt(x: number, z: number) {
   const dx = Math.max(Math.abs(x) - HALF, 0), dz = Math.max(Math.abs(z) - HALF, 0);
   const dist = Math.hypot(dx, dz);
   if (dist <= 0.01) return -0.06; // şehir alanı (çimen zemin bunun üstünde)
+  if (riverOutside(x, z)) return -0.6; // nehir yatağı
   const c = coast(x, z);
   if (c > 0) return Math.max(-3, -c * 0.45) - 0.03; // deniz tabanı
   // Tepeler şehirden uzaklaştıkça yükselir, kıyıya yaklaştıkça alçalır

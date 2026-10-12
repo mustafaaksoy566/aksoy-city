@@ -377,7 +377,10 @@ const input = new TileInput(renderer.domElement, camera, {
     if (isService(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
     if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
       setChip(`${TOOL_INFO[tool].label} · 💰${fmt(COST[tool])}${size > 1 ? ` · ${size}x${size} kare` : ''}`);
-    } else if (cells.length > 1) setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(n * COST[tool])}`);
+    } else if (cells.length > 1) {
+      const okCells = items.filter(c => c.ok).map(c => c.i);
+      setChip(tool === 'bulldoze' ? `${n} kare yıkılacak` : `${n} kare · 💰${fmt(city.costOf(tool, okCells))}`);
+    }
   },
   commit(cells) {
     view.showPreview([]);

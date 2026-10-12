@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS } from './config';
-import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
+import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER } from './config';
+import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ } from './city';
 import { makeDecor, animateDecor } from './landmarks';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
@@ -232,6 +232,53 @@ function park(variant: number, x: number, z: number) {
   return g;
 }
 
+// Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
+const waterMat = new THREE.MeshStandardMaterial({ color: '#3fa7dd', roughness: 0.25, metalness: 0.05 });
+const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
+function river() {
+  const g = new THREE.Group();
+  const [a, b] = RIVER;
+  const len = b + 1; // haritanın kenarından köşeye kadar
+  const add = (w: number, d: number, x: number, z: number, m: THREE.Material, y: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), m);
+    mesh.position.set(x - SIZE / 2, y, z - SIZE / 2);
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  // Doğu kolu (kuzeyden köşeye) ve güney kolu (batıdan köşeye)
+  add(2, len, a + 1, len / 2, waterMat, -0.005);
+  add(len, 2, len / 2, a + 1, waterMat, -0.005);
+  // Kıyı şeritleri
+  add(0.12, len - 2, a + 0.06, (len - 2) / 2, bankMat, -0.004);
+  add(0.12, len, b + 0.94, len / 2, bankMat, -0.004);
+  add(len - 2, 0.12, (len - 2) / 2, a + 0.06, bankMat, -0.004);
+  add(len, 0.12, len / 2, b + 0.94, bankMat, -0.004);
+  return g;
+}
+
+// Köprü: yol/rayın kenarlarına korkuluk, altına ayak
+const railMat = new THREE.MeshStandardMaterial({ color: '#e8e4dc' });
+const pillarMat = new THREE.MeshStandardMaterial({ color: '#9a9690' });
+function bridge(mask: number) {
+  const g = new THREE.Group();
+  const add = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  // Bağlantı olmayan kenarlara korkuluk
+  if (!(mask & 1)) add(1, 0.08, 0.04, 0, 0.09, -0.48, railMat);
+  if (!(mask & 4)) add(1, 0.08, 0.04, 0, 0.09, 0.48, railMat);
+  if (!(mask & 2)) add(0.04, 0.08, 1, 0.48, 0.09, 0, railMat);
+  if (!(mask & 8)) add(0.04, 0.08, 1, -0.48, 0.09, 0, railMat);
+  // Köprü ayağı ve gövde
+  add(0.98, 0.04, 0.98, 0, -0.01, 0, pillarMat);
+  add(0.16, 0.12, 0.16, 0, -0.06, 0, pillarMat);
+  return g;
+}
+
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
@@ -267,6 +314,7 @@ export class CityView {
     this.coverage.renderOrder = 1;
     this.root.add(this.coverage);
     this.root.add(this.land);
+    this.root.add(river());
   }
 
   // Satın alınmamış arazi parçalarını koyulaştır, satılık olanların ortasına "+" koy
@@ -325,7 +373,7 @@ export class CityView {
           const i = idx(x, z);
           const o = this.objs.get(i);
           if (o && !this.live.has(i)) list.push(o);
-          else if (!this.city.tiles[i]) {
+          else if (!this.city.tiles[i] && !isWater(i)) {
             const n = this.nature(i);
             if (n) list.push(n);
           }
@@ -373,6 +421,7 @@ export class CityView {
     let o: THREE.Object3D;
     if (t.kind === 'road') {
       o = this.road(x, z);
+      if (isWaterXZ(x, z)) o.add(bridge(this.city.roadMask(x, z)));
       // Hemzemin geçit: yolun üstünden yola dik raylar geçer
       if (t.level === 1) {
         const across = railPiece(this.city.roadMask(x, z) === 0b0101 ? 0b1010 : 0b0101, false);
@@ -381,6 +430,7 @@ export class CityView {
       }
     } else if (t.kind === 'rail') {
       o = railPiece(this.city.railMask(x, z));
+      if (isWaterXZ(x, z)) o.add(bridge(this.city.railMask(x, z)));
     } else if (t.kind === 'park') {
       o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {
