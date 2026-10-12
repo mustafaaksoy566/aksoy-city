@@ -77,7 +77,9 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
         // Aynı doku atlası tek malzeme olarak yüklenir (assets.ts), o yüzden malzemeye göre grupla
         push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
       } else {
-        push(`keep|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+        // Köşe renkli ayrı malzemeler (ör. arabaların farları) renklerini korusun
+        const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
+        push(`keep|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, keep));
       }
     });
   }

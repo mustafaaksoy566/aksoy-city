@@ -15,7 +15,8 @@ import { updateWater } from './water';
 import { Fireworks } from './fireworks';
 import { questDone } from './quests';
 import { loadModels } from './assets';
-import { CityView, tileCenter, gradedRoadModel } from './view';
+import { CityView, tileCenter, gradedRoadModel, entranceTile } from './view';
+import { mergeStatic } from './batcher';
 import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
 import { railPiece } from './rails';
@@ -196,8 +197,8 @@ const highway = new HighwayTraffic();
 scene.add(highway.root);
 // Otobandan şehre giren ve şehirden otobana çıkan arabalar birbirine devredilir (girişte birden belirip kaybolmasınlar)
 traffic.highway = highway;
-highway.enterCity = (type, paint) => traffic.enterFromHighway(type, paint);
-highway.cityBusy = () => traffic.entranceBusy();
+highway.enterCity = (type, paint, wide) => traffic.enterFromHighway(type, paint, wide);
+highway.cityBusy = wide => traffic.entranceBusy(wide);
 const weather = new Weather();
 weather.enabled = readPref(RAIN_KEY) !== '0';
 scene.add(weather.root);
@@ -603,7 +604,16 @@ function syncHighway() {
   highwayGrade = grade;
   if (highwayMesh) scene.remove(highwayMesh);
   highwayMesh = buildHighway(grade);
+  // Şehrin girişinden şehir dışına iki kare: şehirdeki yolun aynısı (yol, bulvar ya da cadde), kesintisiz birleşir
+  const link = new THREE.Group();
+  for (const x of [-1, -2]) {
+    const t = entranceTile(grade, x + 30);
+    t.position.copy(tileCenter(x, ENTRANCE_Z));
+    link.add(t);
+  }
+  highwayMesh.add(mergeStatic([link]));
   scene.add(highwayMesh);
+  highway.setCityLanes(traffic.entranceLanes());
 }
 
 function afterChange() {

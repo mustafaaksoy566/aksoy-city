@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ROAD_COLORS } from './assets';
-import { mergeStatic } from './batcher';
+import { mergeStatic, bakeModel, vertexColorMat } from './batcher';
+import { makeBus } from './sky';
 import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint } from './cars';
 import { HW, SKI_ROAD, riverAt } from './terrain';
 import { part, mat } from './utilities';
@@ -19,7 +20,8 @@ const SMALL_LANE = 0.2;
 const CITY_LANE = 0.26; // şehre giren yolda (cadde ve bulvarda da şeridin ortası)
 const TUNNEL_END = -60; // arabalar dağın içinde (tünelde) başlar/biter
 const { ring, clover } = HW;
-const CITY_X = -23.92; // şehrin girişi (şehirdeki ilk yol karesinin içine kadar)
+const CITY_X = -24; // şehrin girişi: şehirdeki ilk yol karesinin başı (araba orada şehir trafiğine geçer)
+const LINK_X = -26; // buradan şehre kadar yol, şehirdeki yol parçalarıyla çizilir (main.ts entranceRoad)
 
 type V2 = THREE.Vector2;
 const v2 = (x: number, z: number) => new THREE.Vector2(x, z);
@@ -566,7 +568,7 @@ export function buildHighway(entranceGrade = 0) {
   // Kelebek kavşağın köprüsünün altında direk olmasın; rampaların bağlandığı yerde bariyer açık
   parts.push(motorway(ROUTES.south, { trim: [1.4, 0], noLamp: p => Math.abs(p.y - CL.z) < 3, open: q => ringOpen(q) || cloverOpen(q) }));
   parts.push(motorway(ROUTES.cross, { height: p => bHeight(p.x), noLamp: p => Math.abs(p.x - CL.x) < 6, clear: p => Math.abs(p.x - CL.x) < 1.25, open: cloverOpen }));
-  parts.push(cityRoad(ROUTES.city, entranceGrade), smallRoad(ROUTES.ski), roundabout(), cloverleaf());
+  parts.push(cityRoad(path([[ring.x + ARM, HW.z0], [LINK_X, HW.z0]]), entranceGrade), smallRoad(ROUTES.ski), roundabout(), cloverleaf());
   // Otobanın kavşağa açılan ucunda, ortadaki bariyerin başında sarı-siyah uyarı bloğu
   const portal = tunnelPortal();
   portal.position.set(HW.portal, 0, HW.z0);
@@ -651,6 +653,7 @@ interface Route {
   fadeIn: boolean;
   fadeOut: boolean;
   gate?: 'toCity' | 'fromCity'; // şehre giren / şehirden çıkan yol: araba şehir trafiğine devredilir
+  wide?: number; // şehirdeki hangi şeride bağlı (0 iç, 1 dış)
 }
 
 // Otobanda ve kavşakta akan trafik: tünelden çıkan, şehre giren, şehirden çıkıp otobana katılan,
@@ -661,22 +664,78 @@ export class HighwayTraffic {
   private cars: Car[] = [];
   private set: CarSet | null = null;
   private tmp = new THREE.Object3D();
-  private exits: { type: number; paint: THREE.Color }[] = [];
+  private exits: { type: number; paint: THREE.Color; wide: number }[] = [];
+  private busMesh: THREE.InstancedMesh | null = null;
+  // Şehrin girişindeki şeritlerin yol ortasına uzaklığı (caddede iç ve dış şerit): otobandaki şerit bunlarla aynı hizada
+  private cityLanes: [number, number] = [0.125, 0.3];
+  private gates: { to: number[]; from: number[] } = { to: [], from: [] };
+  private gateDef: ((kind: 'toCity' | 'fromCity', k: number) => { parts: { pts: V2[]; v: number; h?: number[] }[] }) | null = null;
   // Şehrin trafiği: girişe gelen arabayı alır (yol doluysa false, araba bekler)
-  enterCity: ((type: number, paint: THREE.Color) => boolean) | null = null;
-  // Şehrin girişi dolu mu? Doluysa şehre giden araba bir araba boyu geride bekler
-  cityBusy: (() => boolean) | null = null;
+  enterCity: ((type: number, paint: THREE.Color, wide: number) => boolean) | null = null;
+  // Şehrin girişi (o şeritte) dolu mu? Doluysa şehre giden araba bir araba boyu geride bekler
+  cityBusy: ((wide: number) => boolean) | null = null;
 
   // Şehirden çıkan araba aynı renk ve modelle otobana devam eder
-  leaveCity(type: number, paint: THREE.Color) {
-    if (this.exits.length < 12) this.exits.push({ type, paint });
+  leaveCity(type: number, paint: THREE.Color, wide: number) {
+    this.exits.push({ type, paint, wide: Math.min(1, Math.max(0, wide)) });
+  }
+  // Şehre otobüs gönder: tünelden çıkar, şehrin girişinde şehir trafiğine geçer (dış şerit)
+  sendBus() {
+    const r = this.gates.to[1];
+    if (r === undefined || this.cars.some(c => c.route === r && c.s < 1.5)) return;
+    this.cars.push({ route: r, s: 0, speed: 0.75, type: -1, paint: new THREE.Color('#ffffff'), v: 0, pos: new THREE.Vector3(), h: 0, fade: 1 });
+  }
+  busesComing() {
+    return this.cars.filter(c => c.type < 0 && this.routes[c.route].gate === 'toCity').length;
+  }
+
+  // Şehirden çıkan araba otobana geçebilir mi? (yolun başı boş değilse şehrin kenarında bekler, kaybolmaz)
+  canLeave(wide: number) {
+    const r = this.gates.from[Math.min(1, Math.max(0, wide))];
+    return !this.exits.length && (r === undefined || !this.cars.some(c => c.route === r && c.s < 0.9));
+  }
+  // Şehrin girişindeki yol değişince (yol, bulvar, cadde) otobandaki şeritler de ona göre kayar
+  setCityLanes(lanes: [number, number]) {
+    if (lanes[0] === this.cityLanes[0] && lanes[1] === this.cityLanes[1]) return;
+    this.cityLanes = lanes;
+    if (!this.gateDef) return;
+    for (const kind of ['toCity', 'fromCity'] as const) {
+      (kind === 'toCity' ? this.gates.to : this.gates.from).forEach((r, k) => {
+        this.routes[r] = this.makeRoute({ ...this.gateDef!(kind, k), gate: kind }, k);
+        for (const c of this.cars) if (c.route === r) c.s = Math.min(c.s, this.routes[r].lane.length);
+      });
+    }
+  }
+
+  // Parçalardan yol (şerit ve her noktadaki hız sınırı)
+  private makeRoute(def: { parts: { pts: V2[]; v: number; h?: number[] }[]; fadeIn?: boolean; fadeOut?: boolean; gate?: Route['gate'] }, wide?: number): Route {
+    const pts: V2[] = [];
+    const caps: number[] = [];
+    const hs: number[] = [];
+    for (const p of def.parts) {
+      p.pts.forEach((q, k) => {
+        pts.push(q);
+        caps.push(p.v);
+        hs.push(p.h?.[k] ?? 0);
+      });
+    }
+    // Arka arkaya aynı noktalar olmasın
+    const clean: V2[] = [], cc: number[] = [], ch: number[] = [];
+    pts.forEach((p, k) => {
+      if (!clean.length || clean[clean.length - 1].distanceTo(p) > 1e-3) {
+        clean.push(p);
+        cc.push(caps[k]);
+        ch.push(hs[k]);
+      }
+    });
+    return { lane: new Lane(clean, ch), slow: new Float32Array(cc), fadeIn: !!def.fadeIn, fadeOut: !!def.fadeOut, gate: def.gate, wide };
   }
 
   init() {
     const rev = (p: V2[]) => [...p].reverse();
     const W = ROUTES.west;
     type Part = { pts: V2[]; v: number; h?: number[] };
-    const defs: { parts: Part[]; fadeIn?: boolean; fadeOut?: boolean; gate?: Route['gate']; cars: number }[] = [];
+    const defs: { parts: Part[]; fadeIn?: boolean; fadeOut?: boolean; gate?: Route['gate']; wide?: number; cars: number }[] = [];
     // Kelebek kavşaktaki yollar: A kuzey-güney (yerde), B batı-doğu (ortada köprüde)
     const zN = HW.z0 + ARM, zS = HW.south, xW = HW.west, xE = HW.east;
     const A = (o: number, z0: number, z1: number): Part => ({ pts: path([[CL.x + (z1 > z0 ? -o : o), z0], [CL.x + (z1 > z0 ? -o : o), z1]]), v: 3 });
@@ -713,36 +772,27 @@ export class HighwayTraffic {
     // Güney -> batı: kuzeydoğu döngüsü; batı -> güney: güneybatı dış rampası
     defs.push({ cars: 1, fadeOut: true, parts: [A(o, zS, first(loopIn(NE)).y), loopIn(NE), B(o, last(loopIn(NE)).x, xW)] });
     defs.push({ cars: 1, fadeIn: true, parts: [B(o, xW, first(outerIn(SW)).x), outerIn(SW), A(o, last(outerIn(SW)).y, zS)] });
-    // Tünelden şehre ve şehirden otobana; kayak merkezine gidip gelenler
-    defs.push({ cars: 5, gate: 'toCity', parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.east, LANES[1], CITY_LANE), v: 1.1 }, { pts: offset(ROUTES.city, CITY_LANE), v: 1.3 }] });
-    // Şehirden çıkan: güneye iner, güneybatı döngüsünden doğuya
-    defs.push({ cars: 0, gate: 'fromCity', parts: [{ pts: offset(rev(ROUTES.city), CITY_LANE), v: 1.3 }, { pts: ringPath(ARMS.east, ARMS.south, CITY_LANE, LANES[1]), v: 1.1 }, A(o, zN, first(loopIn(SW)).y), loopIn(SW), B(o, last(loopIn(SW)).x, xE)] });
+    // Tünelden şehre ve şehirden otobana: şehirdeki iki şeride ayrı ayrı bağlanır (araba aynı şeritten devam eder).
+    // Şehirden çıkan güneye iner, güneybatı döngüsünden doğuya gider.
+    this.gateDef = (kind, k) => {
+      const cl = this.cityLanes[k];
+      return kind === 'toCity'
+        ? { parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.east, LANES[1], cl), v: 1.1 }, { pts: offset(ROUTES.city, cl), v: 1.3 }] }
+        : { parts: [{ pts: offset(rev(ROUTES.city), cl), v: 1.3 }, { pts: ringPath(ARMS.east, ARMS.south, cl, LANES[1]), v: 1.1 }, A(o, zN, first(loopIn(SW)).y), loopIn(SW), B(o, last(loopIn(SW)).x, xE)] };
+    };
+    for (let k = 0; k < 2; k++) {
+      defs.push({ cars: 3, gate: 'toCity', wide: k, ...this.gateDef('toCity', k) });
+      defs.push({ cars: 0, gate: 'fromCity', wide: k, ...this.gateDef('fromCity', k) });
+    }
     defs.push({ cars: 2, fadeOut: true, parts: [{ pts: offset(W, LANES[1]), v: 3 }, { pts: ringPath(ARMS.west, ARMS.north, LANES[1], SMALL_LANE), v: 1.1 }, { pts: offset(ROUTES.ski, SMALL_LANE), v: 1.3 }] });
     defs.push({ cars: 2, fadeIn: true, parts: [{ pts: offset(rev(ROUTES.ski), SMALL_LANE), v: 1.3 }, { pts: ringPath(ARMS.north, ARMS.west, SMALL_LANE, LANES[1]), v: 1.1 }, { pts: offset(rev(W), LANES[1]), v: 3 }] });
 
     for (const def of defs) {
-      const pts: V2[] = [];
-      const caps: number[] = [];
-      const hs: number[] = [];
-      for (const p of def.parts) {
-        p.pts.forEach((q, k) => {
-          pts.push(q);
-          caps.push(p.v);
-          hs.push(p.h?.[k] ?? 0);
-        });
-      }
-      // Arka arkaya aynı noktalar olmasın
-      const clean: V2[] = [], cc: number[] = [], ch: number[] = [];
-      pts.forEach((p, k) => {
-        if (!clean.length || clean[clean.length - 1].distanceTo(p) > 1e-3) {
-          clean.push(p);
-          cc.push(caps[k]);
-          ch.push(hs[k]);
-        }
-      });
-      const lane = new Lane(clean, ch);
-      this.routes.push({ lane, slow: new Float32Array(cc), fadeIn: !!def.fadeIn, fadeOut: !!def.fadeOut, gate: def.gate });
+      this.routes.push(this.makeRoute(def, def.wide));
       const r = this.routes.length - 1;
+      const lane = this.routes[r].lane;
+      if (def.gate === 'toCity') this.gates.to[def.wide ?? 0] = r;
+      if (def.gate === 'fromCity') this.gates.from[def.wide ?? 0] = r;
       for (let k = 0; k < def.cars; k++) {
         const type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
         this.cars.push({ route: r, s: ((k + Math.random() * 0.4) / def.cars) * lane.length, speed: 0.85 + Math.random() * 0.3, type, paint: carPaint(CAR_KINDS[type]), v: 0, pos: new THREE.Vector3(), h: 0, fade: 1 });
@@ -750,6 +800,19 @@ export class HighwayTraffic {
     }
     this.set = new CarSet(CAR_KINDS, this.cars.length + 30);
     this.root.add(this.set.root);
+    // Otobüsler (şehre gelip giden): tek parça model
+    const busGeo = bakeModel(makeBus());
+    if (busGeo) {
+      this.busMesh = new THREE.InstancedMesh(busGeo, vertexColorMat, 24);
+      this.busMesh.count = 0;
+      this.busMesh.frustumCulled = false;
+      this.root.add(this.busMesh);
+    }
+  }
+
+  // Aracın boyu (çizildiği ölçekte)
+  private lengthOf(c: Car) {
+    return (c.type < 0 ? 0.6 : this.set?.lengths[c.type] ?? 0.47) * CAR_SCALE;
   }
 
   // Yolun o noktasındaki hız sınırı
@@ -770,14 +833,16 @@ export class HighwayTraffic {
   update(dt: number) {
     const set = this.set;
     if (!set) return;
-    // Şehirden çıkan arabalar otobana katılır (yolun başı boşsa)
-    const out = this.routes.findIndex(r => r.gate === 'fromCity');
-    if (this.exits.length && out >= 0 && !this.cars.some(c => c.route === out && c.s < 0.9)) {
+    // Şehirden çıkan arabalar aynı şeritten otobana katılır
+    while (this.exits.length) {
       const e = this.exits.shift()!;
+      const out = this.gates.from[e.wide];
+      if (out === undefined) continue;
       this.cars.push({ route: out, s: 0, speed: 0.85 + Math.random() * 0.3, type: e.type, paint: e.paint, v: 1, pos: new THREE.Vector3(), h: 0, fade: 1 });
     }
     for (const c of this.cars) c.h = this.routes[c.route].lane.at(c.s, c.pos);
     set.begin();
+    let buses = 0;
     const gone = new Set<Car>();
     this.cars.forEach((car, ci) => {
       const route = this.routes[car.route];
@@ -794,16 +859,17 @@ export class HighwayTraffic {
         const ox = Math.sin(o.h), oz = Math.cos(o.h);
         const back = -rx * ox - rz * oz;
         if (back > 0.02 && back < 1.2 && Math.abs(-rx * oz + rz * ox) < 0.16 && ci < this.cars.indexOf(o)) continue;
-        v = Math.min(v, Math.max(0, (ahead - 0.45) * 3));
+        // Arada iki aracın boylarının yarısı ve küçük bir boşluk kalsın (otobüs ve kamyon daha uzun)
+        v = Math.min(v, Math.max(0, (ahead - (this.lengthOf(car) + this.lengthOf(o)) / 2 - 0.09) * 3));
       }
       // Şehre giden: giriş doluysa sınırın dışında bekle (şehirdeki kuyruğun içine girmesin)
-      if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.()) v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
+      if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.(route.wide ?? 1)) v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
       car.v += (v - car.v) * Math.min(1, dt * 3);
       car.s += car.v * dt;
       if (car.s > route.lane.length) {
         if (route.gate === 'toCity') {
           // Şehrin girişine geldi: şehir trafiğine geçer, tünelden yeni araba gelir (giriş doluysa bekler)
-          if (!this.enterCity || this.enterCity(car.type, car.paint)) {
+          if (!this.enterCity || this.enterCity(car.type, car.paint, route.wide ?? 1)) {
             car.s = 0;
             car.type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
             car.paint = carPaint(CAR_KINDS[car.type]);
@@ -822,9 +888,15 @@ export class HighwayTraffic {
       this.tmp.rotation.y = route.lane.at(car.s, this.tmp.position);
       this.tmp.scale.setScalar(CAR_SCALE * car.fade);
       this.tmp.updateMatrix();
-      set.put(car.type, this.tmp.matrix, car.paint);
+      if (car.type < 0) {
+        if (this.busMesh && buses < 24) this.busMesh.setMatrixAt(buses++, this.tmp.matrix);
+      } else set.put(car.type, this.tmp.matrix, car.paint);
     });
     if (gone.size) this.cars = this.cars.filter(c => !gone.has(c));
     set.end();
+    if (this.busMesh) {
+      this.busMesh.count = buses;
+      this.busMesh.instanceMatrix.needsUpdate = true;
+    }
   }
 }

@@ -303,6 +303,17 @@ function junctionExtras(grade: number, mask: number) {
 }
 
 // Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 bulvar, 2 cadde)
+// Şehrin girişinden göbek kavşağa giden yolun şehir dışındaki kareleri: şehirdeki düz yolun aynısı (x doğrultusunda)
+export function entranceTile(grade: number, along: number) {
+  const g = new THREE.Group();
+  const r = makeModel(ROAD_BASES[0][0]);
+  r.rotation.y = Math.PI / 2;
+  g.add(r);
+  if (grade) g.add(roadExtras(grade, true, along, false, along * 7));
+  else if (along % 3 === 0) g.add(streetLight(0, 0.46, -Math.PI / 2));
+  return g;
+}
+
 export function gradedRoadModel(grade: number) {
   const g = new THREE.Group();
   g.add(makeModel(ROAD_BASES[0][0]));
