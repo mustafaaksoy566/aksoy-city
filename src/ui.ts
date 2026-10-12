@@ -1,5 +1,6 @@
 import {
   BUILD_GROUPS, TOOL_INFO, COST, FOOTPRINT, UTILITIES, SERVICES, DECOR, MATERIALS, MAT_IDS, DEPOT_STORAGE,
+  RES_LEVELS, HOUSE_PRICE, houseName,
   type Tool, type BuildTool, type BuildGroup,
 } from './config';
 import { isUtility, isService, isDecor, type Service } from './city';
@@ -25,10 +26,10 @@ function picture(key: string | undefined, emoji = '') {
 }
 
 export function setThumbs(map: Map<string, string>) {
-  thumbs = map;
+  thumbs = new Map([...thumbs, ...map]);
   document.querySelectorAll<HTMLElement>('[data-thumb]').forEach(el => {
     const src = thumbs.get(el.dataset.thumb!);
-    if (src) el.innerHTML = `<img src="${src}" alt="">`;
+    if (src && !el.querySelector('img')) el.innerHTML = `<img src="${src}" alt="">`;
   });
 }
 
@@ -45,6 +46,7 @@ function effectOf(t: BuildTool): string {
     const d = DECOR[t];
     if (t === 'station') return '🚆 Tren seferleri';
     if (t === 'busstop') return '🚌 Otobüs hattı';
+    if (t === 'parking') return '🚗 3 araçlık park yeri';
     if (t === 'beach') return `🏖️ +${fmt(d.income ?? 0)}/gün, su kıyısı`;
     if (t === 'marina') return `⛵ +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
     if (t === 'lighthouse') return `🗼 +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
@@ -57,7 +59,7 @@ function effectOf(t: BuildTool): string {
     case 'boulevard': return '🌷 Kenar evler +%8 mutlu';
     case 'avenue': return '🛣️ Çift şerit, 3 kat araç';
     case 'rail': return 'Trenler için ray';
-    case 'res': return '👥 Ev ve apartmanlar';
+    case 'res': return '🌱 Kendiliğinden büyür';
     case 'com': return '💼 Dükkan ve ofisler';
     case 'park': return '🌳 Evler büyüyebilir';
     case 'factory': return '🔩 Ham madde üretir';
@@ -76,7 +78,14 @@ export interface Catalog {
   isOpen(): boolean;
 }
 
-export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo, money: () => number): Catalog {
+// Konut sekmesindeki ev modelleri: seçilen model doğrudan o seviyede kurulur
+export interface HouseMenu {
+  pick(level: number, model: number): void;
+  lock(level: number): number | null;
+  pictures(): void; // resimleri ilk açılışta çizdir
+}
+
+export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo, money: () => number, houses: HouseMenu): Catalog {
   const panel = $('catalog');
   const tabs = panel.querySelector('.tabs')!;
   const cards = panel.querySelector('.cards')!;
@@ -97,6 +106,32 @@ export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo,
     return b;
   };
 
+  // Her seviyenin bütün ev modelleri; seviyeler arasında küçük bir başlık
+  const houseCards = (g: BuildGroup) => {
+    const out: HTMLElement[] = [];
+    RES_LEVELS.forEach((lv, l) => {
+      const level = l + 1;
+      const lock = houses.lock(level);
+      const sep = document.createElement('div');
+      sep.className = 'card-sep';
+      sep.innerHTML = `<b>${level}</b><small>seviye</small>`;
+      out.push(sep);
+      lv.models.forEach((path, m) => {
+        const key = `house:${level}:${m}`;
+        const b = document.createElement('button');
+        b.className = 'card' + (lock ? ' locked' : HOUSE_PRICE[level] > money() ? ' poor' : '');
+        b.style.setProperty('--c', g.color);
+        const price = lock
+          ? `<span class="price">${icon('lock')}Seviye ${lock}</span>`
+          : `<span class="price">${icon('coin')}${fmt(HOUSE_PRICE[level])}</span>`;
+        b.innerHTML = `<span class="pic" data-thumb="${key}">${picture(key, '🏠')}</span><span class="size">⭐ ${level}</span><b class="name">${houseName(path)}</b><span class="eff">👥 ${lv.pop} kişi</span>${price}`;
+        b.addEventListener('click', () => houses.pick(level, m));
+        out.push(b);
+      });
+    });
+    return out;
+  };
+
   const render = () => {
     tabs.replaceChildren(
       ...BUILD_GROUPS.map(g => {
@@ -113,7 +148,8 @@ export function buildCatalog(onPick: (t: BuildTool) => void, lockedAt: LockInfo,
       }),
     );
     const g = BUILD_GROUPS.find(x => x.group === group)!;
-    cards.replaceChildren(...g.tools.map(t => card(t, g)));
+    cards.replaceChildren(...g.tools.map(t => card(t, g)), ...(g.group === 'zones' ? houseCards(g) : []));
+    if (g.group === 'zones') houses.pictures();
     requestAnimationFrame(arrows);
   };
 
@@ -186,7 +222,7 @@ function syncSheet() {
 }
 
 // --- Seçili araç çubuğu ---
-export function setMode(tool: Tool) {
+export function setMode(tool: Tool, custom?: { thumb: string; label: string; hint: string }) {
   const el = $('mode');
   document.body.classList.toggle('building', tool !== 'pan');
   $('bulldoze').classList.toggle('on', tool === 'bulldoze');
@@ -197,9 +233,9 @@ export function setMode(tool: Tool) {
   const info = TOOL_INFO[tool];
   const danger = tool === 'bulldoze';
   el.classList.toggle('danger', danger);
-  el.querySelector('.mode-pic')!.innerHTML = danger ? icon('bulldozer') : picture(tool, info.icon);
-  el.querySelector('.mode-txt b')!.textContent = danger ? 'Yıkım modu' : info.label;
-  el.querySelector('.mode-txt small')!.textContent = info.hint;
+  el.querySelector('.mode-pic')!.innerHTML = danger ? icon('bulldozer') : picture(custom?.thumb ?? tool, info.icon);
+  el.querySelector('.mode-txt b')!.textContent = danger ? 'Yıkım modu' : custom?.label ?? info.label;
+  el.querySelector('.mode-txt small')!.textContent = custom?.hint ?? info.hint;
   el.hidden = false;
 }
 

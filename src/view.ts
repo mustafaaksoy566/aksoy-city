@@ -107,7 +107,7 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
     for (const side of [-1, 1]) {
       add(roadDeco.geo.curbC, roadDeco.stone, side * 0.465, 0.053, 0);
       add(roadDeco.geo.edge, roadDeco.paint, side * 0.39, 0.0515, 0);
-      for (const z of [-0.33, 0, 0.33]) add(roadDeco.geo.dash, roadDeco.paint, side * 0.18, 0.0515, z);
+      for (const z of [-0.33, 0, 0.33]) add(roadDeco.geo.dash, roadDeco.paint, side * 0.2, 0.0515, z);
     }
     // Kavşağa bitişik karede yaya geçidi kavşağın kenarında çizili; burada sadece şerit çizgileri
     if (!nearJunction) {
@@ -225,7 +225,7 @@ function junctionExtras(grade: number, mask: number) {
   return g;
 }
 
-// Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 cadde, 2 bulvar)
+// Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 bulvar, 2 cadde)
 export function gradedRoadModel(grade: number) {
   const g = new THREE.Group();
   g.add(makeModel(ROAD_BASES[0][0]));
@@ -1140,7 +1140,7 @@ export class CityView {
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
     if (Math.floor(variant / 11) % 2 && !path.startsWith('proc/')) b.scale.x *= -1;
     group.add(b);
-    if (kind === 'res' && level === 6) {
+    if (kind === 'res' && level === 6 && !path.startsWith('proc/')) {
       // Lüks kule: daha yüksek ve tepesinde taç
       b.scale.y *= 1.3;
       b.updateMatrixWorld(true);

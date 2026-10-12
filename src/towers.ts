@@ -1,82 +1,156 @@
 import * as THREE from 'three';
 
-// Gökdelenler: cam kuleler kodla çizilir; her birinin biçimi, rengi ve boyu farklı.
-// Cam yüzeyde pencere ızgarası var; geceleri pencerelerin bir kısmı yanar (DayNight 'window' adlı malzemeleri yakar).
+// Gökdelenler kodla çizilir: alt katta giriş katı (lobi, saçak, çiçeklikler), üstünde cephe dokulu kule.
+// Sekiz biçim var: düz cam kule, kademeli taş kule (art deco), burgulu kule, ikiz kuleler, sivri cam kule,
+// balkonlu yuvarlak ve kare konut kuleleri, dikey çıtalı ofis bloğu. Tepede helikopter pisti, taç ya da anten.
+// Geceleri pencerelerin bir kısmı yanar (DayNight 'window' adlı malzemeleri yakar, hangi pencerenin yanacağını doku söyler).
 
-const FLOOR = 0.12; // bir katın yüksekliği
-const COLS = 8; // dokuda yan yana pencere sayısı
-const ROWS = 8; // dokuda üst üste kat sayısı
+const FLOOR = 0.11; // bir katın yüksekliği
+const BAY = 0.1; // bir pencerenin genişliği
+const TC = 4; // dokuda yan yana pencere
+const TR = 4; // dokuda üst üste kat
 
-// Cam cephe dokusu: pencereler ve aralarındaki çerçeveler; ikinci doku gece yanan pencereler
-function facadeTextures() {
-  const size = 256;
-  const cell = size / COLS;
+type Style = 'glass' | 'dark' | 'band' | 'stone' | 'home';
+
+// Cephe dokusu (gündüz) ve gece yanan pencereler (aynı yerlerde)
+function facade(style: Style, seed0: number) {
+  const size = 256, cw = size / TC, ch = size / TR;
   const day = document.createElement('canvas');
   const night = document.createElement('canvas');
   day.width = day.height = night.width = night.height = size;
   const d = day.getContext('2d')!, n = night.getContext('2d')!;
-  d.fillStyle = '#c8ccd2'; // çerçeve
-  d.fillRect(0, 0, size, size);
   n.fillStyle = '#000';
   n.fillRect(0, 0, size, size);
-  let seed = 7;
+  let seed = seed0;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const x = c * cell + 2, y = r * cell + 3, w = cell - 4, h = cell - 6;
-      const g = d.createLinearGradient(x, y, x + w, y + h);
-      g.addColorStop(0, '#ffffff');
-      g.addColorStop(1, '#b9c4cf');
-      d.fillStyle = g;
-      d.fillRect(x, y, w, h);
-      if (rnd() < 0.45) {
-        n.fillStyle = rnd() < 0.7 ? '#ffe2a0' : '#fff6dc';
-        n.fillRect(x, y, w, h);
+  const BG: Record<Style, string> = { glass: '#e6ebf0', dark: '#3c4652', band: '#eef0f3', stone: '#efe3cc', home: '#f6f2ea' };
+  d.fillStyle = BG[style];
+  d.fillRect(0, 0, size, size);
+  const pane = (x: number, y: number, w: number, h: number, top: string, bottom: string) => {
+    const gr = d.createLinearGradient(0, y, 0, y + h);
+    gr.addColorStop(0, top);
+    gr.addColorStop(1, bottom);
+    d.fillStyle = gr;
+    d.fillRect(x, y, w, h);
+    // Camda gökyüzü yansıması: çapraz açık bir şerit
+    d.fillStyle = 'rgba(255,255,255,0.18)';
+    d.beginPath();
+    d.moveTo(x + w * 0.15, y + h);
+    d.lineTo(x + w * 0.45, y);
+    d.lineTo(x + w * 0.62, y);
+    d.lineTo(x + w * 0.32, y + h);
+    d.fill();
+    if (rnd() < 0.24) {
+      n.fillStyle = rnd() < 0.7 ? '#ffd99a' : '#fff1d6';
+      n.fillRect(x + 1, y + 1, w - 2, h - 2);
+    }
+  };
+  for (let r = 0; r < TR; r++) {
+    for (let c = 0; c < TC; c++) {
+      const x = c * cw, y = r * ch;
+      if (style === 'glass') {
+        d.fillStyle = '#93a2b1'; // kat döşemesi
+        d.fillRect(x, y, cw, 9);
+        pane(x + 3, y + 11, cw - 6, ch - 13, '#cfe3f5', '#4f7396');
+      } else if (style === 'dark') {
+        d.fillStyle = '#222b35';
+        d.fillRect(x, y, cw, 6);
+        pane(x + 2, y + 8, cw - 4, ch - 9, '#7f97b0', '#2f3f52');
+      } else if (style === 'band') {
+        // Şerit pencereler: katlar boyunca uzanan cam, aralarında beton bant
+        d.fillStyle = '#d5d9de';
+        d.fillRect(x, y, cw, 22);
+        pane(x, y + 24, cw, ch - 30, '#d2e6f7', '#5d82a6');
+        d.fillStyle = '#c9cfd6';
+        d.fillRect(x, y + 24, 3, ch - 30);
+      } else if (style === 'stone') {
+        // Taş cephe: ayaklar arasında dar, uzun pencereler ve kat kornişleri
+        d.fillStyle = '#dccdb0';
+        d.fillRect(x, y, cw, 4);
+        d.fillStyle = '#e6d8bd';
+        d.fillRect(x, y + 4, 10, ch - 4);
+        pane(x + 18, y + 12, cw - 36, ch - 20, '#9bb6cf', '#3e5a78');
+      } else {
+        // Konut: beyaz çerçeveli pencereler, arada renkli paneller
+        if (rnd() < 0.18) {
+          d.fillStyle = ['#e9b384', '#9cc5a1', '#9fb7d9', '#e8a0a0'][Math.floor(rnd() * 4)];
+          d.fillRect(x + 4, y + 6, cw - 8, ch - 10);
+        }
+        d.fillStyle = '#ffffff';
+        d.fillRect(x + 9, y + 13, cw - 18, ch - 22);
+        pane(x + 12, y + 16, cw - 24, ch - 28, '#d6ecfa', '#6f97b8');
       }
     }
   }
-  const make = (c: HTMLCanvasElement, srgb: boolean) => {
-    const t = new THREE.CanvasTexture(c);
+  const make = (cv: HTMLCanvasElement) => {
+    const t = new THREE.CanvasTexture(cv);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = 4;
     return t;
   };
-  return { map: make(day, true), glow: make(night, true) };
+  return { map: make(day), glow: make(night) };
 }
-const TEX = facadeTextures();
-
-// Camın rengi doku rengiyle çarpılır
-const GLASS = ['#5fa8e8', '#47c1c9', '#c9a46a', '#7fc4a0', '#9fb3c8', '#6d86d6'].map(color => {
-  const m = new THREE.MeshStandardMaterial({ color, map: TEX.map, emissiveMap: TEX.glow, emissive: '#000000', metalness: 0.35, roughness: 0.22 });
+const TEX: Record<Style, ReturnType<typeof facade>> = {
+  glass: facade('glass', 7),
+  dark: facade('dark', 11),
+  band: facade('band', 13),
+  stone: facade('stone', 17),
+  home: facade('home', 19),
+};
+const facadeMat = (style: Style, color: string, metal = 0.3, rough = 0.3) => {
+  const m = new THREE.MeshStandardMaterial({ color, map: TEX[style].map, emissiveMap: TEX[style].glow, emissive: '#000000', metalness: metal, roughness: rough });
   m.name = 'window';
   return m;
-});
-const CONCRETE = new THREE.MeshStandardMaterial({ color: '#e7e3dc', roughness: 0.8 });
-const DARK = new THREE.MeshStandardMaterial({ color: '#3a4450', roughness: 0.6, metalness: 0.3 });
+};
+const GLASS = ['#8fbde9', '#6f9fd6', '#7cc8c4', '#b4c3d3', '#c9d8e8', '#93a8c2'].map(c => facadeMat('glass', c, 0.45, 0.16));
+const DARK = ['#b8c7d8', '#a9c9c4'].map(c => facadeMat('dark', c, 0.4, 0.18));
+const BAND = ['#ffffff', '#e8eef5', '#f3ece0'].map(c => facadeMat('band', c, 0.2, 0.35));
+const STONE = ['#fff8ec', '#f1e2d0'].map(c => facadeMat('stone', c, 0.05, 0.7));
+const HOME = ['#ffffff', '#f2e6d8', '#e4edf3'].map(c => facadeMat('home', c, 0.05, 0.6));
+
+const plain = (color: string, metal = 0, rough = 0.75) => new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough });
+const T = {
+  concrete: plain('#e9e6e0'),
+  paving: plain('#cfd3d8'),
+  slab: plain('#fbfbfa', 0, 0.6),
+  frame: plain('#dfe5ec', 0.5, 0.35),
+  metal: plain('#8b97a5', 0.7, 0.35),
+  dark: plain('#39434f', 0.3, 0.5),
+  roof: plain('#5f6a76', 0.2, 0.7),
+  pad: plain('#4b545e', 0.1, 0.8),
+  padLine: plain('#ffd54f'),
+  white: plain('#ffffff'),
+  lawn: plain('#6cbd55'),
+  hedge: plain('#4a9a3e'),
+  gold: plain('#e3bd5c', 0.7, 0.3),
+  rail: plain('#bcd9ea', 0.3, 0.2),
+  awning: ['#e53935', '#1e88e5', '#43a047', '#fb8c00'].map(c => plain(c)),
+};
 const LIGHT = new THREE.MeshStandardMaterial({ color: '#ff5252', emissive: '#ff5252', emissiveIntensity: 0 });
 LIGHT.name = 'lamp';
 
-// Kutu: yan yüzlerin doku koordinatları gerçek boyuta göre ölçeklenir (pencereler her binada aynı büyüklükte)
-function glassBox(w: number, h: number, d: number) {
+// Kutu: yan yüzlerin doku koordinatları gerçek ölçüye göre (pencereler her binada aynı büyüklükte).
+// y0: kutunun alt kenarının yerden yüksekliği (üst üste binen parçalarda katlar kaymasın)
+function facadeBox(w: number, h: number, d: number, y0 = 0) {
   const g = new THREE.BoxGeometry(w, h, d);
   const uv = g.attributes.uv as THREE.BufferAttribute;
-  // Yüz sırası: +x, -x, +y, -y, +z, -z (her biri 4 köşe)
-  const span = [d, d, 0, 0, w, w];
+  const span = [d, d, 0, 0, w, w]; // yüz sırası: +x, -x, +y, -y, +z, -z
   for (let f = 0; f < 6; f++) {
     for (let k = 0; k < 4; k++) {
       const i = f * 4 + k;
       if (!span[f]) uv.setXY(i, 0, 0);
-      else uv.setXY(i, (uv.getX(i) * span[f] * COLS) / 0.8, (uv.getY(i) * h) / (FLOOR * ROWS));
+      else uv.setXY(i, (uv.getX(i) * span[f]) / (TC * BAY), (uv.getY(i) * h + y0) / (TR * FLOOR));
     }
   }
   return g;
 }
-function glassCylinder(r: number, h: number) {
-  const g = new THREE.CylinderGeometry(r, r, h, 20, 1, true);
+// Silindir ya da daralan silindir (r1 alt, r2 üst)
+function facadeCylinder(r1: number, r2: number, h: number, segs: number, y0 = 0) {
+  const g = new THREE.CylinderGeometry(r2, r1, h, segs, 1, true);
   const uv = g.attributes.uv as THREE.BufferAttribute;
-  const around = 2 * Math.PI * r;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * around * COLS) / 0.8, (uv.getY(i) * h) / (FLOOR * ROWS));
+  const around = Math.PI * (r1 + r2);
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * around) / (TC * BAY), (uv.getY(i) * h + y0) / (TR * FLOOR));
   return g;
 }
 
@@ -85,82 +159,196 @@ const hash = (n: number, k: number) => {
   return s - Math.floor(s);
 };
 
-// Bir gökdelen (yerel ölçüde: taban 1x1 kare, y=0 zemin). height: toplam boy, seed: biçim ve renk
-export function makeTower(height: number, seed: number) {
+// Bir gökdelen (taban 1x1 kare, y=0 zemin, ön yüz +z). height: toplam boy, seed: renk ve ayrıntılar, type: biçim
+export function makeTower(height: number, seed: number, type: number) {
   const g = new THREE.Group();
-  const glass = GLASS[Math.floor(hash(seed, 1) * GLASS.length)];
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, ry = 0) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(x, y, z);
+    mesh.rotation.y = ry;
     mesh.castShadow = mesh.receiveShadow = true;
     g.add(mesh);
     return mesh;
   };
-  // Alt kat: beton giriş katı ve saçak
-  add(new THREE.BoxGeometry(0.84, 0.16, 0.84), CONCRETE, 0, 0.08, 0);
-  add(new THREE.BoxGeometry(0.4, 0.1, 0.02), DARK, 0, 0.06, 0.425);
-  add(new THREE.BoxGeometry(0.5, 0.015, 0.1), CONCRETE, 0, 0.13, 0.46);
-  const base = 0.16;
-  const H = height - base;
-  const type = Math.floor(hash(seed, 2) * 5);
-  let top = height;
-  if (type === 0) {
-    // Düz cam kule, tepede çatı katı
-    const w = 0.66 + hash(seed, 3) * 0.1;
-    add(glassBox(w, H, w), glass, 0, base + H / 2, 0);
-    add(new THREE.BoxGeometry(w + 0.03, 0.03, w + 0.03), CONCRETE, 0, height, 0);
-    add(new THREE.BoxGeometry(w * 0.5, 0.1, w * 0.5), DARK, 0, height + 0.06, 0);
-    top = height + 0.11;
-  } else if (type === 1) {
-    // Kademeli kule: yukarı çıktıkça daralan üç blok
-    const ws = [0.74, 0.6, 0.44];
-    const hs = [H * 0.45, H * 0.33, H * 0.22];
-    let y = base;
-    ws.forEach((w, k) => {
-      add(glassBox(w, hs[k], w), glass, 0, y + hs[k] / 2, 0);
-      y += hs[k];
-      add(new THREE.BoxGeometry(w + 0.02, 0.025, w + 0.02), CONCRETE, 0, y, 0);
-    });
-    top = y;
-  } else if (type === 2) {
-    // Silindir kule ve tepede ince kule
-    const r = 0.33;
-    add(glassCylinder(r, H), glass, 0, base + H / 2, 0);
-    add(new THREE.CylinderGeometry(r + 0.02, r + 0.02, 0.03, 20), CONCRETE, 0, height, 0);
-    add(new THREE.CylinderGeometry(r * 0.6, r * 0.75, 0.12, 20), DARK, 0, height + 0.07, 0);
-    top = height + 0.13;
-  } else if (type === 3) {
-    // İkiz kuleler, aralarında gökyüzü köprüsü
-    const w = 0.34;
-    for (const s of [-1, 1]) {
-      const h = s < 0 ? H : H * 0.86;
-      add(glassBox(w, h, 0.6), glass, s * 0.2, base + h / 2, 0);
-      add(new THREE.BoxGeometry(w + 0.02, 0.025, 0.62), CONCRETE, s * 0.2, base + h, 0);
+  const pick = <T,>(list: T[], k: number) => list[Math.floor(hash(seed, k) * list.length)];
+  const residential = type === 5 || type === 6;
+
+  // --- Giriş katı: kaldırım, iki katlık lobi, saçak, çiçeklikler ---
+  const podH = residential ? 0.15 : 0.22;
+  add(new THREE.BoxGeometry(0.96, 0.02, 0.96), T.paving, 0, 0.01, 0);
+  if (residential) {
+    // Konut kulesinin altında dükkanlar ve renkli tenteler
+    add(facadeBox(0.82, podH, 0.82), pick(BAND, 3), 0, 0.02 + podH / 2, 0);
+    for (const [k, x] of [-0.26, 0, 0.26].entries()) {
+      const a = add(new THREE.BoxGeometry(0.22, 0.012, 0.08), T.awning[(Math.floor(hash(seed, 4) * 4) + k) % 4], x, 0.12, 0.45);
+      a.rotation.x = 0.35;
     }
-    add(new THREE.BoxGeometry(0.1, 0.08, 0.2), DARK, 0, base + H * 0.6, 0);
-    top = height;
   } else {
-    // Kare kule, tepede piramit çatı
-    const w = 0.7;
-    add(glassBox(w, H, w), glass, 0, base + H / 2, 0);
-    const roof = add(new THREE.ConeGeometry(w * 0.72, 0.42, 4), glass, 0, height + 0.21, 0);
-    roof.rotation.y = Math.PI / 4;
-    top = height + 0.42;
+    add(facadeBox(0.88, podH, 0.88), pick([...DARK, BAND[0]], 3), 0, 0.02 + podH / 2, 0);
+    add(new THREE.BoxGeometry(0.36, 0.014, 0.14), T.frame, 0, 0.13, 0.5);
+    for (const s of [-1, 1]) {
+      add(new THREE.CylinderGeometry(0.006, 0.006, 0.11, 6), T.metal, s * 0.16, 0.075, 0.55);
+      add(new THREE.BoxGeometry(0.1, 0.05, 0.06), T.hedge, s * 0.34, 0.045, 0.47);
+    }
   }
-  // Tepede anten ve gece yanan uyarı ışığı
-  if (height > 2.4) {
-    add(new THREE.CylinderGeometry(0.008, 0.012, 0.35, 6), DARK, 0, top + 0.175, 0);
-    add(new THREE.SphereGeometry(0.022, 8, 6), LIGHT, 0, top + 0.36, 0);
+  add(new THREE.BoxGeometry(0.9, 0.02, 0.9), T.slab, 0, 0.02 + podH + 0.01, 0);
+  const base = 0.02 + podH + 0.02;
+  const H = Math.max(0.6, height - base);
+  let top = height;
+
+  // Tepe: helikopter pisti
+  const helipad = (y: number, r: number) => {
+    add(new THREE.CylinderGeometry(r, r, 0.02, 20), T.pad, 0, y + 0.01, 0);
+    add(new THREE.CylinderGeometry(r * 0.86, r * 0.86, 0.022, 20, 1, true), T.padLine, 0, y + 0.012, 0);
+    add(new THREE.BoxGeometry(r * 0.12, 0.024, r * 0.7), T.white, -r * 0.25, y + 0.012, 0);
+    add(new THREE.BoxGeometry(r * 0.12, 0.024, r * 0.7), T.white, r * 0.25, y + 0.012, 0);
+    add(new THREE.BoxGeometry(r * 0.5, 0.024, r * 0.12), T.white, 0, y + 0.012, 0);
+  };
+  // Çatıda makine daireleri
+  const machines = (y: number, w: number) => {
+    add(new THREE.BoxGeometry(w * 0.45, 0.08, w * 0.3), T.roof, -w * 0.15, y + 0.04, -w * 0.15);
+    add(new THREE.BoxGeometry(w * 0.2, 0.05, w * 0.2), T.metal, w * 0.22, y + 0.025, w * 0.2);
+    add(new THREE.CylinderGeometry(0.04, 0.04, 0.06, 10), T.metal, w * 0.25, y + 0.03, -w * 0.25);
+  };
+
+  if (type === 0) {
+    // Düz cam kule: köşelerde ince metal çıtalar, her 8 katta bir koyu teknik kat, tepede helikopter pisti
+    const w = 0.7;
+    const glass = pick(GLASS, 5);
+    add(facadeBox(w, H, w, base), glass, 0, base + H / 2, 0);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) add(new THREE.BoxGeometry(0.03, H, 0.03), T.frame, (sx * w) / 2, base + H / 2, (sz * w) / 2);
+    for (let y = base + FLOOR * 8; y < base + H - 0.2; y += FLOOR * 8) add(new THREE.BoxGeometry(w + 0.012, 0.035, w + 0.012), T.dark, 0, y, 0);
+    add(new THREE.BoxGeometry(w + 0.02, 0.03, w + 0.02), T.frame, 0, base + H + 0.015, 0);
+    add(facadeBox(w * 0.72, 0.12, w * 0.72), pick(DARK, 6), 0, base + H + 0.09, 0);
+    helipad(base + H + 0.15, 0.2);
+    top = base + H + 0.17;
+  } else if (type === 1) {
+    // Kademeli taş kule (art deco): yukarı çıktıkça daralan katlar, kornişler, altın taç ve sivri uç
+    const stone = pick(STONE, 5);
+    const tiers: [number, number][] = [[0.74, 0.5], [0.58, 0.26], [0.44, 0.15], [0.3, 0.09]];
+    let y = base;
+    for (const [w, f] of tiers) {
+      const h = H * f;
+      add(facadeBox(w, h, w, y), stone, 0, y + h / 2, 0);
+      y += h;
+      add(new THREE.BoxGeometry(w + 0.03, 0.02, w + 0.03), T.concrete, 0, y + 0.01, 0);
+      y += 0.02;
+    }
+    add(new THREE.CylinderGeometry(0.06, 0.13, 0.16, 8), T.gold, 0, y + 0.08, 0);
+    add(new THREE.CylinderGeometry(0.004, 0.03, 0.4, 8), T.gold, 0, y + 0.36, 0);
+    top = y + 0.56;
+  } else if (type === 2) {
+    // Burgulu kule: her iki katta bir biraz dönen dilimler, aralarında beyaz döşeme
+    const glass = pick(GLASS, 5);
+    const seg = FLOOR * 2;
+    const n = Math.max(4, Math.floor(H / seg));
+    const turn = Math.PI / 2 / n;
+    for (let k = 0; k < n; k++) {
+      const y = base + k * seg;
+      add(facadeBox(0.64, seg - 0.008, 0.64, y), glass, 0, y + seg / 2, 0, k * turn);
+      add(new THREE.BoxGeometry(0.665, 0.008, 0.665), T.frame, 0, y + seg - 0.004, 0, k * turn);
+    }
+    const yt = base + n * seg;
+    add(facadeCylinder(0.3, 0.3, 0.1, 16), pick(DARK, 6), 0, yt + 0.05, 0);
+    add(new THREE.CylinderGeometry(0.34, 0.34, 0.02, 16), T.frame, 0, yt + 0.11, 0);
+    top = yt + 0.12;
+  } else if (type === 3) {
+    // İkiz kuleler: yuvarlak, tepeleri kademeli daralan; ortada gökyüzü köprüsü
+    const glass = pick(GLASS, 5);
+    const h = H * 0.86;
+    for (const s of [-1, 1]) {
+      const x = s * 0.21;
+      add(facadeCylinder(0.19, 0.19, h, 14, base), glass, x, base + h / 2, 0);
+      let y = base + h;
+      for (const [r, th] of [[0.15, 0.1], [0.11, 0.08], [0.07, 0.07]]) {
+        add(facadeCylinder(r + 0.03, r, th, 14, y), glass, x, y + th / 2, 0);
+        add(new THREE.CylinderGeometry(r, r, 0.012, 14), T.frame, x, y + th + 0.006, 0);
+        y += th + 0.012;
+      }
+      add(new THREE.CylinderGeometry(0.004, 0.02, 0.32, 8), T.metal, x, y + 0.16, 0);
+    }
+    const yb = base + h * 0.48;
+    add(new THREE.BoxGeometry(0.1, 0.05, 0.08), T.frame, 0, yb, 0);
+    for (const s of [-1, 1]) {
+      const leg = add(new THREE.BoxGeometry(0.012, 0.16, 0.012), T.metal, s * 0.06, yb - 0.08, 0);
+      leg.rotation.z = s * 0.5;
+    }
+    top = base + h + 0.6;
+  } else if (type === 4) {
+    // Sivri cam kule: sekizgen, yukarı doğru incelen üç bölüm ve ince uç
+    const glass = pick([...GLASS, ...DARK], 5);
+    const parts: [number, number, number][] = [[0.46, 0.4, 0.5], [0.4, 0.31, 0.3], [0.31, 0.16, 0.2]];
+    let y = base;
+    for (const [r1, r2, f] of parts) {
+      const h = H * f;
+      const m = add(facadeCylinder(r1, r2, h, 8, y), glass, 0, y + h / 2, 0);
+      m.rotation.y = Math.PI / 8;
+      y += h;
+    }
+    add(new THREE.CylinderGeometry(0.003, 0.03, 0.34, 6), T.metal, 0, y + 0.17, 0);
+    top = y + 0.34;
+  } else if (type === 5) {
+    // Yuvarlak konut kulesi: her katta dolaşan balkon ve camlı korkuluk
+    const r = 0.33;
+    const wall = pick(HOME, 5);
+    add(facadeCylinder(r, r, H, 20, base), wall, 0, base + H / 2, 0);
+    const slab = new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.01, 20);
+    const rail = new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.025, 20, 1, true);
+    for (let y = base + FLOOR; y < base + H - 0.05; y += FLOOR) {
+      add(slab, T.slab, 0, y, 0);
+      add(rail, T.rail, 0, y + 0.017, 0);
+    }
+    add(new THREE.CylinderGeometry(r + 0.03, r + 0.03, 0.03, 20), T.slab, 0, base + H + 0.015, 0);
+    // Çatı bahçesi
+    add(new THREE.CylinderGeometry(r * 0.8, r * 0.8, 0.02, 20), T.lawn, 0, base + H + 0.04, 0);
+    add(new THREE.SphereGeometry(0.05, 8, 6), T.hedge, 0.1, base + H + 0.08, 0.05);
+    add(new THREE.SphereGeometry(0.04, 8, 6), T.hedge, -0.12, base + H + 0.07, -0.06);
+    top = base + H + 0.05;
+  } else if (type === 6) {
+    // Kare konut kulesi: ön ve arka yüzde sırayla sağa sola kayan balkonlar
+    const w = 0.72, d = 0.66;
+    const wall = pick(HOME, 5);
+    add(facadeBox(w, H, d, base), wall, 0, base + H / 2, 0);
+    let k = 0;
+    for (let y = base + FLOOR; y < base + H - 0.05; y += FLOOR, k++) {
+      const x = k % 2 ? -0.16 : 0.16;
+      for (const s of [-1, 1]) {
+        add(new THREE.BoxGeometry(0.3, 0.01, 0.08), T.slab, x, y, s * (d / 2 + 0.04));
+        add(new THREE.BoxGeometry(0.3, 0.025, 0.006), T.rail, x, y + 0.017, s * (d / 2 + 0.08));
+      }
+    }
+    add(new THREE.BoxGeometry(w + 0.02, 0.03, d + 0.02), T.slab, 0, base + H + 0.015, 0);
+    machines(base + H + 0.03, w);
+    add(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 10), T.white, 0.22, base + H + 0.08, 0.18);
+    top = base + H + 0.13;
+  } else {
+    // Ofis bloğu: geniş ve ince, cephede dikey beton çıtalar, çatıda makine daireleri
+    const w = 0.84, d = 0.52;
+    add(facadeBox(w, H, d, base), pick(BAND, 5), 0, base + H / 2, 0);
+    for (let k = 0; k <= 8; k++) {
+      const x = -w / 2 + (k * w) / 8;
+      for (const s of [-1, 1]) add(new THREE.BoxGeometry(0.014, H, 0.03), T.concrete, x, base + H / 2, s * (d / 2 + 0.012));
+    }
+    add(new THREE.BoxGeometry(w + 0.02, 0.03, d + 0.04), T.concrete, 0, base + H + 0.015, 0);
+    machines(base + H + 0.03, 0.6);
+    top = base + H + 0.11;
+  }
+  // Uzun kulelerde tepede anten ve gece yanan uyarı ışığı
+  if (height > 2.2 && type !== 1 && type !== 3 && type !== 4) {
+    add(new THREE.CylinderGeometry(0.006, 0.01, 0.3, 6), T.metal, 0.12, top + 0.15, -0.12);
+    add(new THREE.SphereGeometry(0.02, 8, 6), LIGHT, 0.12, top + 0.31, -0.12);
+  } else if (type === 1 || type === 3 || type === 4) {
+    add(new THREE.SphereGeometry(0.018, 8, 6), LIGHT, type === 3 ? -0.21 : 0, top + 0.01, 0);
   }
   return g;
 }
 
-// Menüler ve şehir için hazır kuleler: 'proc/tower-<boy>-<çeşit>'
+// Menüler ve şehir için hazır kuleler: 'proc/tower-<boy>-<çeşit>'. types: hangi biçimler (sırayla)
 export const TOWER_MODELS: Record<string, () => THREE.Object3D> = {};
-export const towerPaths = (height: number, count: number, seed: number) =>
+export const towerPaths = (height: number, count: number, seed: number, types: number[]) =>
   Array.from({ length: count }, (_, k) => {
     const path = `proc/tower-${height}-${seed + k}`;
-    TOWER_MODELS[path] = () => makeTower(height * (0.88 + hash(seed + k, 9) * 0.28), seed + k * 13);
+    TOWER_MODELS[path] = () => makeTower(height * (0.92 + hash(seed + k, 9) * 0.16), seed + k * 13, types[k % types.length]);
     return path;
   });
 

@@ -6,6 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -437,7 +438,9 @@ export class City {
 
   // Bir yolun taşıyabileceği araba
   roadCapacity(i: number) {
-    return TRAFFIC.capacity * ROAD_GRADES[this.tiles[i]?.grade ?? 0].capacity;
+    const t = this.tiles[i];
+    // Şehir girişi otoyola bağlanır: otoyol gibi çok araba taşır (büyük şehirler girişte tıkanmasın)
+    return TRAFFIC.capacity * ROAD_GRADES[t?.grade ?? 0].capacity * (t?.locked ? TRAFFIC.entrance : 1);
   }
 
   // Yolun doluluğu (1'den büyükse tıkalı)
@@ -1106,6 +1109,33 @@ export class City {
     this.money -= cost;
     this.refresh();
     return { done, error: null };
+  }
+
+  // Seçilen ev modelini doğrudan o seviyede kur (İnşa Et → Konut)
+  houseBlocker(level: number): string | null {
+    return this.level < HOUSE_UNLOCK[level] ? `Şehir seviyesi ${HOUSE_UNLOCK[level]}'te açılır` : null;
+  }
+
+  placeHouse(cells: number[], level: number, model: number): { done: number[]; error: string | null } {
+    const lock = this.houseBlocker(level);
+    if (lock) return { done: [], error: lock };
+    let firstError: string | null = null;
+    const ok = cells.filter(i => {
+      const err = this.check('res', i % SIZE, Math.floor(i / SIZE));
+      firstError ??= err;
+      return err === null;
+    });
+    if (!ok.length) return { done: [], error: firstError };
+    const cost = ok.length * HOUSE_PRICE[level];
+    if (cost > this.money) return { done: [], error: 'Yeterli para yok' };
+    this.money -= cost;
+    for (const i of ok) {
+      this.tiles[i] = { kind: 'res', level, facing: this.facingFor(i), variant: houseVariant(level, model) };
+      this.addXp(XP.build);
+      this.stats.builds++;
+    }
+    this.refresh();
+    return { done: ok, error: null };
   }
 
   // Bir gün geçer: vergi belediyede birikir, bakım ödenir, arsalara bina yapılır, dükkanlar büyür,

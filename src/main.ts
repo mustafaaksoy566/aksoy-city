@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
-  LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, type Tool, type BuildTool, type MatId, type ServiceKind,
+  LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, isUtility, isService, isIndustry, isDecor, areaAround, sizeOf, block } from './city';
 import {
@@ -20,7 +20,7 @@ import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
 import { railPiece } from './rails';
 import { DayNight, CYCLE_DAYS, phase } from './daynight';
-import { renderThumbs } from './thumbs';
+import { renderThumbs, thumbRenderer } from './thumbs';
 import { makeUtility } from './utilities';
 import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
@@ -162,6 +162,7 @@ const traffic = new Traffic(city);
 scene.add(traffic.root);
 const walkers = new Walkers(city);
 scene.add(walkers.root);
+traffic.link(walkers);
 const trains = new Trains(city);
 scene.add(trains.root);
 const sky = new Sky(city);
@@ -468,6 +469,8 @@ function warnShortages() {
 
 // --- Araçlar ---
 let tool: Tool = 'pan';
+// Konut sekmesinden seçilen ev modeli (yoksa konut alanı kendiliğinden büyür)
+let house: { level: number; model: number } | null = null;
 
 // İnşa modunda tek parmak çizer, gez modunda kaydırır
 rig.singlePan = () => tool === 'pan';
@@ -506,6 +509,7 @@ function pickTool(t: Tool) {
   }
   catalog.close();
   tool = t;
+  house = null;
   openCard = null;
   input.cancelDrag();
   view.showPreview([]);
@@ -518,6 +522,42 @@ function pickTool(t: Tool) {
   updateTrafficView();
   applyControls();
   play('click', 0.4);
+}
+
+function pickHouse(level: number, model: number) {
+  const lock = city.houseBlocker(level);
+  if (lock) {
+    toast(`🔒 ${lock}`, 'error');
+    play('error', 0.3);
+    return;
+  }
+  pickTool('res');
+  house = { level, model };
+  const path = RES_LEVELS[level - 1].models[model];
+  setMode('res', { thumb: `house:${level}:${model}`, label: houseName(path), hint: `${level}. seviye · 💰${fmt(HOUSE_PRICE[level])} · yol kenarına dokun ya da sürükle` });
+}
+
+// Ev modellerinin menü resimleri: Konut sekmesi ilk açılınca parça parça çizilir (oyun takılmasın)
+let housePics = false;
+function makeHousePictures() {
+  if (housePics) return;
+  housePics = true;
+  const list: [string, string][] = [];
+  RES_LEVELS.forEach((lv, l) => lv.models.forEach((path, m) => list.push([`house:${l + 1}:${m}`, path])));
+  const r = thumbRenderer();
+  let k = 0;
+  const step = () => {
+    try {
+      setThumbs(r.render(list.slice(k, k + 6).map(([key, path]) => [key, makeModel(path)])));
+    } catch (err) {
+      console.warn('Ev resimleri çizilemedi', err);
+      k = list.length;
+    }
+    k += 6;
+    if (k < list.length) requestAnimationFrame(step);
+    else r.dispose();
+  };
+  requestAnimationFrame(step);
 }
 
 const input = new TileInput(renderer.domElement, camera, {
@@ -539,7 +579,10 @@ const input = new TileInput(renderer.domElement, camera, {
     } else view.showPreview(items);
     const n = items.filter(c => c.ok).length;
     if (coverKind(tool)) showCoverage(items[0]?.ok ? cells[0] : undefined);
-    if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
+    if (tool === 'res' && house) {
+      const path = RES_LEVELS[house.level - 1].models[house.model];
+      setChip(`${n > 1 ? `${n} × ` : ''}${houseName(path)} · 💰${fmt(n * HOUSE_PRICE[house.level])}`);
+    } else if (cells.length === 1 && (isUtility(tool) || isService(tool) || isIndustry(tool) || isDecor(tool))) {
       setChip(`${TOOL_INFO[tool].label} · 💰${fmt(COST[tool])}${size > 1 ? ` · ${size}×${size} kare` : ''}`);
     } else if (cells.length > 1) {
       const okCells = items.filter(c => c.ok).map(c => c.i);
@@ -551,7 +594,7 @@ const input = new TileInput(renderer.domElement, camera, {
     view.showRoadPreview([], 0);
     setChip(null);
     if (tool === 'pan') return;
-    const res = city.apply(tool, cells);
+    const res = tool === 'res' && house ? city.placeHouse(cells, house.level, house.model) : city.apply(tool, cells);
     showCoverage();
     if (res.error) {
       toast(res.error, 'error');
@@ -577,7 +620,11 @@ const input = new TileInput(renderer.domElement, camera, {
   },
 });
 
-const catalog = buildCatalog(t => pickTool(t), lockedAt, () => city.money);
+const catalog = buildCatalog(t => pickTool(t), lockedAt, () => city.money, {
+  pick: pickHouse,
+  lock: level => (city.level < HOUSE_UNLOCK[level] ? HOUSE_UNLOCK[level] : null),
+  pictures: makeHousePictures,
+});
 setMode(tool);
 applyControls();
 setupAudioUnlock();
@@ -789,8 +836,8 @@ function adaptQuality(dt: number) {
 function makeMenuPictures() {
   const items: [string, THREE.Object3D][] = [
     ['road', makeModel('kaykit/road_junction')],
-    ['avenue', gradedRoadModel(1)],
-    ['boulevard', gradedRoadModel(2)],
+    ['avenue', gradedRoadModel(2)],
+    ['boulevard', gradedRoadModel(1)],
     ['rail', railPiece(0b0110)],
     ['res', makeModel('kaykit/building_C')],
     ['com', makeModel('kaykit/building_E')],
@@ -800,7 +847,7 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'parking', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {

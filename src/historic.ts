@@ -18,12 +18,14 @@ function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D)
   return t;
 }
 
-// Eyfel'in demir kafesi: çapraz çubuklar, arası boş
+// Eyfel'in demir kafesi: koyu çubuklar açık zeminde (delik yok, uzaktan da temiz görünür).
+// Gece kafes çubukları altın gibi yanar ('window' adlı malzemeleri DayNight yakar).
 const LATTICE = canvasTexture(64, 64, g => {
-  g.clearRect(0, 0, 64, 64);
-  g.strokeStyle = '#fff';
-  g.lineWidth = 5;
-  g.strokeRect(2, 2, 60, 60);
+  g.fillStyle = '#b48d68';
+  g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#5a4030';
+  g.lineWidth = 6;
+  g.strokeRect(0, 0, 64, 64);
   g.lineWidth = 3;
   g.beginPath();
   g.moveTo(0, 0);
@@ -32,7 +34,22 @@ const LATTICE = canvasTexture(64, 64, g => {
   g.lineTo(0, 64);
   g.stroke();
 });
-const ironMat = new THREE.MeshStandardMaterial({ color: '#8a6748', map: LATTICE, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.7, metalness: 0.3 });
+const LATTICE_GLOW = canvasTexture(64, 64, g => {
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 64, 64);
+  g.strokeStyle = '#ffd27a';
+  g.lineWidth = 4;
+  g.strokeRect(0, 0, 64, 64);
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(64, 64);
+  g.moveTo(64, 0);
+  g.lineTo(0, 64);
+  g.stroke();
+});
+const ironMat = new THREE.MeshStandardMaterial({ color: '#9a7656', map: LATTICE, emissiveMap: LATTICE_GLOW, emissive: '#000000', roughness: 0.65, metalness: 0.25 });
+ironMat.name = 'window';
 
 // Kolezyum duvarı: üç kat kemer, kemerlerin içi boş
 const ARCHES = canvasTexture(128, 128, g => {
@@ -78,40 +95,67 @@ function strut(a: THREE.Vector3, b: THREE.Vector3, ra: number, rb: number, cell:
   return m;
 }
 
-// --- Eyfel Kulesi (2x2) ---
+// --- Eyfel Kulesi (3x3) ---
+// Dört kavisli ayak birinci katta birleşir, ikinci kattan sonra tek, incelen bir kule olarak yükselir.
+// Ayakların arasında süs kemerleri; çevresinde Champ de Mars gibi çim ve yollar.
 function eiffel() {
   const g = new THREE.Group();
   const st = new THREE.Group();
-  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cbbf9f'), 0, 0.01, 0));
-  for (const [x, z] of [[-0.3, 0.44], [0.3, 0.44]] as [number, number][]) st.add(part(new THREE.BoxGeometry(0.3, 0.022, 0.08), mat('#7cc35f'), x, 0.012, z));
-  const bronze = mat('#7a5a3e');
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#7cc35f'), 0, 0.01, 0));
+  st.add(part(new THREE.BoxGeometry(0.86, 0.022, 0.86), mat('#dccfb2'), 0, 0.012, 0));
+  for (const s of [-1, 1]) {
+    st.add(part(new THREE.BoxGeometry(0.98, 0.023, 0.07), mat('#dccfb2'), 0, 0.012, s * 0.46));
+    st.add(part(new THREE.BoxGeometry(0.07, 0.023, 0.98), mat('#dccfb2'), s * 0.46, 0.012, 0));
+  }
+  const bronze = mat('#6e5039');
+  const rail = mat('#8d6b4d');
   const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-  // Dört ayak: köşelerden birinci kata, oradan ikinci kata
+  // Bir ayak: köşeden içe doğru kavis çizen parçalar (alt geniş, üst ince)
+  const leg = (sx: number, sz: number, pts: [number, number][], r0: number, r1: number) => {
+    for (let k = 0; k < pts.length - 1; k++) {
+      const [a0, y0] = pts[k], [a1, y1] = pts[k + 1];
+      const f = k / (pts.length - 1), f2 = (k + 1) / (pts.length - 1);
+      st.add(strut(V(sx * a0, y0, sz * a0), V(sx * a1, y1, sz * a1), r0 + (r1 - r0) * f, r0 + (r1 - r0) * f2, 0.045));
+    }
+  };
   for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-    st.add(strut(V(sx * 0.37, 0, sz * 0.37), V(sx * 0.21, 0.32, sz * 0.21), 0.07, 0.045, 0.05));
-    st.add(strut(V(sx * 0.21, 0.34, sz * 0.21), V(sx * 0.1, 0.66, sz * 0.1), 0.042, 0.028, 0.04));
-    st.add(part(new THREE.BoxGeometry(0.09, 0.02, 0.09), bronze, sx * 0.37, 0.01, sz * 0.37));
+    leg(sx, sz, [[0.38, 0], [0.33, 0.1], [0.28, 0.19], [0.235, 0.27]], 0.075, 0.05);
+    leg(sx, sz, [[0.215, 0.29], [0.17, 0.42], [0.125, 0.56]], 0.046, 0.032);
+    st.add(part(new THREE.BoxGeometry(0.1, 0.03, 0.1), mat('#8c7a62'), sx * 0.38, 0.015, sz * 0.38));
   }
   // Ayakların arasındaki kemerler
   for (let k = 0; k < 4; k++) {
-    const arch = part(new THREE.TorusGeometry(0.26, 0.012, 6, 24, Math.PI), bronze, 0, 0.06, 0);
+    const arch = part(new THREE.TorusGeometry(0.255, 0.014, 6, 28, Math.PI), bronze, 0, 0.0, 0);
     arch.rotation.y = (k * Math.PI) / 2;
-    arch.translateZ(0.3);
-    arch.scale.set(1, 0.95, 1);
+    arch.translateZ(0.29);
+    arch.scale.set(1, 0.82, 1);
     st.add(arch);
   }
-  // Birinci ve ikinci kat
-  st.add(part(new THREE.BoxGeometry(0.5, 0.035, 0.5), bronze, 0, 0.33, 0));
-  st.add(part(new THREE.BoxGeometry(0.52, 0.025, 0.52), mat('#5c432e'), 0, 0.36, 0));
-  st.add(part(new THREE.BoxGeometry(0.25, 0.03, 0.25), bronze, 0, 0.67, 0));
-  // Üst gövde: incelerek yükselen kafes kule
-  st.add(strut(V(0, 0.68, 0), V(0, 1.5, 0), 0.105, 0.03, 0.045));
-  st.add(part(new THREE.BoxGeometry(0.075, 0.05, 0.075), bronze, 0, 1.52, 0));
-  st.add(part(new THREE.CylinderGeometry(0.008, 0.012, 0.14, 6), bronze, 0, 1.61, 0));
+  // Birinci kat: geniş, galerili
+  st.add(part(new THREE.BoxGeometry(0.54, 0.045, 0.54), bronze, 0, 0.29, 0));
+  st.add(part(new THREE.BoxGeometry(0.56, 0.02, 0.56), rail, 0, 0.32, 0));
+  // İkinci kat
+  st.add(part(new THREE.BoxGeometry(0.29, 0.035, 0.29), bronze, 0, 0.575, 0));
+  st.add(part(new THREE.BoxGeometry(0.3, 0.015, 0.3), rail, 0, 0.6, 0));
+  // Üst kule: dört yüzlü, incelerek yükselen kafes; arada küçük bir kat, tepede seyir kabini ve anten
+  const tower = new THREE.Mesh(scaleUV(new THREE.CylinderGeometry(0.045, 0.13, 0.55, 4, 1, true), 4, 9), ironMat);
+  tower.position.y = 0.61 + 0.275;
+  tower.rotation.y = Math.PI / 4;
+  st.add(tower);
+  st.add(part(new THREE.BoxGeometry(0.1, 0.02, 0.1), bronze, 0, 0.92, 0));
+  const spire = new THREE.Mesh(scaleUV(new THREE.CylinderGeometry(0.02, 0.045, 0.42, 4, 1, true), 1.5, 7), ironMat);
+  spire.position.y = 1.16;
+  spire.rotation.y = Math.PI / 4;
+  st.add(spire);
+  st.add(part(new THREE.BoxGeometry(0.06, 0.05, 0.06), bronze, 0, 1.39, 0));
+  st.add(part(new THREE.BoxGeometry(0.065, 0.012, 0.065), rail, 0, 1.415, 0));
+  st.add(part(new THREE.CylinderGeometry(0.006, 0.01, 0.16, 6), mat('#d9d9d9'), 0, 1.5, 0));
+  // Önde iki çim tarhı ve çiçekler
+  for (const x of [-0.3, 0.3]) st.add(part(new THREE.BoxGeometry(0.22, 0.026, 0.06), mat('#5aa646'), x, 0.014, 0.44));
   g.add(mergeStatic([st]));
   const lamp = new THREE.MeshStandardMaterial({ color: '#ffd27a', emissive: '#ffd27a', emissiveIntensity: 0 });
   lamp.name = 'lamp';
-  g.add(part(new THREE.SphereGeometry(0.018, 8, 6), lamp, 0, 1.69, 0));
+  g.add(part(new THREE.SphereGeometry(0.016, 8, 6), lamp, 0, 1.585, 0));
   g.scale.y = 1.25; // daha uzun (en yüksek simge)
   return g;
 }
@@ -207,21 +251,24 @@ function pisa() {
 }
 
 // --- Galata Kulesi (1x1): taş gövde, seyir balkonu, sivri külah ---
+// Kendi karesine sığar (yola taşmaz) ama evlerin çok üstüne çıkar: ince ve uzun.
 function galata() {
   const g = new THREE.Group();
   const stone = mat('#cdbb9c');
   const dark = mat('#4b5563');
   const roof = mat('#55606e');
   g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cfc6b3'), 0, 0.01, 0));
-  // Gerçek oranına yakın boy: yapı 2.2 kat büyütülür (zemin aynı kalır)
+  for (const [x, z] of [[-0.38, 0.38], [0.38, 0.38], [-0.38, -0.38], [0.38, -0.38]]) g.add(part(new THREE.BoxGeometry(0.14, 0.04, 0.14), mat('#5aa646'), x, 0.03, z));
+  // Gerçek oranına yakın boy: genişlik 1.55, boy 2.3 kat (taban 0.7 kare, karenin içinde kalır)
   const t = new THREE.Group();
-  t.scale.setScalar(2.2);
-  t.position.y = -0.024;
+  t.scale.set(1.55, 2.3, 1.55);
+  t.position.y = -0.03;
   g.add(t);
   t.add(part(new THREE.CylinderGeometry(0.2, 0.22, 0.08, 20), stone, 0, 0.06, 0));
   t.add(part(new THREE.CylinderGeometry(0.17, 0.19, 0.72, 20), stone, 0, 0.46, 0));
-  // Pencere sıraları
+  // Taş sıraları ve pencereler
   for (let row = 0; row < 4; row++) {
+    t.add(part(new THREE.CylinderGeometry(0.185 - row * 0.005, 0.185 - row * 0.005, 0.008, 20), mat('#bba98a'), 0, 0.17 + row * 0.15, 0));
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2 + row * 0.5;
       const w = part(new THREE.BoxGeometry(0.025, 0.045, 0.01), dark, Math.sin(a) * 0.182, 0.22 + row * 0.15, Math.cos(a) * 0.182);
@@ -239,8 +286,8 @@ function galata() {
     w.rotation.y = a;
     t.add(w);
   }
-  t.add(part(new THREE.ConeGeometry(0.175, 0.36, 20), roof, 0, 1.15, 0));
-  t.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 5), mat('#e0b84c'), 0, 1.36, 0));
+  t.add(part(new THREE.ConeGeometry(0.175, 0.4, 20), roof, 0, 1.17, 0));
+  t.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 5), mat('#e0b84c'), 0, 1.4, 0));
   return mergeStatic([g]);
 }
 
@@ -290,24 +337,54 @@ function colosseum() {
   return g;
 }
 
-// --- Piramit (3x3): basamaklı kumtaşı ---
+// --- Gize Piramitleri (4x4): büyük piramit, ortanca piramit (tepesinde kaplama taşı kalmış), küçük piramit ve Sfenks ---
+// Kumtaşı yüzlerde taş sıraları dokusu; çevresi kum, birkaç palmiye.
+const COURSES = canvasTexture(64, 64, g => {
+  g.fillStyle = '#ddbd80';
+  g.fillRect(0, 0, 64, 64);
+  for (let y = 0; y < 64; y += 8) {
+    g.fillStyle = '#c4a067';
+    g.fillRect(0, y, 64, 2);
+    for (let x = (y / 8) % 2 ? 8 : 0; x < 64; x += 16) g.fillRect(x, y, 2, 8);
+  }
+});
+const sandstone = new THREE.MeshStandardMaterial({ color: '#ffffff', map: COURSES, roughness: 0.95, flatShading: true });
+
+function pyramidShape(base: number, h: number, x: number, z: number, cap?: THREE.Material) {
+  const geo = new THREE.ConeGeometry(base / Math.SQRT2, h, 4, 1, true).rotateY(Math.PI / 4);
+  scaleUV(geo, base * 10, h * 12);
+  const m = new THREE.Mesh(geo, sandstone);
+  m.position.set(x, 0.02 + h / 2, z);
+  m.castShadow = m.receiveShadow = true;
+  const g = new THREE.Group();
+  g.add(m);
+  if (cap) {
+    // Tepede kalan beyaz kaplama taşları
+    const ch = h * 0.18;
+    g.add(part(new THREE.ConeGeometry((base * 0.18) / Math.SQRT2 + 0.003, ch, 4).rotateY(Math.PI / 4), cap, x, 0.02 + h - ch / 2 + 0.002, z));
+  }
+  return g;
+}
+
 function pyramid() {
   const g = new THREE.Group();
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#e9d29a'), 0, 0.01, 0));
-  const steps = 14;
-  const colors = ['#d9b36c', '#cfa862'];
-  for (let k = 0; k < steps; k++) {
-    const w = 0.86 * (1 - k / steps);
-    g.add(part(new THREE.BoxGeometry(w, 0.06, w), mat(colors[k % 2]), 0, 0.02 + k * 0.06 + 0.03, 0));
+  const st = new THREE.Group();
+  st.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#e8d09a'), 0, 0.01, 0));
+  // Kum tepecikleri
+  for (const [x, z, r] of [[0.38, -0.38, 0.08], [-0.42, 0.1, 0.06], [0.1, 0.44, 0.05]] as [number, number, number][]) {
+    st.add(part(new THREE.SphereGeometry(r, 10, 6).scale(1.6, 0.25, 1), mat('#e2c88e'), x, 0.02, z));
   }
-  g.add(part(new THREE.ConeGeometry(0.05, 0.07, 4).rotateY(Math.PI / 4), mat('#e8c46a'), 0, 0.02 + steps * 0.06 + 0.035, 0));
-  // Giriş ve palmiye benzeri küçük ağaçlar yerine taş dikilitaş
-  g.add(part(new THREE.BoxGeometry(0.08, 0.06, 0.02), mat('#5c4a33'), 0, 0.06, 0.43));
-  for (const x of [-0.42, 0.42]) {
-    g.add(part(new THREE.CylinderGeometry(0.012, 0.022, 0.28, 4).rotateY(Math.PI / 4), mat('#d4b26f'), x, 0.16, 0.42));
-    g.add(part(new THREE.ConeGeometry(0.016, 0.03, 4).rotateY(Math.PI / 4), mat('#e0b84c'), x, 0.315, 0.42));
-  }
-  return mergeStatic([g]);
+  st.add(pyramidShape(0.62, 0.52, -0.13, -0.12));
+  st.add(pyramidShape(0.4, 0.36, 0.27, 0.22, mat('#efe3c4')));
+  st.add(pyramidShape(0.2, 0.16, -0.33, 0.33));
+  // Sfenks: yatan aslan gövdesi, başı ve ön patileri
+  const lime = mat('#d2b47c');
+  st.add(part(new THREE.BoxGeometry(0.05, 0.035, 0.12), lime, 0.02, 0.038, 0.4));
+  st.add(part(new THREE.BoxGeometry(0.04, 0.045, 0.035), lime, 0.02, 0.07, 0.45));
+  st.add(part(new THREE.BoxGeometry(0.05, 0.03, 0.02), mat('#3f6aa8'), 0.02, 0.085, 0.442));
+  for (const s of [-1, 1]) st.add(part(new THREE.BoxGeometry(0.012, 0.012, 0.05), lime, 0.02 + s * 0.016, 0.026, 0.47));
+  g.add(mergeStatic([st]));
+  return g;
 }
 
 // --- Stadyum (3x3): basamaklı tribünler, şeffaf çatı, çizgili çim saha, ışık direkleri, skorbord ---

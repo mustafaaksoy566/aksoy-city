@@ -84,6 +84,42 @@ function station() {
 }
 
 // Otobüs durağı: camlı sundurma, bank ve tabela (yolun olduğu taraf +z)
+// Otopark (1x1): asfalt, arka sırada üç park yeri, önü yola açık; köşede mavi "P" tabelası.
+// Park eden arabaları trafik çizer (traffic.ts), burada sadece zemin var.
+function parkingLot() {
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  st.add(part(new THREE.BoxGeometry(0.98, 0.036, 0.98), mat('#555b63'), 0, 0.018, 0));
+  const white = mat('#f4f4f2');
+  // Park yeri çizgileri ve arka çizgi
+  for (const x of [-0.45, -0.15, 0.15, 0.45]) st.add(part(new THREE.BoxGeometry(0.014, 0.003, 0.44), white, x, 0.037, -0.25));
+  st.add(part(new THREE.BoxGeometry(0.92, 0.003, 0.014), white, 0, 0.037, -0.47));
+  // Koridorda yön oku
+  st.add(part(new THREE.BoxGeometry(0.03, 0.003, 0.16), white, 0, 0.037, 0.2));
+  for (const s of [-1, 1]) {
+    const a = part(new THREE.BoxGeometry(0.03, 0.003, 0.09), white, s * 0.025, 0.037, 0.12);
+    a.rotation.y = s * 0.7;
+    st.add(a);
+  }
+  // Kenarlarda bordür ve çiçeklik
+  const curb = mat('#d9d6cf');
+  st.add(part(new THREE.BoxGeometry(0.98, 0.05, 0.03), curb, 0, 0.025, -0.485));
+  for (const s of [-1, 1]) {
+    st.add(part(new THREE.BoxGeometry(0.03, 0.05, 0.98), curb, s * 0.485, 0.025, 0));
+    st.add(part(new THREE.BoxGeometry(0.1, 0.05, 0.1), mat('#5aa646'), s * 0.43, 0.06, 0.43));
+  }
+  // "P" tabelası
+  const blue = mat('#1565c0');
+  st.add(part(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 6), M.steel, 0.43, 0.15, 0.3));
+  st.add(part(new THREE.BoxGeometry(0.012, 0.1, 0.1), blue, 0.43, 0.32, 0.3));
+  st.add(part(new THREE.BoxGeometry(0.014, 0.06, 0.012), white, 0.43, 0.32, 0.28));
+  st.add(part(new THREE.BoxGeometry(0.014, 0.012, 0.03), white, 0.43, 0.345, 0.29));
+  st.add(part(new THREE.BoxGeometry(0.014, 0.012, 0.03), white, 0.43, 0.32, 0.29));
+  st.add(part(new THREE.BoxGeometry(0.014, 0.03, 0.012), white, 0.43, 0.333, 0.303));
+  g.add(mergeStatic([st]));
+  return g;
+}
+
 function busStop() {
   const g = new THREE.Group();
   const glass = new THREE.MeshStandardMaterial({ color: '#bfe6f5', transparent: true, opacity: 0.55 });
@@ -821,6 +857,7 @@ export function makeDecor(kind: DecorKind): THREE.Object3D {
   if (kind === 'uni') return university();
   if (kind === 'airport') return airport();
   if (kind === 'busstop') return busStop();
+  if (kind === 'parking') return parkingLot();
   if (kind === 'station') return station();
   if (kind === 'wheel') return ferrisWheel();
   const g = new THREE.Group();

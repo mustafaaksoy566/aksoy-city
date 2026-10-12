@@ -464,6 +464,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     const lines: InfoCard['lines'] = [];
     if (t.kind === 'station') lines.push({ text: '🚆 Trenler bu istasyondan sefer yapar.' });
     if (t.kind === 'busstop') lines.push({ text: '🚌 Her durak için şehirde bir otobüs dolaşır.' });
+    if (t.kind === 'parking') lines.push({ text: '🚗 Yakındaki evlerin arabaları burada durur; insanlar evlerinden yürüyüp arabalarına biner.' });
     if (t.kind === 'uni') lines.push({ text: '🎓 Çevresindeki geniş alanda okul hizmeti verir.' });
     if (t.kind === 'airport') lines.push({ text: '✈️ Uçaklar kalkıp iner; turistler her gün para getirir.' });
     if (d.road) lines.push(road);

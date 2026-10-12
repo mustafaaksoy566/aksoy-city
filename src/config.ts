@@ -178,7 +178,7 @@ export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 
 // Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
 // covers: bu hizmetin alanını da kapsar (üniversite = okul), income: günlük turist geliri, road: yol kenarına kurulur
 export type DecorKind =
-  | 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'uni' | 'airport' | 'beach' | 'metro'
+  | 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'parking' | 'uni' | 'airport' | 'beach' | 'metro'
   | 'clocktower' | 'museum' | 'funfair' | 'lighthouse' | 'marina' | 'mosque'
   | 'eiffel' | 'liberty' | 'pisa' | 'colosseum' | 'galata' | 'pyramid' | 'zoo';
 export interface DecorInfo { radius: number; happy: number; upkeep: number; covers?: ServiceKind; income?: number; road?: boolean }
@@ -202,6 +202,7 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   museum: { radius: 9, happy: 0.15, upkeep: 15, income: 220, road: true }, // müze: turist getirir
   funfair: { radius: 10, happy: 0.22, upkeep: 14, income: 260, road: true }, // lunapark: atlıkarınca ve hız treni
   busstop: { radius: 4, happy: 0.05, upkeep: 1 }, // otobüs durağı: otobüsler dolaşır
+  parking: { radius: 3, happy: 0.02, upkeep: 1, road: true }, // otopark: yakındaki evlerin arabaları burada durur
   station: { radius: 8, happy: 0.12, upkeep: 8 }, // tren istasyonu: ulaşım çevreyi mutlu eder
   fountain: { radius: 4, happy: 0.1, upkeep: 1 },
   statue: { radius: 5, happy: 0.12, upkeep: 1 },
@@ -234,6 +235,7 @@ export const ROAD_TOOLS: BuildTool[] = ['road', 'boulevard', 'avenue'];
 // Otobüs durağı, metro ve tren istasyonu yakınındaki evlerde daha az kişi arabaya biner.
 export const TRAFFIC = {
   capacity: 140, // sade yolun taşıdığı araba
+  entrance: 4, // şehir girişi (otoyol bağlantısı) bunun kaç katını taşır
   carsPerPerson: 0.06,
   happy: -0.1, // tıkalı yolun kenarındaki evler
   transit: { busstop: 0.2, metro: 0.35, station: 0.25 } as Record<string, number>,
@@ -242,7 +244,7 @@ export const TRAFFIC = {
 
 export const COST: Record<BuildTool, number> = {
   road: 10, boulevard: 50, avenue: 150, rail: 25, res: 20, com: 30, park: 60, bulldoze: 0, station: 2000,
-  wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150,
+  wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150, parking: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
   bakery: 1500, fashion: 2000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
@@ -252,7 +254,7 @@ export const COST: Record<BuildTool, number> = {
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 3,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -276,6 +278,7 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   avenue: { icon: '🛣️', label: 'Cadde', hint: 'Cadde: çift şeritli geniş yol, çok araba taşır. Tıkanan yolların üstüne sürükleyerek caddeye yükselt.' },
   rail: { icon: '🛤️', label: 'Tren yolu', hint: 'Ray çizmek için sürükle. Düz bir yolu keserse hemzemin geçit olur.' },
   station: { icon: '🚉', label: 'İstasyon', hint: 'İstasyonu tren yolunun yanına kur; trenler buradan sefer yapar.' },
+  parking: { icon: '🅿️', label: 'Otopark', hint: 'Otopark: arabalar burada durur. Yakındaki evlerden insanlar yürüyüp arabasına biner, dönünce park edip evine yürür.' },
   busstop: { icon: '🚏', label: 'Durak', hint: 'Otobüs durağı: her durak için şehirde bir otobüs dolaşır.' },
   trade: { icon: '🏬', label: 'Ticaret', hint: 'Ticaret merkezi: malzemelerini sat, eksiklerini satın al.' },
   res: { icon: '🏠', label: 'Konut', hint: 'Yol kenarına konut bölgesi çiz, evler kendiliğinden yapılır.' },
@@ -311,7 +314,7 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   pisa: { icon: '🏛️', label: 'Pisa Kulesi', hint: 'Pisa Kulesi: altı katlı sütunlu, ünlü eğik kule. Turist getirir.' },
   colosseum: { icon: '🏟️', label: 'Kolezyum', hint: 'Kolezyum: kemerli dev arena, bir yanı yıkık. Çok turist getirir.' },
   galata: { icon: '🏰', label: 'Galata Kulesi', hint: 'Galata Kulesi: taş gövde, seyir balkonu ve sivri külah. Turist getirir.' },
-  pyramid: { icon: '🔺', label: 'Piramit', hint: 'Piramit: basamaklı kumtaşı piramit ve dikilitaşlar. Çok turist getirir.' },
+  pyramid: { icon: '🔺', label: 'Gize Piramitleri', hint: 'Gize Piramitleri: büyük, ortanca ve küçük piramit ile Sfenks (4x4). Çok turist getirir.' },
   mosque: { icon: '🕌', label: 'Cami', hint: 'Cami: büyük kubbesi, iki minaresi ve şadırvanlı avlusuyla şehrin simgesi.' },
   clocktower: { icon: '🕰️', label: 'Saat Kulesi', hint: 'Saat kulesi: meydanın simgesi, çevresini mutlu eder.' },
   museum: { icon: '🏛️', label: 'Müze', hint: 'Müze: turist getirir, geniş bir alanı mutlu eder.' },
@@ -328,7 +331,7 @@ export interface BuildGroup { group: string; icon: string; label: string; color:
 // İnşa panelindeki sekmeler. Yıkma ayrı bir düğmede.
 export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'zones', icon: '🏘️', label: 'Konut', color: '#43a047', tools: ['res'] },
-  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'boulevard', 'avenue', 'rail', 'station', 'busstop', 'metro', 'airport'] },
+  { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'boulevard', 'avenue', 'parking', 'busstop', 'rail', 'station', 'metro', 'airport'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', color: '#f59f00', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion'] },
@@ -357,13 +360,38 @@ export const RES_LEVELS = [
   { pop: 30, need: 4, models: [kk('building_C'), kk('building_D'), kk('building_G'), kk('building_H'), ...['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(l => k2(`building-${l}`)), ...apartmentPaths(4, 6, 500)] },
   { pop: 60, need: 7, models: [...['i', 'j', 'k', 'l', 'm', 'n'].map(l => k2(`building-${l}`)), k2('building-skyscraper-a'), k2('building-skyscraper-b'), ...apartmentPaths(7, 6, 600)] },
   // 5. seviye: ilk gökdelenler
-  { pop: 100, need: 12, models: [k2('building-skyscraper-c'), k2('building-skyscraper-d'), k2('building-skyscraper-e'), ...towerPaths(2.3, 4, 50)] },
+  { pop: 100, need: 12, models: [k2('building-skyscraper-c'), k2('building-skyscraper-d'), k2('building-skyscraper-e'), ...towerPaths(1.9, 4, 50, [6, 7, 0, 5])] },
   // 6. seviye: lüks kuleler (daha yüksek, tepesinde taç ve anten)
-  { pop: 160, need: 18, models: [k2('building-skyscraper-b'), k2('building-skyscraper-d'), k2('building-skyscraper-e')] },
+  { pop: 160, need: 18, models: [k2('building-skyscraper-b'), k2('building-skyscraper-d'), k2('building-skyscraper-e'), ...towerPaths(2.3, 3, 150, [1, 2, 5])] },
   // 7-8. seviye: cam gökdelenler ve dev gökdelenler (her biri farklı biçimde)
-  { pop: 240, need: 25, models: towerPaths(3.2, 6, 100) },
-  { pop: 340, need: 33, models: towerPaths(4.4, 6, 200) },
+  { pop: 240, need: 25, models: towerPaths(2.7, 6, 100, [0, 2, 3, 5, 1, 6]) },
+  { pop: 340, need: 33, models: towerPaths(3.5, 6, 200, [4, 1, 2, 3, 0, 7]) },
 ];
+
+// Konut seçimi: İnşa Et → Konut'ta istenen ev modeli seçilip doğrudan o seviyede kurulur.
+// Fiyat ve gereken şehir seviyesi binanın seviyesine göre (dizinin sırası = seviye).
+export const HOUSE_PRICE = [0, 120, 400, 1500, 3500, 8000, 14000, 22000, 36000];
+export const HOUSE_UNLOCK = [0, 1, 2, 4, 6, 8, 10, 12, 14];
+export function houseName(path: string) {
+  if (path.startsWith('proc/villa-1')) return 'Villa';
+  if (path.startsWith('proc/villa-2')) return 'Büyük villa';
+  if (path.startsWith('proc/apt-')) return 'Apartman';
+  if (path.startsWith('proc/tower-') || path.includes('skyscraper')) return 'Gökdelen';
+  if (path.startsWith('kenney-sub/')) return 'Bahçeli ev';
+  if (path.startsWith('kenney2/')) return 'Apartman bloğu';
+  return 'Şehir evi';
+}
+// Seçilen modelin görünmesi için rastgele sayı: model sırası tutsun, menüdeki resimle aynı renk ve yön olsun
+export function houseVariant(level: number, model: number) {
+  const models = RES_LEVELS[level - 1].models;
+  const path = models[model];
+  const skins = (SKINS[path.slice(0, path.lastIndexOf('/'))]?.length ?? 0) + 1;
+  for (let k = Math.floor(Math.random() * 20), n = 0; n < 2000; k++, n++) {
+    const v = model + models.length * k;
+    if (Math.floor(v / 5) % skins === 0 && Math.floor(v / 11) % 2 === 0) return v;
+  }
+  return model;
+}
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
 export const COM_LEVELS = [
@@ -391,7 +419,7 @@ export const CAR_MODELS = [
   ...['van', 'delivery', 'truck', 'suv', 'suv-luxury', 'garbage-truck'].map(kc),
 ];
 // Hastane ve itfaiye varsa trafikte ambulans ve itfaiye aracı da dolaşır
-export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck') };
+export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck'), police: kk('car_police') };
 
 // Denizde dolaşan gemi ve tekneler (Kenney Watercraft Kit)
 export const BOAT_MODELS = ['ship-cargo-a', 'boat-sail-a', 'ship-ocean-liner-small', 'boat-speed-a', 'ship-cargo-b', 'boat-sail-b', 'boat-tug-a', 'boat-fishing-small'].map(n => `kenney-boats/${n}`);

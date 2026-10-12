@@ -24,6 +24,18 @@ function classify(mat: THREE.Material): Kind {
 function prepare(src: THREE.BufferGeometry, matrix: THREE.Matrix4, keep: string[], color?: THREE.Color) {
   const g = src.clone().applyMatrix4(matrix);
   for (const name of Object.keys(g.attributes)) if (!keep.includes(name)) g.deleteAttribute(name);
+  // Bütün bilgiler aynı biçimde olsun (Float32, renk 3 bileşenli). Biri farklıysa (ör. 4 bileşenli renk)
+  // birleştirme başarısız olur ve o parçadaki binaların duvarları hiç çizilmez.
+  for (const name of Object.keys(g.attributes)) {
+    const a = g.getAttribute(name);
+    const size = name === 'color' ? 3 : a.itemSize;
+    if ((a as THREE.BufferAttribute).isBufferAttribute && a.array instanceof Float32Array && !a.normalized && a.itemSize === size) continue;
+    const out = new Float32Array(a.count * size);
+    for (let k = 0; k < a.count; k++) {
+      for (let s = 0; s < size; s++) out[k * size + s] = s === 0 ? a.getX(k) : s === 1 ? a.getY(k) : s === 2 ? a.getZ(k) : a.getW(k);
+    }
+    g.setAttribute(name, new THREE.Float32BufferAttribute(out, size));
+  }
   if (!g.attributes.normal) g.computeVertexNormals();
   const n = g.attributes.position.count;
   if (keep.includes('uv') && !g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
@@ -71,15 +83,22 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
   }
 
   const out = new THREE.Group();
-  for (const { mat, geos } of groups.values()) {
-    const merged = mergeGeometries(geos, false);
-    geos.forEach(g => g.dispose());
-    if (!merged) continue;
-    const mesh = new THREE.Mesh(merged, mat);
+  const addMesh = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     out.add(mesh);
+  };
+  for (const { mat, geos } of groups.values()) {
+    const merged = mergeGeometries(geos, false);
+    if (merged) {
+      geos.forEach(g => g.dispose());
+      addMesh(merged, mat);
+    } else {
+      // Birleştirilemediyse hiçbir şey kaybolmasın: parçalar ayrı ayrı çizilir
+      for (const g of geos) addMesh(g, mat);
+    }
   }
   out.matrixAutoUpdate = false;
   return out;
