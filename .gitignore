@@ -5,3 +5,6 @@ dist
 
 # İndirilen ham model paketleri (oyuna sadece seçilenler kopyalanır)
 assets-raw/
+
+# Kullanıcının örnek resimleri (yayına gönderilmez)
+ÖRNEK/

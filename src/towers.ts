@@ -345,10 +345,15 @@ export function makeTower(height: number, seed: number, type: number) {
 
 // Menüler ve şehir için hazır kuleler: 'proc/tower-<boy>-<çeşit>'. types: hangi biçimler (sırayla)
 export const TOWER_MODELS: Record<string, () => THREE.Object3D> = {};
+// Çatısında helikopter pisti olan kuleler: pistin yerden yüksekliği (helikopterler buraya iner)
+export const HELIPADS: Record<string, number> = {};
 export const towerPaths = (height: number, count: number, seed: number, types: number[]) =>
   Array.from({ length: count }, (_, k) => {
     const path = `proc/tower-${height}-${seed + k}`;
-    TOWER_MODELS[path] = () => makeTower(height * (0.92 + hash(seed + k, 9) * 0.16), seed + k * 13, types[k % types.length]);
+    const h = height * (0.92 + hash(seed + k, 9) * 0.16);
+    const type = types[k % types.length];
+    TOWER_MODELS[path] = () => makeTower(h, seed + k * 13, type);
+    if (type === 0) HELIPADS[path] = h + 0.17;
     return path;
   });
 

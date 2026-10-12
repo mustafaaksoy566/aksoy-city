@@ -21,6 +21,8 @@ import { Trains } from './trains';
 import { railPiece } from './rails';
 import { DayNight, CYCLE_DAYS, phase } from './daynight';
 import { renderThumbs, thumbRenderer } from './thumbs';
+import { Helicopters } from './helicopters';
+import { SkiResort } from './ski';
 import { makeUtility } from './utilities';
 import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
@@ -88,7 +90,8 @@ const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
 camera.position.set(start.x + 8, 11, start.z + 8);
 
 // Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
-const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 });
+// Kamera şehrin batısındaki dağın eteğine (kayak merkezi, tünel, kavşak) kadar gidebilir
+const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2 - 22, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 + 6 });
 rig.target.copy(start);
 rig.distance = 15;
 rig.apply();
@@ -168,6 +171,10 @@ const trains = new Trains(city);
 scene.add(trains.root);
 const sky = new Sky(city);
 scene.add(sky.root);
+const helis = new Helicopters(city);
+scene.add(helis.root);
+const ski = new SkiResort();
+scene.add(ski.root);
 const highway = new HighwayTraffic();
 scene.add(highway.root);
 const weather = new Weather();
@@ -692,6 +699,7 @@ async function resetCity() {
   walkers.setCity(city);
   trains.setCity(city);
   sky.setCity(city);
+  helis.setCity(city);
   afterChange();
   toast('Yeni şehir kuruldu!');
 }
@@ -801,6 +809,8 @@ function frame() {
   trains.update(dt);
   highway.update(dt);
   sky.update(dt);
+  helis.update(dt);
+  ski.update(dt);
   weather.update(dt, rig.target);
   updateWater(clock.elapsedTime);
   updateTrees(clock.elapsedTime);
@@ -873,6 +883,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
   .then(() => {
     scene.add(buildSurroundings(), buildHighway());
     highway.init();
+    ski.init();
     traffic.init();
     trains.init();
     sky.init();
@@ -888,7 +899,7 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, open: openTile, pick: pickTool, refresh: afterChange } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange } });
   })
   .catch(err => {
     console.error(err);

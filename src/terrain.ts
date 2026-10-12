@@ -68,22 +68,69 @@ const shore = (c: number) => Math.max(seaFloor(c), CITY_Y - Math.max(0, c + 0.5)
 // Kumsalın çimene döndüğü çizgi (hafif dalgalı)
 const sandLine = (x: number) => -2.42 + 0.1 * Math.sin(x * 0.9) + 0.06 * Math.sin(x * 2.3 + 1);
 
-// --- Otoyol ---
-// Batıdaki dağın tünelinden çıkar, şehrin girişine bağlanır; şehrin batısından güneye döner,
-// nehri köprüyle geçer ve şehrin güneyinden doğuya, ufka kadar uzanır.
-export const HW = { portal: -96.75, x: -30.5, z0: ENTRANCE_Z - Z0 + 0.5, z1: ZS + 4.5, east: 118 };
-const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) =>
-  Math.hypot(px - THREE.MathUtils.clamp(px, Math.min(ax, bx), Math.max(ax, bx)), pz - THREE.MathUtils.clamp(pz, Math.min(az, bz), Math.max(az, bz)));
-// Otoyola uzaklık
+// --- Otoban ---
+// Batıdaki Aksoy Dağı'nın tünelinden çıkan dört şeritli otoban, şehrin girişinin önündeki göbek kavşağa gelir.
+// Kavşaktan doğuya şehre giren yol, kuzeye kayak merkezine çıkan yol, güneye otoban ayrılır. Güneydeki otoban
+// nehri köprüyle geçer, şehrin güneyinde ikiye ayrılır: biri doğuya ufka, biri güneye tepelere uzanır.
+export const HW = {
+  portal: -44, // tünel ağzı
+  x: -30.5, // güneye inen otobanın ortası
+  z0: ENTRANCE_Z - Z0 + 0.5, // şehrin girişi hizası
+  z1: ZS + 4.5, // şehrin güneyinden doğuya giden otoban
+  east: 118,
+  south: 110,
+  ring: { x: -30.5, z: ENTRANCE_Z - Z0 + 0.5, r: 2.4, outer: 3.1 }, // göbek kavşak
+};
+// Kayak merkezine çıkan yol (kavşağın kuzeyinden dağın eteğine)
+export const SKI_ROAD: [number, number][] = [[HW.x, HW.z0 - HW.ring.outer], [HW.x, -6.5], [-34, -9.5], [-42.2, -12.2]];
+// Dağ evinin yeri (çevresi düz)
+export const LODGE = { x: -44.4, z: -13.4 };
+// Aksoy Dağı: zirve, yükseklik ve genişlik
+export const MOUNTAIN = { x: -62, z: -7, h: 23, r: 13 };
+// Kayak pistleri: zirveye yakın yerden dağın eteğindeki dağ evine iner (genişlik ve köşeler)
+export const SKI_RUNS: { w: number; pts: [number, number][] }[] = [
+  { w: 1.3, pts: [[-58.5, -9], [-55, -11.5], [-52, -10], [-49, -12.5], [-46, -12.2]] },
+  { w: 1.1, pts: [[-58, -5.5], [-54.5, -3.5], [-51, -6], [-48, -4.5], [-46, -8]] },
+  { w: 0.9, pts: [[-59.5, -12], [-56, -15.5], [-52, -15], [-48.5, -16.5], [-46.5, -13.5]] },
+];
+const segDist = (px: number, pz: number, ax: number, az: number, bx: number, bz: number) => {
+  const dx = bx - ax, dz = bz - az;
+  const t = THREE.MathUtils.clamp(((px - ax) * dx + (pz - az) * dz) / Math.max(1e-9, dx * dx + dz * dz), 0, 1);
+  return Math.hypot(px - ax - dx * t, pz - az - dz * t);
+};
+const lineDist = (x: number, z: number, pts: [number, number][]) => {
+  let d = Infinity;
+  for (let k = 1; k < pts.length; k++) d = Math.min(d, segDist(x, z, pts[k - 1][0], pts[k - 1][1], pts[k][0], pts[k][1]));
+  return d;
+};
+// Yollara uzaklık (otoban, kavşak, kayak yolu): yolların çevresi düzleşir, ağaç dikilmez
 export function roadDist(x: number, z: number) {
+  const { ring } = HW;
   return Math.min(
-    segDist(x, z, -EXTENT, HW.z0, -HALF, HW.z0),
+    segDist(x, z, -EXTENT, HW.z0, ring.x, HW.z0),
+    segDist(x, z, ring.x, HW.z0, -HALF, HW.z0),
     segDist(x, z, HW.x, HW.z0, HW.x, HW.z1),
     segDist(x, z, HW.x, HW.z1, EXTENT, HW.z1),
+    segDist(x, z, HW.x, HW.z1, HW.x, EXTENT),
+    Math.max(0, Math.hypot(x - ring.x, z - ring.z) - ring.outer),
+    lineDist(x, z, SKI_ROAD) + 0.4,
+    Math.max(0, Math.hypot(x - LODGE.x, z - LODGE.z) - 2.3),
   );
 }
-// Tünelin içi (dağın altında kalan kısım): 0 dışarıda, 1 dağın içinde
-const tunnelAt = (x: number) => smooth(-x, -HW.portal + 0.1, -HW.portal + 1.9);
+// Kayak pistine uzaklık (pistin ortasından; genişliğin yarısı çıkarılmış)
+export function skiDist(x: number, z: number) {
+  let d = Infinity;
+  for (const run of SKI_RUNS) d = Math.min(d, lineDist(x, z, run.pts) - run.w / 2);
+  return d;
+}
+// Dağın yüksekliği: zirvede sivri, eteklere doğru yumuşak; yamaçlarda sırtlar
+function mountain(x: number, z: number) {
+  const d = Math.hypot(x - MOUNTAIN.x, (z - MOUNTAIN.z) * 1.15) / MOUNTAIN.r;
+  const ridge = 1 + (noise(x * 0.35 + 3, z * 0.35) - 0.5) * 0.35;
+  return MOUNTAIN.h * Math.exp(-Math.pow(d, 1.55)) * ridge * smooth(-x, 32, 42);
+}
+// Tünelin içi (dağın altında kalan kısım): 0 dışarıda, 1 dağın içinde (sadece otobanın çevresinde)
+const tunnelAt = (x: number, z: number) => smooth(-x, -HW.portal + 0.1, -HW.portal + 1.9) * (1 - smooth(Math.abs(z - HW.z0), 1.5, 7));
 
 // --- Nehir (batı kolu) ---
 // Şehrin batı kenarından (z = 18) önce dümdüz çıkar, sonra kıvrılarak dağlara doğru yükselir
@@ -107,7 +154,8 @@ function hills(x: number, z: number, d: number) {
   const bias = 0.35 + 0.65 * Math.max(smooth(-x, 10, 70), smooth(z, 20, 80));
   const ridge = 1 - Math.abs(noise(x * 0.03 + 7, z * 0.03 - 3) * 2 - 1);
   h += far * bias * (ridge * ridge * 15 + fbm(x * 1.8, z * 1.8) * 3);
-  return Math.min(h, 17);
+  h = Math.min(h, 17);
+  return Math.max(h, mountain(x, z));
 }
 
 export function heightAt(x: number, z: number) {
@@ -118,7 +166,7 @@ export function heightAt(x: number, z: number) {
   const c = coast(x, z);
   let h = hills(x, z, d) * smooth(-c, 2, 14); // kıyıya doğru alçalır
   const rd = roadDist(x, z);
-  const tunnel = tunnelAt(x);
+  const tunnel = tunnelAt(x, z);
   h *= lerp(smooth(rd, 1.2, 8), 1, tunnel); // otoyolun çevresi düz, tünelde dağ yolun üstünü örter
   h += tunnel * 3 * (1 - smooth(rd, 3, 10));
   let y = shore(c) + h;
@@ -171,10 +219,15 @@ function colorAt(x: number, z: number, y: number, out: THREE.Color) {
   const d = edgeDist(x, z);
   if (d <= 0) return cityColor(x, z, out);
   const land = tmpLand;
+  // Dağda kaya ve kar daha aşağıdan başlar
+  y += Math.min(3.5, mountain(x, z) * 0.2);
   if (y < 1.5) land.lerpColors(C.meadow, C.hill, Math.max(0, y) / 1.5);
   else if (y < 5) land.lerpColors(C.hill, C.forest, (y - 1.5) / 3.5);
   else if (y < 9) land.lerpColors(C.forest, C.rock, (y - 5) / 4);
   else land.lerpColors(C.rock, C.snow, Math.min(1, (y - 9) / 3));
+  // Kayak pistleri ve dağın üst kısmı karla kaplı
+  const ski = skiDist(x, z);
+  if (ski < 0.3) land.lerp(C.snow, 1 - smooth(ski, 0.05, 0.3));
   land.multiplyScalar(0.94 + fbm(x * 3, z * 3) * 0.12); // hafif renk dalgalanması
   shoreColor(x, y, coast(x, z), land, out);
   const r = riverAt(x, z);
@@ -228,8 +281,10 @@ function grid(xs: number[], zs: number[], at: (x: number, z: number, pos: Float3
 
 function buildGround() {
   const col = new THREE.Color();
-  const zs = axis(EXTENT / 2, 0.5, 34, 3.2, 1, 18);
-  const xs = refine(zs, HW.portal - 3, HW.portal + 1, 0.5);
+  const base = axis(EXTENT / 2, 0.5, 34, 3.2, 1, 18);
+  // Tünel ağzında ve kayak pistlerinde sık ızgara (keskin kenarlar, net pistler)
+  const xs = refine(refine(base, HW.portal - 3, HW.portal + 1, 0.5), -61, HW.portal - 3.5, 0.5);
+  const zs = refine(base, -18, -2, 0.5);
   const geo = grid(xs, zs, (x, z, pos, colors, k) => {
     const y = heightAt(x, z);
     pos.set([x, y, z], k * 3);
@@ -320,7 +375,24 @@ function buildTrees() {
   const spots: TreeSpot[] = [];
   const tmp = new THREE.Object3D();
   let tries = 0;
-  while (spots.length < 2700 && tries++ < 90000) {
+  // Önce dağın yamaçlarına sık çam ormanı (pistlerin, teleferiğin ve dağ evinin dışında)
+  let mount = 0;
+  while (mount < 520 && tries++ < 20000) {
+    const x = MOUNTAIN.x - 4 + (Math.random() - 0.5) * 32;
+    const z = MOUNTAIN.z + (Math.random() - 0.5) * 34;
+    const y = heightAt(x, z);
+    if (y < 0.8 || y > 11.5 || mountain(x, z) < 1.2) continue;
+    if (skiDist(x, z) < 0.5 || roadDist(x, z) < 1.6 || Math.hypot(x - LODGE.x, z - LODGE.z) < 3) continue;
+    if (lineDist(x, z, [[-45.5, -11.6], [-58.6, -7.6]]) < 0.9) continue;
+    tmp.position.set(x, y - 0.03, z);
+    tmp.rotation.set(0, Math.random() * Math.PI * 2, 0);
+    tmp.scale.setScalar(1.1 + Math.random() * 0.6);
+    tmp.updateMatrix();
+    spots.push({ type: Math.random() < 0.85 ? 'pine' : 'cypress', matrix: tmp.matrix.clone(), color: new THREE.Color(pick(LEAF.pine)) });
+    mount++;
+  }
+  tries = 0;
+  while (spots.length < 2700 + mount && tries++ < 90000) {
     const x = (Math.random() - 0.5) * EXTENT * 0.9;
     const z = (Math.random() - 0.5) * EXTENT * 0.9;
     const d = edgeDist(x, z);
@@ -331,8 +403,11 @@ function buildTrees() {
     const r = riverAt(x, z);
     if (r && r.d < r.half + 1.3) continue;
     if (roadDist(x, z) < 2.2) continue;
+    if (skiDist(x, z) < 0.9 || Math.hypot(x + 44.5, z + 11.5) < 4.5) continue; // pistler ve dağ evi
+    if (lineDist(x, z, [[-45.5, -11.6], [-58.6, -7.6]]) < 1.4) continue; // teleferik hattı
     // Ağaçlar kümeler halinde (tepelerde orman daha sık); ormanların dışında seyrek tek ağaçlar
-    const dense = fbm(x * 1.6 + 9, z * 1.6) > (y > 2.5 ? 0.4 : 0.52);
+    // Dağın yamaçlarında sık çam ormanı (pistlerin arasında)
+    const dense = fbm(x * 1.6 + 9, z * 1.6) > (y > 2.5 ? 0.4 : 0.52) || (mountain(x, z) > 1.5 && y < 9 && Math.random() < 0.55);
     if (!dense && Math.random() > 0.05) continue;
     const roll = Math.random();
     let type: TreeType;

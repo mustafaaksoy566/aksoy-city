@@ -11,7 +11,7 @@ import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
 const needsLive = (o: THREE.Object3D) =>
   !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.beam || o.userData.bob || o.userData.animals || o.getObjectByName('flames'));
-import { makeModel } from './assets';
+import { makeModel, ROAD_COLORS } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
 import { makeIndustry, setWorking, animatePort } from './industry';
@@ -49,7 +49,7 @@ const roadDeco = {
   lawn: new THREE.MeshStandardMaterial({ color: '#6cc35a', roughness: 0.9 }),
   pole: new THREE.MeshStandardMaterial({ color: '#2f3b45', roughness: 0.5, metalness: 0.4 }),
   stone: new THREE.MeshStandardMaterial({ color: '#d9d4c8', roughness: 0.9 }), // caddenin ince kaldırımı
-  asphalt: new THREE.MeshStandardMaterial({ color: '#555b63', roughness: 0.95 }),
+  asphalt: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.asphalt, roughness: 0.9 }),
   paint: new THREE.MeshStandardMaterial({ color: '#f4f4f0', roughness: 0.8 }),
   yellow: new THREE.MeshStandardMaterial({ color: '#f2c14e', roughness: 0.8 }),
   brick: new THREE.MeshStandardMaterial({ color: '#c98a6a', roughness: 0.9 }), // bulvarın tuğla kaldırımı
@@ -158,9 +158,9 @@ function signalPost(tile: number) {
 // asfalt ±0.45, kenarda ince yüksek bordür, ±0.3'te sarı çizgi). Sarı çizgiler uçta U çizerek birleşir;
 // ortadaki küçük adacığın çevresinden arabalar geri döner.
 const CUL = {
-  asphalt: new THREE.MeshStandardMaterial({ color: '#60676c', roughness: 0.4 }),
-  curb: new THREE.MeshStandardMaterial({ color: '#7d878c', roughness: 0.4 }),
-  yellow: new THREE.MeshStandardMaterial({ color: '#e0ad51', roughness: 0.4 }),
+  asphalt: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.asphalt, roughness: 0.4 }),
+  curb: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.curb, roughness: 0.4 }),
+  yellow: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.line, roughness: 0.4 }),
 };
 // Yarım halka (kapalı uç tarafı -z): iç ve dış yarıçap, kalınlık
 function halfRing(r0: number, r1: number, depth: number) {

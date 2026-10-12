@@ -59,6 +59,50 @@ function normalize(obj: THREE.Object3D, turn: number, scaleFor: (size: THREE.Vec
   return pivot;
 }
 
+// Yollar SimCity'deki gibi: koyu lacivert asfalt, beyaz çizgiler, açık renk kaldırım kenarı.
+// KayKit doku atlasının bir kopyasında yol renkleri değiştirilir; bu kopyayı sadece yol parçaları kullanır.
+export const ROAD_COLORS = { asphalt: '#3f4559', line: '#d9dde6', curb: '#c9ccd2' };
+let roadMat: THREE.MeshStandardMaterial | null = null;
+function roadMaterial(base: THREE.MeshStandardMaterial) {
+  if (roadMat) return roadMat;
+  const img = base.map!.image as CanvasImageSource & { width: number; height: number };
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const g = c.getContext('2d')!;
+  g.drawImage(img, 0, 0);
+  const data = g.getImageData(0, 0, c.width, c.height);
+  const rgb = (h: string) => [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16));
+  const swap = [
+    [rgb('#60676c'), rgb(ROAD_COLORS.asphalt)],
+    [rgb('#e0ad51'), rgb(ROAD_COLORS.line)],
+    [rgb('#7d878c'), rgb(ROAD_COLORS.curb)],
+  ];
+  const d = data.data;
+  for (let i = 0; i < d.length; i += 4) {
+    for (const [from, to] of swap) {
+      if (Math.abs(d[i] - from[0]) < 7 && Math.abs(d[i + 1] - from[1]) < 7 && Math.abs(d[i + 2] - from[2]) < 7) {
+        d[i] = to[0];
+        d[i + 1] = to[1];
+        d[i + 2] = to[2];
+        break;
+      }
+    }
+  }
+  g.putImageData(data, 0, 0);
+  const src = base.map!;
+  const tex = new THREE.CanvasTexture(c);
+  tex.flipY = src.flipY;
+  tex.colorSpace = src.colorSpace;
+  tex.wrapS = src.wrapS;
+  tex.wrapT = src.wrapT;
+  tex.magFilter = src.magFilter;
+  tex.minFilter = src.minFilter;
+  roadMat = base.clone();
+  roadMat.map = tex;
+  return roadMat;
+}
+
 // Modelleri bir kere yükle, sonra kopyalarını kullan
 export async function loadModels(paths: string[], onProgress?: (done: number, total: number) => void) {
   const loader = new GLTFLoader();
@@ -84,6 +128,7 @@ export async function loadModels(paths: string[], onProgress?: (done: number, to
           const key = `${folder}|${mat.name}`;
           if (!atlasMats.has(key)) atlasMats.set(key, mat);
           mesh.material = atlasMats.get(key)!;
+          if (path.startsWith('kaykit/road')) mesh.material = roadMaterial(mesh.material as THREE.MeshStandardMaterial);
         }
       });
       if (path.startsWith('kaykit/')) {
