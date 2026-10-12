@@ -328,6 +328,30 @@ export function setServiceBar(s: ServiceBar | null, on?: { prev(): void; next():
   svcBar.querySelector('.sv-extra')!.textContent = s.extra;
 }
 
+// --- Taşıma/döndürme onayı: ✗ eski yerine, ↻ döndür, ✓ yerleştir ---
+let placeBar: HTMLDivElement | null = null;
+let placeOn: { ok(): void; cancel(): void; rotate(): void } | null = null;
+export function setPlaceBar(on: boolean, handlers?: { ok(): void; cancel(): void; rotate(): void }) {
+  if (!on) {
+    placeBar?.remove();
+    placeBar = null;
+    return;
+  }
+  if (handlers) placeOn = handlers;
+  if (placeBar) return;
+  placeBar = document.createElement('div');
+  placeBar.id = 'placebar';
+  placeBar.innerHTML = `<button class="pb no" data-a="cancel" aria-label="Vazgeç, eski yerine koy">${icon('close')}<small>Vazgeç</small></button>
+    <button class="pb turn" data-a="rotate" aria-label="Döndür">${icon('rotateRight')}<small>Döndür</small></button>
+    <button class="pb yes" data-a="ok" aria-label="Onayla, buraya yerleştir">${icon('check')}<small>Tamam</small></button>`;
+  placeBar.addEventListener('pointerdown', e => e.stopPropagation());
+  placeBar.addEventListener('click', e => {
+    const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a as 'ok' | 'cancel' | 'rotate' | undefined;
+    if (a && placeOn) placeOn[a]();
+  });
+  document.body.appendChild(placeBar);
+}
+
 export function setChip(text: string | null) {
   const el = $('chip');
   el.hidden = !text;

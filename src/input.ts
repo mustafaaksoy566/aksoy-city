@@ -10,6 +10,8 @@ interface Handlers {
   tap(cell: number | null): void; // Gez modunda kısa dokunuş (bilgi kartı için)
   // Gez modunda binaya basılı tutunca: bina kalkar (taşınabiliyorsa true), parmakla gezer, bırakınca yerleşir
   lift(cell: number | null): boolean;
+  // Yerleştirme beklerken (✓/✗) binanın üstüne dokununca beklemeden sürüklenir
+  grab(cell: number | null): boolean;
   moveTo(cell: number | null): void;
   drop(cell: number | null): void;
 }
@@ -109,6 +111,12 @@ export class TileInput {
     if (this.h.tool() === 'pan') {
       if (this.pointers.size === 1 && (e.pointerType !== 'mouse' || e.button === 0)) {
         const id = e.pointerId;
+        const at = this.tileAt(e, false);
+        if (this.h.grab(at ? idx(at[0], at[1]) : null)) {
+          this.moving = id;
+          this.tapStart = null;
+          return;
+        }
         this.hold = {
           id,
           x: e.clientX,

@@ -771,3 +771,31 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 .rbtn .emo { font-size: 24px; line-height: 1; }
 #metro-btn.on { background: linear-gradient(#3d5a80, #1d3557); box-shadow: 0 3px 0 #0d1b2a, 0 6px 12px rgba(16, 33, 56, 0.35), inset 0 0 0 2px #98c1d9; }
 #metro-btn.on .rlabel { color: #fff; }
+
+/* Taşıma onayı: ✗ ↻ ✓ */
+#placebar {
+  position: fixed;
+  z-index: 8;
+  left: 50%;
+  bottom: calc(var(--bottom) + 14px);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  animation: rise 0.2s ease-out;
+}
+#placebar .pb {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 1px;
+  color: #fff;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25), 0 8px 16px rgba(16, 33, 56, 0.3), inset 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+#placebar .pb svg { width: 26px; height: 26px; }
+#placebar .pb small { font-size: 10.5px; font-weight: 700; line-height: 1; }
+#placebar .no { background: linear-gradient(#ff6b5e, #e0453a); }
+#placebar .turn { background: linear-gradient(#5aa9ff, #2f7be0); }
+#placebar .yes { background: linear-gradient(#5fd36a, #2fae3c); }

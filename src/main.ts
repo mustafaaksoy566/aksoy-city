@@ -39,7 +39,7 @@ import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
-  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, type Quality,
+  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, type Quality,
 } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
@@ -446,6 +446,11 @@ function renderCard() {
     : openCard === 'hall' ? describeHall(city, cardActions)
     : describeTile(city, openCard, cardActions);
   if (!card) openCard = null;
+  // Taşınabilen binanın kartında "Taşı" ve "Döndür"
+  if (card && typeof openCard === 'number' && tool === 'pan' && city.tiles[openCard] && city.canMove(openCard)) {
+    const i = openCard;
+    card.actions = [...(card.actions ?? []), { label: '✋ Taşı', enabled: true, run: () => startMove(i) }, { label: '↻ Döndür', enabled: true, run: () => rotateNow(i) }];
+  }
   showInfo(card);
 }
 
@@ -682,6 +687,7 @@ function showCoverage(candidate?: number) {
 const lockedAt = (t: Tool) => (t === 'pan' || city.isUnlocked(t) ? null : city.unlockLevel(t));
 
 function pickTool(t: Tool) {
+  cancelMove();
   const lock = lockedAt(t);
   if (lock) {
     toast(`🔒 Şehir seviyesi ${lock}'te açılır`, 'error');
@@ -746,21 +752,96 @@ function makeHousePictures() {
   requestAnimationFrame(step);
 }
 
-// --- Binayı taşıma: basılı tut → bina kalkar, sürükle → yeni yeri yeşil/kırmızı görünür, bırak → yerleşir ---
-let moving: { from: number; n: number; to: number | null } | null = null;
+// --- Binayı taşıma ve döndürme ---
+// Basılı tut (ya da kartta "Taşı"): bina kalkar. Sürükle: yeni yeri yeşil/kırmızı görünür. Bırakınca orada bekler:
+// ✓ yerleştir, ✗ eski yerine ve eski yönüne dön, ↻ çeyrek tur döndür. Beklerken binaya dokunup yeniden sürüklenebilir.
+let moving: { from: number; n: number; to: number; turns: number; dragging: boolean } | null = null;
+function startMove(cell: number) {
+  const a = city.anchorOf(cell);
+  moving = { from: a, n: city.tiles[a]!.fp ?? 1, to: a, turns: 0, dragging: false };
+  openTile(null);
+  view.startMove(a);
+  setPlaceBar(true, { ok: confirmMove, cancel: cancelMove, rotate: rotateMove });
+  showMovePreview();
+  play('click', 0.5);
+  navigator.vibrate?.(25);
+}
+function moveError() {
+  const m = moving!;
+  return m.to === m.from ? null : city.moveCheck(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+}
+function showMovePreview() {
+  const m = moving!;
+  const err = moveError();
+  view.showPreview((block(m.to % SIZE, Math.floor(m.to / SIZE), m.n) ?? []).map(i => ({ i, ok: err === null })));
+  setChip(err ? `⛔ ${err}` : m.dragging ? '✅ Buraya koyabilirsin' : '✓ Tamam: buraya koy · ✗ Vazgeç: eski yerine · ↻ Döndür');
+}
+function endMoving() {
+  moving = null;
+  view.showPreview([]);
+  setChip(null);
+  setPlaceBar(false);
+}
+function confirmMove() {
+  const m = moving;
+  if (!m) return;
+  if (m.to === m.from && m.turns === 0) {
+    view.endMove(false);
+    endMoving();
+    return;
+  }
+  const facing = (city.tiles[m.from]!.facing + m.turns) % 4;
+  const res = city.moveBuilding(m.from, m.to % SIZE, Math.floor(m.to / SIZE), facing);
+  if (res.error) {
+    toast(res.error, 'error');
+    play('error', 0.3);
+    return;
+  }
+  view.endMove(true);
+  view.refresh(res.cells, true);
+  endMoving();
+  play('place', 0.6);
+  toast(m.to === m.from ? '↻ Binanın yönü değişti' : '🚚 Bina yeni yerine taşındı');
+  afterChange();
+}
+function cancelMove() {
+  if (!moving) return;
+  view.endMove(false);
+  endMoving();
+  play('click', 0.3);
+}
+function rotateMove() {
+  if (!moving) return;
+  moving.turns = (moving.turns + 1) % 4;
+  view.turnLifted(moving.turns);
+  play('click', 0.3);
+}
+// Kartta "↻ Döndür": taşımadan yerinde döndür
+function rotateNow(i: number) {
+  const a = city.anchorOf(i);
+  const res = city.moveBuilding(a, a % SIZE, Math.floor(a / SIZE), (city.tiles[a]!.facing + 1) % 4);
+  if (res.error || !res.cells.length) return;
+  view.refresh(res.cells, false);
+  play('click', 0.4);
+  afterChange();
+}
 const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
   lift(cell) {
-    if (tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
-    const a = city.anchorOf(cell);
-    moving = { from: a, n: city.tiles[a]!.fp ?? 1, to: null };
+    if (moving || tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
     rig.releaseGrab();
-    openTile(null);
-    view.startMove(a);
-    view.showPreview(city.cellsOf(a).map(i => ({ i, ok: true })));
-    setChip('🚚 Sürükle, bırakınca yeni yerine yerleşir');
-    play('click', 0.5);
-    navigator.vibrate?.(25);
+    startMove(cell);
+    moving!.dragging = true;
+    showMovePreview();
+    return true;
+  },
+  grab(cell) {
+    if (!moving || cell === null) return false;
+    const m = moving;
+    if (!(block(m.to % SIZE, Math.floor(m.to / SIZE), m.n) ?? []).includes(cell)) return false;
+    rig.releaseGrab();
+    m.dragging = true;
+    showMovePreview();
     return true;
   },
   moveTo(cell) {
@@ -770,31 +851,14 @@ const input = new TileInput(renderer.domElement, camera, {
     const x = Math.max(0, Math.min(SIZE - moving.n, (cell % SIZE) - off));
     const z = Math.max(0, Math.min(ROWS - moving.n, Math.floor(cell / SIZE) - off));
     moving.to = idx(x, z);
-    const err = moving.to === moving.from ? null : city.moveCheck(moving.from, x, z);
-    view.showPreview((block(x, z, moving.n) ?? []).map(i => ({ i, ok: err === null })));
     view.moveLifted(x + (moving.n - 1) / 2, z + (moving.n - 1) / 2);
-    setChip(err ? `⛔ ${err}` : '✅ Bırakınca buraya yerleşir');
+    showMovePreview();
   },
   drop() {
     if (!moving) return;
-    const m = moving;
-    moving = null;
-    view.showPreview([]);
-    setChip(null);
-    if (m.to !== null && m.to !== m.from) {
-      const res = city.moveBuilding(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
-      if (!res.error) {
-        view.endMove(true);
-        view.refresh(res.cells, true);
-        play('place', 0.6);
-        toast('🚚 Bina yeni yerine taşındı');
-        afterChange();
-        return;
-      }
-      toast(res.error, 'error');
-      play('error', 0.3);
-    }
-    view.endMove(false);
+    // Bırakınca yerleşmez: ✓ ya da ✗ beklenir
+    moving.dragging = false;
+    showMovePreview();
   },
   preview(cells) {
     if (tool === 'pan') return;
@@ -862,6 +926,7 @@ const input = new TileInput(renderer.domElement, camera, {
     showCoverage();
   },
   tap(cell) {
+    if (moving) return; // yerleştirme beklerken kart açılmasın
     openTile(cell);
     if (openCard !== null) play('click', 0.3);
   },
@@ -879,6 +944,7 @@ renderer.domElement.addEventListener('pointerdown', () => openTile(null));
 
 // Ana düğmeler
 document.getElementById('build')!.addEventListener('click', () => {
+  cancelMove();
   if (tool !== 'pan') pickTool('pan');
   openTile(null);
   catalog.open();

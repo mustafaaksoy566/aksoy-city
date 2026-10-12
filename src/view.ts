@@ -1310,7 +1310,7 @@ export class CityView {
   }
 
   // --- Bina taşınırken: birleşik bölgeden çıkar, havaya kalkar ve parmağı izler ---
-  private lifted: { i: number; obj: THREE.Object3D; pos: THREE.Vector3; wasLive: boolean } | null = null;
+  private lifted: { i: number; obj: THREE.Object3D; pos: THREE.Vector3; rot: number; wasLive: boolean } | null = null;
   startMove(i: number) {
     const o = this.objs.get(i);
     if (!o) return;
@@ -1320,7 +1320,7 @@ export class CityView {
       this.root.add(o);
       this.dirty.add(this.chunkOf(i));
     }
-    this.lifted = { i, obj: o, pos: o.position.clone(), wasLive };
+    this.lifted = { i, obj: o, pos: o.position.clone(), rot: o.rotation.y, wasLive };
     o.position.y += 0.3;
     this.shadowDirty = true;
   }
@@ -1332,6 +1332,13 @@ export class CityView {
     l.obj.position.set(p.x, l.pos.y + 0.3, p.z);
     this.shadowDirty = true;
   }
+  // Kalkan binayı çeyrek tur döndür (turns: kaç kez saat yönünde)
+  turnLifted(turns: number) {
+    const l = this.lifted;
+    if (!l) return;
+    l.obj.rotation.y = l.rot - (turns * Math.PI) / 2;
+    this.shadowDirty = true;
+  }
   // moved: taşındıysa yeni yerinde yeniden çizilir (refresh); taşınmadıysa eski yerine iner
   endMove(moved: boolean) {
     const l = this.lifted;
@@ -1340,6 +1347,7 @@ export class CityView {
     this.shadowDirty = true;
     if (moved) return;
     l.obj.position.copy(l.pos);
+    l.obj.rotation.y = l.rot;
     if (!l.wasLive && this.objs.get(l.i) === l.obj) {
       this.root.remove(l.obj);
       this.live.delete(l.i);

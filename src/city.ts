@@ -1255,11 +1255,18 @@ export class City {
     return err;
   }
 
-  // Binayı taşı (seviyesi, modeli ve üretimleri aynı kalır). Değişen kareleri döndürür.
-  moveBuilding(from: number, x: number, z: number): { error: string | null; cells: number[] } {
+  // Binayı taşı ve/veya döndür (seviyesi, modeli ve üretimleri aynı kalır). facing: yeni kapı yönü (verilmezse yola bakar).
+  // Değişen kareleri döndürür.
+  moveBuilding(from: number, x: number, z: number, facing?: number): { error: string | null; cells: number[] } {
     const a = this.anchorOf(from);
     const to = idx(x, z);
-    if (to === a) return { error: null, cells: [] };
+    if (to === a) {
+      // Yerinde döndürme
+      if (facing === undefined || !this.canMove(a)) return { error: null, cells: [] };
+      this.tiles[a]!.facing = facing;
+      this.refresh();
+      return { error: null, cells: this.cellsOf(a) };
+    }
     const err = this.moveCheck(a, x, z);
     if (err) return { error: err, cells: [] };
     const t = this.tiles[a]!;
@@ -1275,7 +1282,7 @@ export class City {
     for (const c of area) if (c !== to) this.tiles[c] = { kind: 'part', level: 0, facing: 0, variant: to };
     if (jobs) this.jobs.set(to, jobs);
     const side = t.kind === 'station' ? 'rail' : NEEDS_WATER.includes(t.kind as BuildTool) ? 'water' : 'road';
-    t.facing = this.facingFor(to, n, side);
+    t.facing = facing ?? this.facingFor(to, n, side);
     this.refresh();
     return { error: null, cells: [...old, ...area] };
   }
