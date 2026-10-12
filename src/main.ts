@@ -29,9 +29,13 @@ const SAVE_KEY = 'aksoy-city-save-v1';
 // --- Sahne, kamera, ışık ---
 const container = document.getElementById('app')!;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Çözünürlük: telefon zorlanırsa kendiliğinden düşürülür (bkz. adaptQuality)
+let pixelRatio = Math.min(window.devicePixelRatio, 2);
+renderer.setPixelRatio(pixelRatio);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+// Gölgeler her karede değil, sadece şehir değişince yeniden hesaplanır
+renderer.shadowMap.autoUpdate = false;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -509,6 +513,11 @@ function frame() {
   }
 
   view.update(dt);
+  if (view.shadowDirty) {
+    view.shadowDirty = false;
+    renderer.shadowMap.needsUpdate = true;
+  }
+  adaptQuality(dt);
   traffic.update(dt);
   walkers.update(dt);
   dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt);
@@ -521,6 +530,19 @@ function frame() {
   camera.position.add(jolt);
   renderer.render(scene, camera);
   camera.position.sub(jolt);
+}
+
+// Kare hızı düşükse çözünürlüğü biraz azalt (en az 1)
+let slowTime = 0;
+function adaptQuality(dt: number) {
+  if (dt > 1 / 40) slowTime += dt;
+  else slowTime = Math.max(0, slowTime - dt * 0.5);
+  if (slowTime > 2 && pixelRatio > 1) {
+    pixelRatio = Math.max(1, pixelRatio - 0.25);
+    renderer.setPixelRatio(pixelRatio);
+    resize();
+    slowTime = 0;
+  }
 }
 
 // Menü düğmeleri için her binanın küçük resmini çiz
@@ -545,6 +567,7 @@ function makeMenuPictures() {
 loadModels(ALL_MODELS)
   .then(() => {
     scene.add(buildSurroundings());
+    traffic.init();
     view.rebuildAll();
     makeMenuPictures();
     // Oyun kapalıyken biten üretimleri depoya al
@@ -554,6 +577,8 @@ loadModels(ALL_MODELS)
     hideLoading();
     if (!city.hasZones) toast('Hoş geldin! Önce yol çiz, sonra Bölge menüsünden konut koy.');
     renderer.setAnimationLoop(frame);
+    // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene } });
   })
   .catch(err => {
     console.error(err);

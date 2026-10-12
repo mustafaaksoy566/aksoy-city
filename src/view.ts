@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import { SIZE, RES_LEVELS, COM_LEVELS, PARK_MODELS, PAVEMENT, WALL_COLORS, ROOF_COLORS, PLOT, PLOTS } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone } from './city';
 import { makeDecor, animateDecor } from './landmarks';
+import { mergeStatic, disposeMerged } from './batcher';
+
+// Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
+// geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
+const needsLive = (o: THREE.Object3D) =>
+  !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.getObjectByName('flames'));
 import { makeModel } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
@@ -144,6 +150,7 @@ const ICON_MATS = Object.fromEntries(
   (Object.keys(ICON_COLORS) as IconType[]).map(t => [t, new THREE.SpriteMaterial({ map: iconTexture(t), depthTest: false })]),
 ) as Record<IconType, THREE.SpriteMaterial>;
 const ICON_Y = 2.2;
+const MAX_ICONS = 60;
 
 // Yanan binanın üstünde titreyen alevler
 const flameMats = [new THREE.MeshBasicMaterial({ color: '#ff6d00' }), new THREE.MeshBasicMaterial({ color: '#ffc400' })];
@@ -163,8 +170,12 @@ export class CityView {
   private objs = new Map<number, THREE.Object3D>();
   private icons = new Map<string, THREE.Sprite>();
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
+  private live = new Set<number>(); // ayrı çizilen kareler
+  private chunks = new Map<number, THREE.Group>(); // birleştirilmiş bölgeler
+  private dirty = new Set<number>(); // yeniden birleştirilecek bölgeler
+  shadowDirty = true; // gölgeler yeniden çizilmeli mi
   private coverage: THREE.InstancedMesh;
-  private pops: { obj: THREE.Object3D; t: number }[] = [];
+  private pops: { obj: THREE.Object3D; t: number; i: number }[] = [];
   private preview: THREE.InstancedMesh;
   private tmp = new THREE.Object3D();
   private time = 0;
@@ -221,7 +232,40 @@ export class CityView {
     this.updateLand();
     for (const i of [...this.objs.keys()]) this.remove(i);
     for (let i = 0; i < SIZE * SIZE; i++) this.build(i, false);
+    this.flush();
     this.updateIcons();
+  }
+
+  private chunkOf(i: number) {
+    return Math.floor(Math.floor(i / SIZE) / PLOT) * PLOTS + Math.floor((i % SIZE) / PLOT);
+  }
+
+  // Değişen bölgeleri yeniden birleştir
+  private flush() {
+    for (const c of this.dirty) {
+      const old = this.chunks.get(c);
+      if (old) {
+        this.root.remove(old);
+        disposeMerged(old);
+        this.chunks.delete(c);
+      }
+      const cx = (c % PLOTS) * PLOT, cz = Math.floor(c / PLOTS) * PLOT;
+      const list: THREE.Object3D[] = [];
+      for (let z = cz; z < cz + PLOT; z++) {
+        for (let x = cx; x < cx + PLOT; x++) {
+          const i = idx(x, z);
+          const o = this.objs.get(i);
+          if (o && !this.live.has(i)) list.push(o);
+        }
+      }
+      if (list.length) {
+        const g = mergeStatic(list);
+        this.root.add(g);
+        this.chunks.set(c, g);
+      }
+    }
+    if (this.dirty.size) this.shadowDirty = true;
+    this.dirty.clear();
   }
 
   // Değişen kareleri ve yanlarındaki yolları yeniden çiz
@@ -239,9 +283,13 @@ export class CityView {
   private remove(i: number) {
     const old = this.objs.get(i);
     if (!old) return;
-    this.root.remove(old);
+    if (this.live.has(i)) {
+      this.root.remove(old);
+      this.live.delete(i);
+    }
     this.animated.delete(old);
     this.objs.delete(i);
+    this.dirty.add(this.chunkOf(i));
   }
 
   private build(i: number, animate: boolean) {
@@ -261,22 +309,18 @@ export class CityView {
     } else if (isUtility(t.kind)) {
       o = makeUtility(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
-      this.animated.add(o);
     } else if (t.kind === 'hall') {
       o = makeHall();
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isService(t.kind)) {
       o = makeService(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
-      this.animated.add(o);
     } else if (isDecor(t.kind)) {
       o = makeDecor(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
-      this.animated.add(o);
     } else if (isIndustry(t.kind)) {
       o = makeIndustry(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
-      this.animated.add(o);
     } else if (t.level === 0) {
       o = new THREE.Mesh(lotGeo, lotMats[t.kind]);
       o.position.y = 0.015;
@@ -289,19 +333,24 @@ export class CityView {
         const fl = flames();
         fl.position.y = top - 0.65;
         o.add(fl);
-        this.animated.add(o);
       }
       // Depremde hasar gören bina biraz eğilsin
       if (t.damaged) o.children[0].rotation.z = 0.08;
     }
 
     o.position.add(tileCenter(x, z));
+    this.objs.set(i, o);
+    this.dirty.add(this.chunkOf(i));
+    const moving = needsLive(o);
+    if (moving) this.animated.add(o);
+    if (moving || animate) {
+      this.root.add(o);
+      this.live.add(i);
+    }
     if (animate) {
       o.scale.setScalar(0.01);
-      this.pops.push({ obj: o, t: 0 });
+      this.pops.push({ obj: o, t: 0, i });
     }
-    this.root.add(o);
-    this.objs.set(i, o);
   }
 
   // Seviyeye göre bina: model, duvar rengi ve yön rastgele sayıdan seçilir
@@ -355,6 +404,13 @@ export class CityView {
       if (lack?.power) want.set(`${i}|power`, { i, type: 'power', slot: 0 });
       if (lack?.water) want.set(`${i}|water`, { i, type: 'water', slot: lack.power ? 1 : 0 });
     });
+    // Çok fazla simge telefonu yavaşlatır: en önemli 60 tanesi gösterilsin
+    const ORDER: IconType[] = ['fire', 'road', 'repair', 'full', 'coin', 'power', 'water', 'upgrade'];
+    if (want.size > MAX_ICONS) {
+      const keep = [...want].sort((a, b) => ORDER.indexOf(a[1].type) - ORDER.indexOf(b[1].type)).slice(0, MAX_ICONS);
+      want.clear();
+      for (const [k, v] of keep) want.set(k, v);
+    }
     for (const [key, s] of this.icons) {
       if (!want.has(key)) {
         this.root.remove(s);
@@ -406,13 +462,21 @@ export class CityView {
 
   update(dt: number) {
     this.time += dt;
-    // Yeni binalar "zıplayarak" ortaya çıksın
+    // Yeni binalar "zıplayarak" ortaya çıksın; bitince bölgesiyle birleştirilsin
+    if (this.pops.length) this.shadowDirty = true;
     this.pops = this.pops.filter(p => {
       p.t = Math.min(1, p.t + dt / 0.35);
       const s = 1 + 2.7 * Math.pow(p.t - 1, 3) + 1.7 * Math.pow(p.t - 1, 2);
       p.obj.scale.setScalar(Math.max(0.01, s));
-      return p.t < 1;
+      if (p.t < 1) return true;
+      if (this.objs.get(p.i) === p.obj && !needsLive(p.obj)) {
+        this.root.remove(p.obj);
+        this.live.delete(p.i);
+        this.dirty.add(this.chunkOf(p.i));
+      }
+      return false;
     });
+    this.flush();
     // Uyarı simgeleri hafifçe zıplasın
     for (const s of this.icons.values()) {
       s.position.y = s.userData.y + Math.sin(this.time * 3 + s.userData.phase) * 0.06;

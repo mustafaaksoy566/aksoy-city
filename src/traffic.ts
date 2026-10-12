@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { SIZE, CAR_MODELS } from './config';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
+import { bakeModel, vertexColorMat } from './batcher';
 import { tileCenter } from './view';
 
 const CAR_LANE = 0.17; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
 const WALK_LANE = 0.41; // yayalar: kaldırım
-const MAX_CARS = 45;
-const MAX_WALKERS = 90;
+const MAX_CARS = 40;
+const MAX_WALKERS = 70;
 
 // Yolda giden bir şey (araba ya da yaya)
 interface Mover {
@@ -82,17 +83,31 @@ function lanePos(m: Mover, lane: number, y: number, out: THREE.Vector3): number 
   return Math.atan2(dx, dz);
 }
 
-// Arabalar yollarda rastgele dolaşır; sayısı nüfusla artar
+// Arabalar yollarda rastgele dolaşır; sayısı nüfusla artar.
+// Her araba modeli için tek bir çoklu çizim (InstancedMesh) kullanılır: telefonda çok daha hızlı.
 export class Traffic {
   readonly root = new THREE.Group();
-  private cars: (Mover & { obj: THREE.Object3D })[] = [];
+  private cars: (Mover & { type: number })[] = [];
+  private meshes: THREE.InstancedMesh[] = [];
   private recount = 0;
+  private tmp = new THREE.Object3D();
 
   constructor(private city: City) {}
 
+  // Modeller yüklendikten sonra çağrılır
+  init() {
+    for (const path of CAR_MODELS) {
+      const geo = bakeModel(makeModel(path)) ?? new THREE.BoxGeometry(0.2, 0.1, 0.4);
+      const mesh = new THREE.InstancedMesh(geo, vertexColorMat, MAX_CARS);
+      mesh.count = 0;
+      mesh.frustumCulled = false;
+      this.meshes.push(mesh);
+      this.root.add(mesh);
+    }
+  }
+
   setCity(city: City) {
     this.city = city;
-    for (const car of this.cars) this.root.remove(car.obj);
     this.cars = [];
   }
 
@@ -105,21 +120,21 @@ export class Traffic {
       const wanted = Math.min(MAX_CARS, Math.floor(roads / 3), 2 + Math.floor(this.city.population / 15));
       if (this.cars.length < wanted) {
         const m = randomStart(this.city, 0.8 + Math.random() * 0.6);
-        if (m) {
-          const obj = makeModel(CAR_MODELS[Math.floor(Math.random() * CAR_MODELS.length)]);
-          this.root.add(obj);
-          this.cars.push({ ...m, obj });
-        }
-      } else if (this.cars.length > wanted) this.root.remove(this.cars.pop()!.obj);
+        if (m) this.cars.push({ ...m, type: Math.floor(Math.random() * CAR_MODELS.length) });
+      } else if (this.cars.length > wanted) this.cars.pop();
     }
+    if (!this.meshes.length) return;
 
-    this.cars = this.cars.filter(car => {
-      if (!advance(this.city, car, dt)) {
-        this.root.remove(car.obj);
-        return false;
-      }
-      car.obj.rotation.y = lanePos(car, CAR_LANE, 0.02, car.obj.position);
-      return true;
+    this.cars = this.cars.filter(car => advance(this.city, car, dt));
+    const counts = this.meshes.map(() => 0);
+    for (const car of this.cars) {
+      this.tmp.rotation.y = lanePos(car, CAR_LANE, 0.02, this.tmp.position);
+      this.tmp.updateMatrix();
+      this.meshes[car.type].setMatrixAt(counts[car.type]++, this.tmp.matrix);
+    }
+    this.meshes.forEach((m, n) => {
+      m.count = counts[n];
+      m.instanceMatrix.needsUpdate = true;
     });
   }
 }
@@ -154,7 +169,7 @@ export class Walkers {
       this.heads.setColorAt(n, c.set(SKINS[(n * 7) % SKINS.length]));
     }
     this.bodies.count = this.heads.count = 0;
-    this.bodies.castShadow = true;
+    this.bodies.frustumCulled = this.heads.frustumCulled = false;
     this.root.add(this.bodies, this.heads);
   }
 

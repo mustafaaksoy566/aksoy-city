@@ -62,7 +62,7 @@ export class DayNight {
       this.lastNight = night;
       for (const m of this.glowing) {
         m.emissive.copy(WINDOW_GLOW);
-        m.emissiveIntensity = night * 0.9;
+        m.emissiveIntensity = night * 0.5;
       }
       for (const m of this.lights) {
         m.emissive.copy(LIGHT_GLOW);

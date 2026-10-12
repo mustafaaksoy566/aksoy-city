@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SIZE, ENTRANCE_Z } from './config';
 import { makeModel } from './assets';
+import { mergeStatic } from './batcher';
 
 // Haritanın çevresi: kuzeyde deniz ve kumsal, batıda ve güneyde ağaçlı tepeler,
 // batıdan şehre giren otoyol. Hepsi sadece görüntü, üzerine bina yapılmaz.
@@ -134,15 +135,15 @@ function buildTrees() {
 
 // Şehre batıdan giren otoyol
 function buildHighway() {
-  const group = new THREE.Group();
+  const parts: THREE.Object3D[] = [];
   for (let x = -HALF - 0.5; x > -EXTENT / 2; x--) {
     const name = Math.round(x) % 5 === 0 ? 'kenney/models/road-straight-lightposts' : 'kenney/models/road-straight';
     const r = makeModel(name);
     r.position.set(x, 0, ROAD_Z);
     r.rotation.y = Math.PI / 2;
-    group.add(r);
+    parts.push(r);
   }
-  return group;
+  return mergeStatic(parts);
 }
 
 export function buildSurroundings() {

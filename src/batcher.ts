@@ -1,0 +1,108 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+// Performans: çok sayıda ayrı nesneyi birkaç büyük parçada birleştirir.
+// Telefonda asıl yavaşlık "çizim sayısı"ndan geliyor; 1 büyük parça, 100 küçük parçadan çok daha hızlı çizilir.
+//
+// - Dokusuz (düz renkli) malzemelerin rengi köşelere yazılır, hepsi tek malzemeyle çizilir.
+// - Dokulu malzemeler (Kenney colormap) ve pencereler (gece yandıkları için) kendi malzemeleriyle gruplanır.
+
+const vertexColorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+const sharedTextured = new Map<string, THREE.Material>();
+
+type Kind = 'vc' | 'tex' | 'keep';
+
+function classify(mat: THREE.Material): Kind {
+  const m = mat as THREE.MeshStandardMaterial;
+  if (m.map) return 'tex';
+  // Pencereler ve far gibi gece yanan, saydam ya da ışık saçan malzemeler kendileri kalsın
+  if (m.name === 'window' || /headlight/i.test(m.name) || m.transparent || (m.emissiveIntensity > 0 && m.emissive?.getHex())) return 'keep';
+  if (!m.color) return 'keep';
+  return 'vc';
+}
+
+// Geometriyi birleştirmeye hazırla: dünya konumuna taşı, gereksiz bilgileri at, indeksli yap
+function prepare(src: THREE.BufferGeometry, matrix: THREE.Matrix4, keep: string[], color?: THREE.Color) {
+  const g = src.clone().applyMatrix4(matrix);
+  for (const name of Object.keys(g.attributes)) if (!keep.includes(name)) g.deleteAttribute(name);
+  if (!g.attributes.normal) g.computeVertexNormals();
+  const n = g.attributes.position.count;
+  if (keep.includes('uv') && !g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  if (color) {
+    const c = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) color.toArray(c, k * 3);
+    g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
+  }
+  if (!g.index) g.setIndex([...Array(n).keys()]);
+  // Ters ölçeklenmiş (aynalanmış) parçalarda üçgen yönünü düzelt
+  if (matrix.determinant() < 0) {
+    const idx = g.index!.array as Uint32Array | Uint16Array;
+    for (let k = 0; k < idx.length; k += 3) [idx[k + 1], idx[k + 2]] = [idx[k + 2], idx[k + 1]];
+  }
+  g.clearGroups();
+  return g;
+}
+
+export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
+  const groups = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
+  const push = (key: string, mat: THREE.Material, geo: THREE.BufferGeometry) => {
+    let grp = groups.get(key);
+    if (!grp) groups.set(key, (grp = { mat, geos: [] }));
+    grp.geos.push(geo);
+  };
+
+  for (const root of objects) {
+    root.updateMatrixWorld(true);
+    root.traverse(node => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || !mesh.visible) return;
+      const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+      const kind = classify(mat);
+      if (kind === 'vc') {
+        push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], mat.color));
+      } else if (kind === 'tex') {
+        // Aynı dokuyu kullanan malzemeler (Kenney'nin tek colormap'i) tek grupta
+        const key = `tex|${mat.name}|${(mat.map!.image as { width?: number } | null)?.width ?? 0}`;
+        if (!sharedTextured.has(key)) sharedTextured.set(key, mat);
+        push(key, sharedTextured.get(key)!, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+      } else {
+        push(`keep|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+      }
+    });
+  }
+
+  const out = new THREE.Group();
+  for (const { mat, geos } of groups.values()) {
+    const merged = mergeGeometries(geos, false);
+    geos.forEach(g => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.matrixAutoUpdate = false;
+    out.add(mesh);
+  }
+  out.matrixAutoUpdate = false;
+  return out;
+}
+
+export function disposeMerged(group: THREE.Group) {
+  for (const c of group.children) (c as THREE.Mesh).geometry.dispose();
+}
+
+// Bir modeli tek geometriye çevir (renkler köşelere yazılır). Arabalar için: binlerce parça yerine tek çizim.
+export function bakeModel(obj: THREE.Object3D): THREE.BufferGeometry | null {
+  obj.updateMatrixWorld(true);
+  const geos: THREE.BufferGeometry[] = [];
+  obj.traverse(node => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+    geos.push(prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], mat.color ?? new THREE.Color('#888')));
+  });
+  const merged = mergeGeometries(geos, false);
+  geos.forEach(g => g.dispose());
+  return merged;
+}
+
+export { vertexColorMat };
