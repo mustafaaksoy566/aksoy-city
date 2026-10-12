@@ -28,5 +28,6 @@ SimCity BuildIt-style grid city builder, played on iPhone 16 Pro Safari. Live: h
 - Traffic (traffic.ts): cars never spawn mid-road. They leave parking lots (a walker walks from a nearby house first), tower garages, service stations (ambulance/fire/police) or enter from the motorway at the city entrance; they route (BFS distance fields) to a lot, a garage or the exit. Look-ahead boxes stop cars/walkers from overlapping.
 - Roads use a recoloured copy of the KayKit atlas (assets.ts ROAD_COLORS, SimCity-like navy asphalt). Dead ends are drawn by culDeSac() in view.ts (half road + rounded end).
 - Reference screenshots from the user live in `ÖRNEK/` (git-ignored, SimCity BuildIt). Use them for look and feature ideas only.
+- Demo city: Ayarlar → "Hazır şehri aç" loads public/ornek-sehir.txt (gzip+base64 save); the player's own city is backed up to the -kendi key. To refresh the file from the 127.0.0.3 tab, gzip+base64 the save in the page and POST it to /__hazir-sehir (dev-only Vite plugin in vite.config.ts).
 - Testing with a large city: the 127.0.0.3 tab holds a showcase city (~500 houses); keep power/water supply >= demand there.
 - Code comments are in Turkish. Match that.
