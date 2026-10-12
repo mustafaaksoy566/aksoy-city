@@ -6,6 +6,7 @@ import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
 import { carModel } from './cars';
+import { makeGarden, makeCafe, makeElectro } from './shops';
 
 // Sanayi ve dükkanlar gökdelenler gibi ayrıntılı çizilir: testere dişi çatılı fabrika, depo, tabelalı dükkanlar
 // (hırdavatçı, pazar, mobilyacı, fırın, butik) ve konteyner vinçli liman. Ön yüz +z (yola bakar).
@@ -343,6 +344,9 @@ export function makeIndustry(kind: IndustryKind, variant = 0): THREE.Object3D {
   if (kind === 'furniture') return furniture();
   if (kind === 'bakery') return bakery();
   if (kind === 'fashion') return fashion();
+  if (kind === 'garden') return makeGarden();
+  if (kind === 'cafe') return makeCafe();
+  if (kind === 'electro') return makeElectro();
   if (kind === 'port') return port();
   return depot(variant);
 }

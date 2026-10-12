@@ -864,7 +864,9 @@ function ghostify(obj: THREE.Object3D) {
 export class CityView {
   readonly root = new THREE.Group();
   private objs = new Map<number, THREE.Object3D>();
-  private tall = new Map<number, { x: number; z: number; half: number; top: number }>(); // yüksek binalar (kamera için)
+  private tall = new Map<number, { x: number; z: number; half: number; top: number }>(); // binaların tepeleri (kamera için)
+  private hidden = new Set<number>(); // üretim ekranında görüşü kapattığı için geçici gizlenen binalar
+  private iconsOn = true; // binaların üstündeki simgeler görünsün mü (üretim ekranında gizlenir)
   private icons = new Map<string, THREE.Sprite>();
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
   private live = new Set<number>(); // ayrı çizilen kareler
@@ -1006,7 +1008,7 @@ export class CityView {
         for (let x = cx; x < cx + PLOT; x++) {
           const i = idx(x, z);
           const o = this.objs.get(i);
-          if (o && !this.live.has(i)) list.push(o);
+          if (o && !this.live.has(i) && !this.hidden.has(i)) list.push(o);
           else if (!this.city.tiles[i] && !isWater(i)) {
             const n = this.nature(i);
             if (n) list.push(n);
@@ -1115,13 +1117,44 @@ export class CityView {
     this.animated.delete(old);
     this.objs.delete(i);
     this.tall.delete(i);
+    this.hidden.delete(i);
     this.dirty.add(this.chunkOf(i));
+  }
+
+  // Hedeften kameraya giden çizginin (yukarıdan bakınca) üstündeki yüksek binalar: görüşü kapatmamak için
+  // kameranın en az ne kadar dik bakması gerektiği (eğim, tan). Engel yoksa 0. skip: bakılan binanın kendisi
+  // slope: kameranın baktığı eğim (tan); bu çizginin üstüne çıkan binalar listelenir
+  blockers(tx: number, tz: number, ty: number, dx: number, dz: number, len: number, slope: number, skip: number) {
+    const out: number[] = [];
+    for (const [i, b] of this.tall) {
+      if (i === skip) continue;
+      const s = (b.x - tx) * dx + (b.z - tz) * dz;
+      if (s <= 0 || s - b.half > len + 0.3) continue;
+      const off = Math.abs((b.x - tx) * dz - (b.z - tz) * dx);
+      if (off > b.half + 0.45) continue;
+      if (b.top + 0.1 > ty + Math.max(0, s - b.half) * slope) out.push(i);
+    }
+    return out;
+  }
+
+  // Görüşü kapatan binaları geçici gizle (boş liste: hepsi geri gelir)
+  setHidden(tiles: number[]) {
+    const next = new Set(tiles);
+    for (const i of new Set([...this.hidden, ...next])) {
+      if (this.hidden.has(i) === next.has(i)) continue;
+      const o = this.objs.get(i);
+      if (o && this.live.has(i)) o.visible = !next.has(i);
+      this.dirty.add(this.chunkOf(i));
+    }
+    this.hidden = next;
+    this.flush();
   }
 
   // Bu noktanın yakınındaki en yüksek binanın tepesi (kamera kulelerin içine girmesin diye; yoksa 0)
   topNear(x: number, z: number, reach = 0.4) {
     let top = 0;
-    for (const b of this.tall.values()) {
+    for (const [i, b] of this.tall) {
+      if (this.hidden.has(i) || b.top < 1.2) continue;
       const dx = Math.max(0, Math.abs(x - b.x) - b.half), dz = Math.max(0, Math.abs(z - b.z) - b.half);
       if (dx * dx + dz * dz < reach * reach) top = Math.max(top, b.top);
     }
@@ -1215,7 +1248,7 @@ export class CityView {
     // Yüksek binalar (gökdelenler, kuleler): kamera bunların tepesinin altına inmesin
     if (t.kind !== 'road' && t.kind !== 'rail' && t.kind !== 'park') {
       const top = new THREE.Box3().setFromObject(o).max.y;
-      if (top > 1.2) this.tall.set(i, { x: o.position.x, z: o.position.z, half: n / 2, top });
+      if (top > 0.45) this.tall.set(i, { x: o.position.x, z: o.position.z, half: n / 2, top });
     }
     this.dirty.add(this.chunkOf(i));
     const moving = needsLive(o);
@@ -1366,6 +1399,12 @@ export class CityView {
     return o;
   }
 
+  // Binaların üstündeki simgeleri göster/gizle (üretim ekranında yakın planı kapatmasınlar)
+  showIcons(on: boolean) {
+    this.iconsOn = on;
+    for (const s of this.icons.values()) s.visible = on;
+  }
+
   // Ürün resimlerini al (hazır ürün baloncukları bunlarla çizilir)
   setItemPics(pics: Map<string, string>) {
     for (const [k, v] of pics) ITEM_PICS.set(k, v);
@@ -1467,6 +1506,7 @@ export class CityView {
       s.userData.phase = (i * 0.37) % (Math.PI * 2);
       s.scale.setScalar(type === 'upgrade' ? 0.42 : type === 'traffic' ? 0.42 : 0.5);
       s.renderOrder = 2;
+      s.visible = this.iconsOn;
       this.root.add(s);
       this.icons.set(key, s);
     }
@@ -1481,6 +1521,7 @@ export class CityView {
       s.userData.ready = mat ? i : undefined;
       s.scale.setScalar(mat ? 0.62 : 0.34);
       s.renderOrder = 2;
+      s.visible = this.iconsOn;
       this.root.add(s);
       this.icons.set(key, s);
     }

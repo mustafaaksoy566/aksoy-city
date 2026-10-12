@@ -4,7 +4,7 @@ import {
   SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
-import { City, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
+import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
 import {
   describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, type CardActions,
 } from './info';
@@ -465,20 +465,66 @@ function buildingCenter(i: number) {
   const n = city.tiles[i]?.fp ?? 1;
   return tileCenter((i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2);
 }
-// Kamera binaya yumuşakça yaklaşır
-let camTween: { from: THREE.Vector3; to: THREE.Vector3; d0: number; d1: number; t: number } | null = null;
-function focusOn(i: number) {
-  const n = city.tiles[i]?.fp ?? 1;
-  camTween = { from: rig.target.clone(), to: buildingCenter(i), d0: rig.distance, d1: 8 + (n - 1) * 2.5, t: 0 };
+// Kamera yumuşakça bir yerden bir yere gider (konum, uzaklık, dönüş ve eğim birlikte)
+type CamPose = { target: THREE.Vector3; distance: number; yaw: number; tilt: number };
+let camTween: { from: CamPose; to: CamPose; t: number; done?: () => void } | null = null;
+const poseNow = (): CamPose => ({ target: rig.target.clone(), distance: rig.distance, yaw: rig.yaw, tilt: rig.tilt });
+function tweenTo(to: CamPose, done?: () => void) {
+  const from = poseNow();
+  // Kısa yoldan dönsün
+  let d = (to.yaw - from.yaw) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  camTween = { from, to: { ...to, yaw: from.yaw + d }, t: 0, done };
 }
 function stepCamTween(dt: number) {
   if (!camTween) return;
-  camTween.t = Math.min(1, camTween.t + dt / 0.45);
-  const k = 1 - Math.pow(1 - camTween.t, 3);
-  rig.target.lerpVectors(camTween.from, camTween.to, k);
-  rig.distance = camTween.d0 + (camTween.d1 - camTween.d0) * k;
+  camTween.t = Math.min(1, camTween.t + dt / 0.6);
+  const k = camTween.t < 0.5 ? 4 * camTween.t ** 3 : 1 - Math.pow(-2 * camTween.t + 2, 3) / 2;
+  const { from, to } = camTween;
+  rig.target.lerpVectors(from.target, to.target, k);
+  rig.distance = from.distance + (to.distance - from.distance) * k;
+  rig.yaw = from.yaw + (to.yaw - from.yaw) * k;
+  rig.tilt = from.tilt + (to.tilt - from.tilt) * k;
   rig.apply();
-  if (camTween.t >= 1) camTween = null;
+  if (camTween.t >= 1) {
+    const done = camTween.done;
+    camTween = null;
+    done?.();
+  }
+}
+// Üretim ekranında kamera binanın önüne iner (yakın plan); kapatınca eski yerine döner
+let savedPose: (CamPose & { min: number }) | null = null;
+const MIN_DISTANCE = rig.minDistance;
+function focusOn(i: number) {
+  const t = city.tiles[i];
+  const n = t?.fp ?? 1;
+  if (!savedPose) savedPose = { ...poseNow(), min: rig.minDistance };
+  rig.minDistance = 3;
+  const f = t?.facing ?? 2;
+  const distance = n > 1 ? 4.4 + n * 1.25 : 4.2;
+  const target = buildingCenter(i).setY(0.12 * n);
+  const want = n > 1 ? 0.5 : 0.42;
+  // Binanın kapısının baktığı yönden, biraz yandan (üç çeyrek görünüm). Önünde gökdelen varsa
+  // binayı en iyi gören açı seçilir; gerekirse kamera biraz yukarıdan bakar.
+  const front = Math.atan2(DIRS[f][0], DIRS[f][1]);
+  // Önünü en az binanın kapattığı açı seçilir (öne yakın olan tercih edilir); kalan binalar geçici gizlenir
+  let best = { yaw: front + 0.38, hide: [] as number[], cost: Infinity };
+  const len = Math.cos(want) * distance;
+  for (const [off, penalty] of [[0.38, 0], [-0.38, 0.05], [0, 0.1], [0.85, 0.3], [-0.85, 0.35], [Math.PI / 2, 0.8], [-Math.PI / 2, 0.8], [Math.PI, 1.2]] as [number, number][]) {
+    const yaw = front + off;
+    const hide = view.blockers(target.x, target.z, target.y, Math.sin(yaw), Math.cos(yaw), len, Math.tan(want), i);
+    const cost = hide.length + penalty;
+    if (cost < best.cost) best = { yaw, hide, cost };
+  }
+  view.setHidden(best.hide);
+  tweenTo({ target, distance, yaw: best.yaw, tilt: rig.tiltFor(want, distance) });
+}
+function unfocus() {
+  if (!savedPose) return;
+  const p = savedPose;
+  savedPose = null;
+  tweenTo(p, () => (rig.minDistance = p.min || MIN_DISTANCE));
 }
 // Hazır ürünleri depoya al; ekrandaki yerden depo düğmesine uçsunlar
 function collectFrom(i: number, from?: { x: number; y: number }) {
@@ -574,11 +620,15 @@ function openProduction(i: number) {
     collectFrom(i, a ?? undefined);
   }
   view.showSelection(city.cellsOf(i));
+  view.showIcons(false);
 }
 function closeProduction() {
   if (!prod.isOpen) return;
   prod.close();
   view.showSelection([]);
+  view.setHidden([]);
+  view.showIcons(true);
+  unfocus();
 }
 
 function openTile(cell: CardKey | null) {
@@ -1426,7 +1476,7 @@ function makeMenuPictures() {
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
-  for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
   for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'parking', 'lake', 'biglake', 'hill', 'volley', 'casino', 'observatory', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));

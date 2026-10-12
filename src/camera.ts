@@ -70,6 +70,12 @@ export class CameraRig {
     return THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.62, 0.98, THREE.MathUtils.clamp(k, 0, 1)) + this.tilt, 0.34, 1.48);
   }
 
+  // Bu uzaklıkta istenen bakış açısı (pitch) için gereken eğim
+  tiltFor(pitch: number, distance = this.distance) {
+    const k = THREE.MathUtils.clamp((distance - this.minDistance) / (this.maxDistance - this.minDistance), 0, 1);
+    return pitch - THREE.MathUtils.lerp(0.62, 0.98, k);
+  }
+
   private tiltBy(amount: number) {
     this.tilt = THREE.MathUtils.clamp(this.tilt + amount, TILT_MIN, TILT_MAX);
   }

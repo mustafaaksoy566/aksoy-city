@@ -394,7 +394,7 @@ export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'transport', icon: '🛣️', label: 'Ulaşım', color: '#546e7a', tools: ['road', 'boulevard', 'avenue', 'parking', 'busstop', 'rail', 'station', 'metro', 'tunnel', 'airport'] },
   { group: 'utils', icon: '⚡', label: 'Altyapı', color: '#f59f00', tools: ['wind', 'solar', 'plant', 'tower', 'pump'] },
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
-  { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion'] },
+  { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro'] },
   { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'zoo', 'casino', 'observatory', 'wheel', 'museum', 'funfair', 'stadium'] },
   { group: 'historic', icon: '🏛️', label: 'Tarihi', color: '#a1887f', tools: ['galata', 'pisa', 'liberty', 'eiffel', 'colosseum', 'pyramid', 'clocktower', 'mosque'] },
   { group: 'nature', icon: '🌄', label: 'Manzara', color: '#43a047', tools: ['lake', 'biglake', 'hill'] },
