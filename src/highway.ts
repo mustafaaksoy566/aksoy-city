@@ -62,6 +62,23 @@ const offset = (pts: V2[], o: number) => {
   return pts.map((p, k) => p.clone().addScaledVector(n[k], o));
 };
 
+// Noktaları, keep(k) doğru olan ardışık parçalara böl (kavşak ağzında bariyer ve kenar çizgisinde boşluk için)
+function pieces(pts: V2[], hs: number[], keep: (k: number) => boolean) {
+  const out: { pts: V2[]; hs: number[] }[] = [];
+  let cur: { pts: V2[]; hs: number[] } = { pts: [], hs: [] };
+  pts.forEach((p, k) => {
+    if (keep(k)) {
+      cur.pts.push(p);
+      cur.hs.push(hs[k]);
+    } else {
+      if (cur.pts.length > 1) out.push(cur);
+      cur = { pts: [], hs: [] };
+    }
+  });
+  if (cur.pts.length > 1) out.push(cur);
+  return out;
+}
+
 // Yere yatık şerit (a..b arası), istenirse kesik kesik (dash: [dolu, boş] uzunluk); hs: her noktada yükseklik (köprü, rampa)
 function strip(pts: V2[], a: number, b: number, y: number, dash?: [number, number], hs?: number[]) {
   const n = normals(pts);
@@ -138,16 +155,19 @@ const ROUTES = {
 };
 
 // Otoban: asfalt, şerit çizgileri, ortada bariyer, kenarlarda korkuluk (köprüde beton korkuluk), aydınlatma direkleri
-function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; height?: (p: V2) => number; noLamp?: (p: V2) => boolean; clear?: (p: V2) => boolean } = {}) {
+function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; height?: (p: V2) => number; noLamp?: (p: V2) => boolean; clear?: (p: V2) => boolean; open?: (q: V2) => boolean } = {}) {
   const g = new THREE.Group();
   const hs = pts.map(p => opts.height?.(p) ?? 0);
+  const nn = normals(pts);
+  // s tarafındaki kenar o noktada açık mı (rampa ya da göbek kavşağın ağzı bağlanıyor)
+  const open = (k: number, s: number) => !!opts.open?.(v2(pts[k].x + nn[k].x * s * MW, pts[k].y + nn[k].y * s * MW));
   // trim: baştan ve sondan bu kadar (göbek kavşağın ayırıcı adacığı) orta bariyer ve sarı çizgi yok
   const [t0, t1] = opts.trim ?? [0, 0.7];
   const a = Math.ceil(t0 / 0.35), b = pts.length - Math.max(2, Math.ceil(t1 / 0.35));
   const middle = pts.slice(a, b), mh = hs.slice(a, b);
   g.add(mesh(strip(pts, -MW, MW, Y, undefined, hs), M.asphalt));
   for (const s of [-1, 1]) {
-    g.add(mesh(strip(pts, s * 0.86 - 0.014, s * 0.86 + 0.014, Y + 0.001, undefined, hs), M.line));
+    for (const pc of pieces(pts, hs, k => !open(k, s))) g.add(mesh(strip(pc.pts, s * 0.86 - 0.014, s * 0.86 + 0.014, Y + 0.001, undefined, pc.hs), M.line));
     g.add(mesh(strip(pts, s * 0.42 - 0.012, s * 0.42 + 0.012, Y + 0.001, [0.3, 0.45], hs), M.line));
     if (middle.length > 1) g.add(mesh(strip(middle, s * 0.075 - 0.01, s * 0.075 + 0.01, Y + 0.001, undefined, mh), M.yellow));
   }
@@ -156,12 +176,17 @@ function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; h
   // Kenarlar: suyun üstünde beton korkuluk ve ayaklar, karada metal bariyer
   let run: V2[] = [];
   let rh: number[] = [];
+  let ri: number[] = [];
   let water = false;
   const flush = () => {
     if (run.length > 1) {
       for (const s of [-1, 1]) {
+        // Rampa ya da kavşak ağzının bağlandığı yerde korkuluk yok
+        for (const pc of pieces(run, rh, k => !open(ri[k], s))) {
+          if (water) g.add(mesh(wall(pc.pts, s * (MW + 0.03), 0.06, Y - 0.04, Y + 0.11, pc.hs), M.concrete));
+          else g.add(mesh(wall(pc.pts, s * (MW + 0.06), 0.012, Y + 0.035, Y + 0.075, pc.hs), M.rail));
+        }
         if (water) {
-          g.add(mesh(wall(run, s * (MW + 0.03), 0.06, Y - 0.04, Y + 0.11, rh), M.concrete));
           // Yükseltilmiş yolun yan yüzü (yere kadar)
           // Altından yol geçen yerde (clear) yan yüz yok
           let seg: V2[] = [], sh: number[] = [];
@@ -171,16 +196,17 @@ function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; h
             sh = [];
           };
           run.forEach((p, k) => {
-            if (opts.clear?.(p)) return skirt();
+            if (opts.clear?.(p) || open(ri[k], s)) return skirt();
             seg.push(p);
             sh.push(rh[k]);
           });
           skirt();
-        } else g.add(mesh(wall(run, s * (MW + 0.06), 0.012, Y + 0.035, Y + 0.075, rh), M.rail));
+        }
       }
     }
     run = [run[run.length - 1]].filter(Boolean);
     rh = [rh[rh.length - 1]].filter(h => h !== undefined);
+    ri = [ri[ri.length - 1]].filter(i => i !== undefined);
   };
   pts.forEach((p, k) => {
     const r = riverAt(p.x, p.y);
@@ -189,6 +215,7 @@ function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; h
     water = wet;
     run.push(p);
     rh.push(hs[k]);
+    ri.push(k);
     if (wet && k % 3 === 0) {
       // Köprü ayakları (nehirde suya, kavşakta yere iner)
       const n = normals(pts)[k];
@@ -203,7 +230,7 @@ function motorway(pts: V2[], opts: { lamps?: boolean; trim?: [number, number]; h
   pts.forEach((p, k) => {
     if (p.x < HW.portal + 0.5) return; // tünelin içi
     const h = hs[k];
-    if (k % 3 === 0 && h < 0.03) for (const s of [-1, 1]) g.add(part(new THREE.BoxGeometry(0.018, 0.07, 0.018), M.pole, p.x + n[k].x * s * (MW + 0.06), Y + 0.035, p.y + n[k].y * s * (MW + 0.06)));
+    if (k % 3 === 0 && h < 0.03) for (const s of [-1, 1]) if (!open(k, s)) g.add(part(new THREE.BoxGeometry(0.018, 0.07, 0.018), M.pole, p.x + n[k].x * s * (MW + 0.06), Y + 0.035, p.y + n[k].y * s * (MW + 0.06)));
     if (opts.lamps !== false && k % 12 === 6 && k > skip / 0.35 && !opts.noLamp?.(p)) {
       g.add(part(new THREE.CylinderGeometry(0.012, 0.016, 0.62, 8), M.pole, p.x, Y + 0.31 + h, p.y));
       for (const s of [-1, 1]) {
@@ -291,12 +318,14 @@ function rampRoad(pts: V2[]) {
   const hs = rampHeights(pts);
   const W = 0.26;
   g.add(mesh(strip(pts, -W, W, Y + 0.0004, undefined, hs), M.asphalt));
-  for (const s of [-1, 1]) g.add(mesh(strip(pts, s * 0.2 - 0.012, s * 0.2 + 0.012, Y + 0.0014, undefined, hs), M.line));
-  // Uçlar ana yolun asfaltına karışır; ortada korkuluk ve yan yüz
-  const mid = pts.slice(3, -3), mh = hs.slice(3, -3);
-  for (const s of [-1, 1]) {
-    g.add(mesh(wall(mid, s * (W + 0.02), 0.04, Y - 0.01, Y + 0.06, mh), M.concrete));
-    g.add(mesh(wall(mid, s * (W + 0.005), 0.012, 0, Y - 0.01, mh, true), M.concrete));
+  // Uçlar ana yolun asfaltına karışır: otobanın içinde kalan kısımda çizgi ve korkuluk yok
+  const outside = (k: number) => Math.abs(pts[k].x - CL.x) > MW + 0.12 && Math.abs(pts[k].y - CL.z) > MW + 0.12;
+  for (const pc of pieces(pts, hs, outside)) {
+    for (const s of [-1, 1]) {
+      g.add(mesh(strip(pc.pts, s * 0.2 - 0.012, s * 0.2 + 0.012, Y + 0.0014, undefined, pc.hs), M.line));
+      g.add(mesh(wall(pc.pts, s * (W + 0.02), 0.04, Y - 0.01, Y + 0.06, pc.hs), M.concrete));
+      g.add(mesh(wall(pc.pts, s * (W + 0.005), 0.012, 0, Y - 0.01, pc.hs, true), M.concrete));
+    }
   }
   pts.forEach((p, k) => {
     if (k % 5 || hs[k] < 0.15) return;
@@ -304,6 +333,23 @@ function rampRoad(pts: V2[]) {
   });
   return g;
 }
+// Rampaların otobanların kenarına bağlandığı noktalar (oralarda otobanın bariyeri ve kenar çizgisi açılır)
+let touches: V2[] | null = null;
+function cloverTouches() {
+  if (touches) return touches;
+  touches = [];
+  for (let k = 0; k < 4; k++) {
+    const q = cloverQuadrant(k);
+    for (const p of [...q.loop, ...q.outer]) {
+      const dx = Math.abs(p.x - CL.x), dz = Math.abs(p.y - CL.z);
+      if ((Math.abs(dx - MW) < 0.3 && dz > MW) || (Math.abs(dz - MW) < 0.3 && dx > MW)) touches.push(p);
+    }
+  }
+  return touches;
+}
+const cloverOpen = (q: V2) => cloverTouches().some(t => t.distanceTo(q) < 0.5);
+const ringOpen = (q: V2) => Math.hypot(q.x - ring.x, q.y - ring.z) < ring.outer + 0.95;
+
 function cloverleaf() {
   const g = new THREE.Group();
   for (let k = 0; k < 4; k++) {
@@ -372,6 +418,9 @@ function roundabout() {
   const inner = 1.4;
   flat(new THREE.RingGeometry(inner, ring.outer, 72), M.asphalt, Y);
   flat(new THREE.RingGeometry(inner + 0.1, inner + 0.13, 72), M.line, Y + 0.001);
+  // Halkada iki şeridi ayıran kesik çizgi
+  const midR = (inner + 0.13 + ring.outer - 0.08) / 2;
+  for (let k = 0; k < 44; k++) flat(new THREE.RingGeometry(midR - 0.012, midR + 0.012, 3, 1, (k / 44) * Math.PI * 2, 0.07), M.line, Y + 0.001);
   // Dış kenar çizgisi: kolların ağızlarında boşluk bırakır
   const gaps = MOUTHS.map(m => ({ a: m.a, half: Math.asin(Math.min(0.99, (m.w + FLARE - (m.big ? 0.06 : 0.15)) / (ring.outer - 0.065))) })).sort((p, q) => p.a - q.a);
   gaps.forEach((gp, k) => {
@@ -502,10 +551,10 @@ function gantry(x: number, z: number) {
 
 export function buildHighway(entranceGrade = 0) {
   const parts: THREE.Object3D[] = [];
-  parts.push(motorway(ROUTES.west, { trim: [0, 1.4] }));
-  // Kelebek kavşağın köprüsünün altında direk olmasın
-  parts.push(motorway(ROUTES.south, { trim: [1.4, 0], noLamp: p => Math.abs(p.y - CL.z) < 3 }));
-  parts.push(motorway(ROUTES.cross, { height: p => bHeight(p.x), noLamp: p => Math.abs(p.x - CL.x) < 6, clear: p => Math.abs(p.x - CL.x) < 1.25 }));
+  parts.push(motorway(ROUTES.west, { trim: [0, 1.4], open: ringOpen }));
+  // Kelebek kavşağın köprüsünün altında direk olmasın; rampaların bağlandığı yerde bariyer açık
+  parts.push(motorway(ROUTES.south, { trim: [1.4, 0], noLamp: p => Math.abs(p.y - CL.z) < 3, open: q => ringOpen(q) || cloverOpen(q) }));
+  parts.push(motorway(ROUTES.cross, { height: p => bHeight(p.x), noLamp: p => Math.abs(p.x - CL.x) < 6, clear: p => Math.abs(p.x - CL.x) < 1.25, open: cloverOpen }));
   parts.push(cityRoad(ROUTES.city, entranceGrade), smallRoad(ROUTES.ski), roundabout(), cloverleaf());
   // Otobanın kavşağa açılan ucunda, ortadaki bariyerin başında sarı-siyah uyarı bloğu
   const portal = tunnelPortal();
@@ -549,7 +598,9 @@ function ringPath(from: number, to: number, laneIn: number, laneOut: number): V2
   const C = v2(ring.x, ring.z);
   const u = (a: number) => v2(Math.cos(a), -Math.sin(a));
   const right = (h: V2) => v2(-h.y, h.x);
-  const onRing = (a: number) => C.clone().add(u(a).multiplyScalar(ring.r));
+  // Halkada iki şerit: dış şeritten gelen dışta, içten gelen içte döner (ortadaki kesik çizginin üstünde değil)
+  const R = laneIn > 0.4 ? ring.r + 0.3 : ring.r - 0.22;
+  const onRing = (a: number) => C.clone().add(u(a).multiplyScalar(R));
   const tangent = (a: number) => v2(-Math.sin(a), -Math.cos(a));
   const hin = u(from).negate();
   const e0 = C.clone().add(u(from).multiplyScalar(ARM)).add(right(hin).multiplyScalar(laneIn));
@@ -565,7 +616,7 @@ function ringPath(from: number, to: number, laneIn: number, laneOut: number): V2
     }
   };
   quad(e0, e0.clone().addScaledVector(hin, 0.8), onRing(a0));
-  const n = Math.max(4, Math.ceil(((a1 - a0) * ring.r) / 0.25));
+  const n = Math.max(4, Math.ceil(((a1 - a0) * R) / 0.25));
   for (let k = 0; k < n; k++) out.push(onRing(a0 + ((a1 - a0) * k) / n));
   quad(onRing(a1), onRing(a1).addScaledVector(tangent(a1), 0.8), x0);
   out.push(x0);
