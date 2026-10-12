@@ -8,13 +8,36 @@ const fmt = (n: number) => n.toLocaleString('tr-TR');
 // Araç kilitli mi? (main.ts şehrin seviyesine göre cevaplar)
 export type LockInfo = (t: Tool) => number | null;
 
+// Menülerdeki 3D model resimleri (oyun açılınca çizilir; yoksa emoji kullanılır)
+let thumbs = new Map<Tool, string>();
+
+function fillIcon(el: Element, tool: Tool | null, emoji: string) {
+  const src = tool ? thumbs.get(tool) : undefined;
+  el.replaceChildren();
+  if (src) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = '';
+    el.appendChild(img);
+  } else el.textContent = emoji;
+}
+
+export function setThumbs(map: Map<Tool, string>) {
+  thumbs = map;
+  document.querySelectorAll<HTMLButtonElement>('#tools button').forEach(b => {
+    const tool = (b.dataset.tool ?? b.dataset.tools!.split(',')[0]) as Tool;
+    fillIcon(b.querySelector('.ico')!, tool, b.dataset.icon ?? TOOL_INFO[tool].icon);
+  });
+}
+
 function toolButton(t: Tool, onPick: (t: Tool) => void, lockedAt: LockInfo) {
   const info = TOOL_INFO[t];
   const b = document.createElement('button');
   b.dataset.tool = t;
   const lock = lockedAt(t);
   const cost = lock ? `<small>🔒 Sv.${lock}</small>` : t !== 'pan' && COST[t] ? `<small>💰${fmt(COST[t])}</small>` : '<small>&nbsp;</small>';
-  b.innerHTML = `<span class="ico">${info.icon}</span><span>${info.label}</span>${cost}`;
+  b.innerHTML = `<span class="ico"></span><span class="lbl">${info.label}</span>${cost}`;
+  fillIcon(b.querySelector('.ico')!, t, info.icon);
   if (lock) b.classList.add('locked');
   b.addEventListener('click', () => onPick(t));
   return b;
@@ -46,7 +69,8 @@ export function buildToolbar(onPick: (t: Tool) => void, lockedAt: LockInfo) {
     b.dataset.tools = item.tools.join(',');
     b.dataset.icon = item.icon;
     b.dataset.label = item.label;
-    b.innerHTML = `<span class="ico">${item.icon}</span><span class="lbl">${item.label}</span><small>▲</small>`;
+    b.innerHTML = `<span class="ico"></span><span class="lbl">${item.label}</span><small>▲</small>`;
+    fillIcon(b.querySelector('.ico')!, item.tools[0], item.icon);
     b.addEventListener('click', () => {
       if (openGroup === item.group && !sub.hidden) return closeSub();
       openGroup = item.group;
@@ -68,7 +92,8 @@ export function setActiveTool(tool: Tool) {
       // Grup düğmesi seçili aracın simgesini göstersin
       const inGroup = b.dataset.tools!.split(',').includes(tool);
       b.classList.toggle('active', inGroup);
-      b.querySelector('.ico')!.textContent = inGroup ? TOOL_INFO[tool].icon : b.dataset.icon!;
+      const first = b.dataset.tools!.split(',')[0] as Tool;
+      fillIcon(b.querySelector('.ico')!, inGroup ? tool : first, inGroup ? TOOL_INFO[tool].icon : b.dataset.icon!);
       b.querySelector('.lbl')!.textContent = inGroup ? TOOL_INFO[tool].label : b.dataset.label!;
     } else {
       b.classList.toggle('active', b.dataset.tool === tool);

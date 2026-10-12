@@ -126,9 +126,23 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   font-size: 11px;
   font-weight: 600;
 }
-#tools .ico { font-size: 22px; line-height: 1.15; }
+#tools .ico {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #dcecf8);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08);
+  font-size: 22px;
+  line-height: 1;
+}
+#tools .ico img, #submenu .ico img { display: block; width: 100%; height: 100%; object-fit: contain; }
+#tools button.active .ico { background: radial-gradient(circle at 35% 30%, #fff6c8, #ffca28); }
 #tools small { font-size: 10px; color: #6b7c8a; font-weight: 500; }
-#tools button.active, #submenu button.active { background: #ffca28; box-shadow: inset 0 -3px 0 #f9a825; }
+#tools button.active { background: #fff3c4; }
+#submenu button.active { background: #ffca28; box-shadow: inset 0 -3px 0 #f9a825; }
 
 /* Gruplu araçların açılır menüsü */
 #submenu {
@@ -148,15 +162,16 @@ button { font: inherit; color: inherit; touch-action: manipulation; cursor: poin
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 68px;
-  padding: 6px 0 5px;
+  width: 70px;
+  padding: 5px 0 5px;
   border: 0;
   border-radius: 14px;
-  background: transparent;
+  background: linear-gradient(#ffffff, #eef5fb);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), inset 0 0 0 1px #e1ebf3;
   font-size: 11px;
   font-weight: 600;
 }
-#submenu .ico { font-size: 24px; line-height: 1.15; }
+#submenu .ico { display: grid; place-items: center; width: 52px; height: 52px; font-size: 30px; line-height: 1; }
 #submenu small { font-size: 10px; color: #6b7c8a; font-weight: 500; }
 #submenu button.locked { opacity: 0.45; }
 

@@ -11,11 +11,17 @@ import { loadModels } from './assets';
 import { CityView, tileCenter } from './view';
 import { Traffic, Walkers } from './traffic';
 import { DayNight, CYCLE_DAYS } from './daynight';
+import { renderThumbs } from './thumbs';
+import { makeUtility } from './utilities';
+import { makeService } from './services';
+import { makeIndustry } from './industry';
+import { makeDecor } from './landmarks';
+import { makeModel } from './assets';
 import { buildSurroundings } from './terrain';
 import { TileInput } from './input';
 import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
 import {
-  buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, celebrateLevel, fmt,
+  buildToolbar, setActiveTool, setStats, toast, setChip, floatIncome, hideLoading, showInfo, celebrateLevel, setThumbs, fmt,
 } from './ui';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
@@ -517,10 +523,30 @@ function frame() {
   camera.position.sub(jolt);
 }
 
+// Menü düğmeleri için her binanın küçük resmini çiz
+function makeMenuPictures() {
+  const items: [Tool, THREE.Object3D][] = [
+    ['road', makeModel('kenney/models/road-intersection')],
+    ['res', makeModel('polypizza/extra/k-house2-1', '#f3e3c3', '#c0503a')],
+    ['com', makeModel('polypizza/city/low-wide-1', '#9fd3ea')],
+    ['park', makeModel('kenney/models/grass-trees-tall')],
+  ];
+  for (const k of ['wind', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
+  for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
+  for (const k of ['factory', 'store', 'depot'] as const) items.push([k, makeIndustry(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium'] as const) items.push([k, makeDecor(k)]);
+  try {
+    setThumbs(renderThumbs(items));
+  } catch (err) {
+    console.warn('Menü resimleri çizilemedi', err);
+  }
+}
+
 loadModels(ALL_MODELS)
   .then(() => {
     scene.add(buildSurroundings());
     view.rebuildAll();
+    makeMenuPictures();
     // Oyun kapalıyken biten üretimleri depoya al
     const got = city.collect(Date.now());
     if (got.length) toast(`Sen yokken ${got.length} malzeme üretildi! 📦`);
