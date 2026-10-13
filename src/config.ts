@@ -306,8 +306,10 @@ export const COST: Record<BuildTool, number> = {
   zoo: 11000, lake: 1500, biglake: 3500, hill: 1200, volley: 2500, casino: 15000, observatory: 9000, eiffel: 30000, liberty: 25000, pisa: 12000, colosseum: 32000, galata: 10000, pyramid: 28000,
 };
 
-// Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1)
+// Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar 2x2: önlerinde kendi otoparkları var
+// (eski kayıtlardaki 1x1 dükkânlar taşınınca 2x2 olur)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
+  store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2,
   health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
 };
 

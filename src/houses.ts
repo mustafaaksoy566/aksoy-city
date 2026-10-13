@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TOWER_MODELS, KIT } from './towers';
+import { TOWER_MODELS, KIT, DOORS } from './towers';
 
 // Evler: konut seviye seviye büyür. 1. seviye bahçeli küçük tek katlı ev, 2. seviye garajlı iki katlı ev,
 // 3. seviye küçük apartman; sonrası apartman blokları ve gökdelenler (towers.ts).
@@ -200,13 +200,14 @@ export function makeSmallApartment(model: number) {
   return b.g;
 }
 
-// Menüler ve şehir için hazır evler: 'proc/<tür>-<model>'
-const register = (prefix: string, make: (model: number) => THREE.Object3D) =>
+// Menüler ve şehir için hazır evler: 'proc/<tür>-<model>'; door: giriş kapısının yeri (yerel x, z)
+const register = (prefix: string, make: (model: number) => THREE.Object3D, door: [number, number]) =>
   [0, 1, 2].map(k => {
     const path = `proc/${prefix}-${k}`;
     TOWER_MODELS[path] = () => make(k);
+    DOORS[path] = door;
     return path;
   });
-export const cottagePaths = () => register('cottage', makeCottage);
-export const familyPaths = () => register('family', makeFamilyHouse);
-export const smallAptPaths = () => register('smallapt', makeSmallApartment);
+export const cottagePaths = () => register('cottage', makeCottage, [0.02, 0.102]);
+export const familyPaths = () => register('family', makeFamilyHouse, [-0.16, 0.112]);
+export const smallAptPaths = () => register('smallapt', makeSmallApartment, [0, 0.222]);

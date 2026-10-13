@@ -4,7 +4,7 @@ import { part } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
-import { carModel } from './cars';
+import { SITES, drawLot, lotLight, entrance } from './sites';
 
 // Hizmet binaları gökdelenler gibi ayrıntılı çizilir: karakol, itfaiye, hastane, okul ve belediye.
 // Önlerinde kendi araçları park etmiş; karakol ve itfaiyenin çatısında yanıp sönen ışıklar var.
@@ -54,127 +54,149 @@ function blinkers(g: THREE.Group, y: number, x: number, z: number) {
   g.userData.blink = [red, blue];
 }
 
-// --- Karakol: iki katlı modern bina, mavi bant ve tabela, bayrak, anten, önde iki polis arabası ---
+// --- Karakol: iki katlı modern bina, mavi bant ve tabela, girişte saçak, bayrak, anten; önde kendi otoparkı
+// (iki polis arabası yeri ve bir ziyaretçi yeri). Polis arabaları devriyeye buradan çıkar, buraya döner ---
 function police() {
   const g = new THREE.Group();
   const st = new THREE.Group();
+  const site = SITES.police;
   box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
-  box(st, 0.4, 0.004, 0.26, M.asphalt, 0.24, 0.03, 0.3);
-  for (const x of [0.12, 0.24, 0.36]) box(st, 0.006, 0.002, 0.2, M.line, x, 0.035, 0.3);
-  st.add(part(KIT.facadeBox(0.64, 0.24, 0.38, 0.03), KIT.BAND[1], -0.06, 0.15, -0.18));
-  box(st, 0.66, 0.05, 0.4, M.blue, -0.06, 0.15, -0.18);
-  box(st, 0.66, 0.025, 0.4, M.white, -0.06, 0.27, -0.18);
-  box(st, 0.36, 0.06, 0.012, signMat('POLİS', '#1e4fa3'), -0.12, 0.16, 0.025);
-  // Giriş: saçak, cam kapı, basamak
-  box(st, 0.2, 0.012, 0.1, M.blue, -0.3, 0.13, 0.06);
-  box(st, 0.1, 0.1, 0.008, M.glass, -0.3, 0.03, 0.022);
-  box(st, 0.16, 0.012, 0.06, M.white, -0.3, 0.03, 0.05);
-  // Çatıda anten ve klima
-  add(st, new THREE.CylinderGeometry(0.004, 0.006, 0.28, 6), M.steel, 0.16, 0.43, -0.28);
-  box(st, 0.1, 0.05, 0.08, M.steel, -0.2, 0.295, -0.26);
-  flag(st, -0.42, 0.34, 0.42, '#d32f2f');
-  for (const x of [0.12, 0.36]) {
-    const car = carModel('police');
-    car.position.set(x, 0.03, 0.3);
-    car.rotation.y = Math.PI;
-    st.add(car);
-  }
-  tree(st, -0.4, -0.4);
+  drawLot(st, site, -0.12, 0.48, 0.1, 0.48);
+  st.add(part(KIT.facadeBox(0.6, 0.24, 0.36, 0.03), KIT.BAND[1], -0.16, 0.15, -0.26));
+  box(st, 0.62, 0.05, 0.38, M.blue, -0.16, 0.15, -0.26);
+  box(st, 0.62, 0.025, 0.38, M.white, -0.16, 0.27, -0.26);
+  box(st, 0.3, 0.06, 0.012, signMat('POLİS', '#1e4fa3'), -0.05, 0.16, -0.065);
+  // Giriş: saçak, kapı, basamak
+  const [dx, dz] = site.door;
+  box(st, 0.2, 0.012, 0.12, M.blue, dx, 0.17, dz + 0.05);
+  box(st, 0.16, 0.012, 0.07, M.white, dx, 0.03, dz + 0.04);
+  entrance(st, dx, dz, 0.08, 0.12, M.white);
+  // Çatıda anten ve klima, bayrak, ağaç
+  add(st, new THREE.CylinderGeometry(0.004, 0.006, 0.28, 6), M.steel, 0.06, 0.43, -0.36);
+  box(st, 0.1, 0.05, 0.08, M.steel, -0.3, 0.295, -0.34);
+  flag(st, -0.42, 0.3, 0.42, '#d32f2f');
+  tree(st, -0.36, 0.4, 0.8);
   g.add(mergeStatic([st]));
-  blinkers(g, 0.31, -0.06, -0.18);
+  blinkers(g, 0.31, -0.16, -0.26);
   return g;
 }
 
-// --- İtfaiye: tuğla bina, iki büyük garaj kapısı (biri açık, içinde itfaiye aracı), hortum kulesi, tabela ---
+// --- İtfaiye: tuğla bina, iki büyük açık garaj kapısı (itfaiye araçları içeri girip çıkar), hortum kulesi,
+// tabela; yanda çalışan kapısı ---
 function fireStation() {
   const g = new THREE.Group();
   const st = new THREE.Group();
+  const site = SITES.fire;
   box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
-  box(st, 0.62, 0.004, 0.3, M.asphalt, -0.06, 0.03, 0.3);
+  box(st, 0.62, 0.004, 0.38, M.asphalt, -0.06, 0.03, 0.29);
+  for (const [x] of site.garages!) for (const s of [-1, 1]) box(st, 0.006, 0.0012, 0.34, M.yellow, x + s * 0.1, 0.034, 0.29);
   st.add(part(KIT.facadeBox(0.62, 0.3, 0.42, 0.03), KIT.BRICK[0], -0.06, 0.18, -0.12));
   box(st, 0.64, 0.03, 0.44, M.white, -0.06, 0.33, -0.12);
-  // Garaj kapıları: soldaki açık (içi karanlık, araç yarı dışarıda), sağdaki kapalı
-  box(st, 0.22, 0.2, 0.01, M.white, -0.2, 0.03, 0.095);
-  box(st, 0.19, 0.18, 0.012, M.dark, -0.2, 0.03, 0.098);
-  box(st, 0.22, 0.2, 0.01, M.white, 0.08, 0.03, 0.095);
-  box(st, 0.19, 0.18, 0.012, M.red, 0.08, 0.03, 0.098);
-  for (let k = 0; k < 6; k++) box(st, 0.182, 0.003, 0.014, pm('#e57373', 0.6), 0.08, 0.05 + k * 0.026, 0.1); // çıtalar kapıdan dar (yan yüzler titreşmesin)
+  // Açık garaj kapıları: beyaz çerçeve, karanlık iç (araç girince kaybolur), üstte toplanmış kepenk
+  for (const [x, z] of site.garages!) {
+    box(st, 0.22, 0.2, 0.01, M.white, x, 0.03, z);
+    box(st, 0.19, 0.18, 0.012, M.dark, x, 0.03, z + 0.003);
+    box(st, 0.2, 0.02, 0.02, pm('#e57373', 0.6), x, 0.2, z + 0.012);
+  }
   box(st, 0.4, 0.06, 0.012, signMat('İTFAİYE', '#c62828'), -0.06, 0.25, 0.1);
+  entrance(st, site.door[0], site.door[1], 0.06, 0.12, M.white);
   // Hortum kurutma kulesi
   st.add(part(KIT.facadeBox(0.14, 0.62, 0.14, 0.03), KIT.BRICK[0], 0.36, 0.34, -0.3));
   add(st, new THREE.ConeGeometry(0.12, 0.1, 4).rotateY(Math.PI / 4), M.dark, 0.36, 0.7, -0.3);
-  const truck = carModel('fire');
-  truck.position.set(-0.2, 0.03, 0.2);
-  truck.rotation.y = 0;
-  st.add(truck);
   flag(st, 0.42, 0.36, 0.4, '#d32f2f');
   g.add(mergeStatic([st]));
   blinkers(g, 0.37, -0.06, -0.12);
   return g;
 }
 
-// --- Hastane (2x2): beyaz ana blok ve kanat, kırmızı haç, giriş saçağı, ambulanslar, çatıda helikopter pisti ---
+// --- Hastane (2x2, dünya ölçüsünde): beş katlı ana blok (kırmızı haç, tabela, çatıda helikopter pisti), camlı
+// acil kanadı, ana girişte kırmızı saçak; önde meydan (ağaçlar, banklar, çiçeklikler) ve otopark: ziyaretçi yerleri,
+// acil girişinin önünde iki ambulans yeri ---
 function hospital() {
   const st = new THREE.Group();
-  box(st, 0.98, 0.02, 0.98, M.paving, 0, 0, 0);
-  // Ana blok (5 kat) ve alçak kanat
-  st.add(part(KIT.facadeBox(0.5, 0.55, 0.36, 0.02), KIT.BAND[0], -0.12, 0.295, -0.2));
-  st.add(part(KIT.facadeBox(0.3, 0.25, 0.3, 0.02), KIT.GLASS[3], 0.3, 0.145, -0.16));
-  box(st, 0.52, 0.02, 0.38, M.white, -0.12, 0.57, -0.2);
-  box(st, 0.32, 0.02, 0.32, M.white, 0.3, 0.27, -0.16);
-  // Kırmızı haç ve tabela
-  box(st, 0.16, 0.05, 0.012, M.red, -0.12, 0.46, -0.014);
-  box(st, 0.05, 0.16, 0.012, M.red, -0.12, 0.405, -0.014);
-  box(st, 0.34, 0.06, 0.012, signMat('HASTANE', '#ffffff', '#c62828'), -0.12, 0.33, -0.014);
-  // Acil girişi saçağı ve ambulanslar
-  box(st, 0.36, 0.02, 0.18, M.red, -0.12, 0.13, 0.08);
-  for (const x of [-0.27, 0.03]) add(st, new THREE.CylinderGeometry(0.008, 0.008, 0.11, 6), M.steel, x, 0.075, 0.16);
-  box(st, 0.5, 0.004, 0.26, M.asphalt, -0.1, 0.02, 0.32);
-  for (const x of [-0.24, 0.0]) {
-    const amb = carModel('ambulance');
-    amb.position.set(x, 0.02, 0.3);
-    amb.rotation.y = Math.PI;
-    amb.scale.multiplyScalar(0.55);
-    st.add(amb);
-  }
+  st.scale.setScalar(1 / 1.92);
+  const site = SITES.health;
+  box(st, 1.92, 0.03, 1.92, M.paving, 0, 0, 0);
+  drawLot(st, site, -0.94, 0.94, 0.1, 0.96);
+  // Ana blok (x -0.9..0.1, z -0.9..-0.3)
+  const H = 0.95;
+  st.add(part(KIT.facadeBox(1.0, H, 0.6, 0.03), KIT.BAND[0], -0.4, 0.03 + H / 2, -0.6));
+  box(st, 1.02, 0.03, 0.62, M.white, -0.4, 0.03 + H, -0.6);
+  // Kırmızı haç ve tabela (ön yüzde)
+  box(st, 0.22, 0.07, 0.012, M.red, -0.4, 0.8, -0.296);
+  box(st, 0.07, 0.22, 0.012, M.red, -0.4, 0.725, -0.296);
+  box(st, 0.5, 0.08, 0.012, signMat('HASTANE', '#ffffff', '#c62828'), -0.4, 0.6, -0.295);
   // Çatıda helikopter pisti
-  add(st, new THREE.CylinderGeometry(0.14, 0.14, 0.012, 24), pm('#4b545e', 0.8), -0.12, 0.585, -0.2);
-  add(st, new THREE.CylinderGeometry(0.12, 0.12, 0.014, 24, 1, true), M.yellow, -0.12, 0.586, -0.2);
-  for (const dx of [-0.035, 0.035]) box(st, 0.016, 0.004, 0.09, M.white, -0.12 + dx, 0.59, -0.2);
-  box(st, 0.07, 0.004, 0.016, M.white, -0.12, 0.59, -0.2);
-  // Bahçe
-  box(st, 0.26, 0.012, 0.22, M.grass, 0.32, 0.02, 0.3);
-  tree(st, 0.26, 0.3, 0.7);
-  tree(st, 0.38, 0.36, 0.6);
+  const py = 0.03 + H + 0.03;
+  add(st, new THREE.CylinderGeometry(0.24, 0.24, 0.016, 28), pm('#4b545e', 0.8), -0.4, py + 0.008, -0.6);
+  add(st, new THREE.CylinderGeometry(0.21, 0.21, 0.018, 28, 1, true), M.yellow, -0.4, py + 0.009, -0.6);
+  for (const dx of [-0.06, 0.06]) box(st, 0.028, 0.004, 0.16, M.white, -0.4 + dx, py + 0.016, -0.6);
+  box(st, 0.12, 0.004, 0.028, M.white, -0.4, py + 0.016, -0.6);
+  // Acil kanadı (x 0.16..0.9, z -0.84..-0.28): camlı, üstünde ACİL tabelası
+  st.add(part(KIT.facadeBox(0.74, 0.5, 0.56, 0.03), KIT.GLASS[3], 0.53, 0.28, -0.56));
+  box(st, 0.76, 0.02, 0.58, M.white, 0.53, 0.53, -0.56);
+  box(st, 0.3, 0.07, 0.012, signMat('ACİL', '#c62828'), 0.55, 0.42, -0.274);
+  // Acil girişi: kırmızı saçak (ambulans yerlerinin önünde) ve kapı
+  box(st, 0.4, 0.016, 0.16, M.red, 0.55, 0.22, -0.2);
+  for (const x of [0.37, 0.73]) add(st, new THREE.CylinderGeometry(0.008, 0.008, 0.2, 6), M.steel, x, 0.13, -0.13);
+  entrance(st, 0.55, -0.28, 0.12, 0.16, M.white);
+  // Ana giriş: kırmızı saçak ve iki sütun, kapı
+  const [dx, dz] = site.door;
+  box(st, 0.34, 0.018, 0.22, M.red, dx, 0.24, dz + 0.11);
+  for (const s of [-1, 1]) add(st, new THREE.CylinderGeometry(0.01, 0.01, 0.22, 8), M.white, dx + s * 0.15, 0.14, dz + 0.2);
+  entrance(st, dx, dz, 0.14, 0.17, M.white);
+  // Meydan: ağaçlar, banklar, çiçeklikler (kapıya giden yollar açık)
+  for (const [x, z] of [[-0.8, -0.18], [-0.05, -0.18]] as [number, number][]) {
+    box(st, 0.18, 0.02, 0.12, M.grass, x, 0.03, z);
+    tree(st, x, z, 1.1);
+  }
+  for (const x of [-0.65, -0.18]) box(st, 0.12, 0.012, 0.03, M.wood, x, 0.05, -0.02);
+  for (const x of [-0.65, -0.18]) for (const s of [-1, 1]) box(st, 0.008, 0.02, 0.025, M.dark, x + s * 0.05, 0.03, -0.02);
+  lotLight(st, -0.935, 0.6);
+  lotLight(st, 0.935, 0.6);
   return mergeStatic([st]);
 }
 
-// --- Okul (2x2): iki katlı tuğla bina, saat, bayrak, basketbol sahası, koşu pisti ve futbol sahası ---
+// --- Okul (2x2, dünya ölçüsünde): iki katlı tuğla bina (sütunlu giriş, saat, tabela), önünde okul bahçesi
+// (basketbol sahası, bayrak direği, banklar), sağda koşu pisti ve futbol sahası, önde öğretmenlerin otoparkı ---
 function school() {
   const st = new THREE.Group();
-  box(st, 0.98, 0.02, 0.98, M.grass, 0, 0, 0);
-  st.add(part(KIT.facadeBox(0.62, 0.22, 0.24, 0.02), KIT.BRICK[1], -0.16, 0.13, -0.3));
-  box(st, 0.64, 0.02, 0.26, M.white, -0.16, 0.24, -0.3);
-  // Giriş: beyaz çerçeve, saat, tabela
-  box(st, 0.16, 0.26, 0.04, M.white, -0.16, 0.02, -0.17);
-  add(st, new THREE.CylinderGeometry(0.035, 0.035, 0.01, 18).rotateX(Math.PI / 2), M.white, -0.16, 0.22, -0.145);
-  add(st, new THREE.CylinderGeometry(0.028, 0.028, 0.012, 18).rotateX(Math.PI / 2), M.dark, -0.16, 0.22, -0.143);
-  box(st, 0.26, 0.05, 0.01, signMat('OKUL', '#ef6c00'), -0.16, 0.12, -0.148);
-  // Basketbol sahası
-  box(st, 0.36, 0.006, 0.24, M.court, -0.24, 0.02, 0.12);
-  box(st, 0.36, 0.002, 0.006, M.line, -0.24, 0.027, 0.12);
-  for (const x of [-0.4, -0.08]) {
-    add(st, new THREE.CylinderGeometry(0.004, 0.004, 0.12, 4), M.steel, x, 0.08, 0.12);
-    box(st, 0.004, 0.035, 0.05, M.white, x + (x < -0.24 ? 0.008 : -0.008), 0.12, 0.12);
+  st.scale.setScalar(1 / 1.92);
+  const site = SITES.school;
+  box(st, 1.92, 0.03, 1.92, M.grass, 0, 0, 0);
+  // Okul bahçesi (taş zemin) ve otopark (solda, önde)
+  box(st, 1.1, 0.004, 0.62, M.paving, -0.37, 0.03, -0.17);
+  drawLot(st, site, -0.94, 0.14, 0.1, 0.96);
+  // Bina (x -0.92..0.18, z -0.92..-0.48)
+  const W = 1.1, D = 0.44, H = 0.36, cx = -0.37, cz = -0.7, front = cz + D / 2;
+  st.add(part(KIT.facadeBox(W, H, D, 0.03), KIT.BRICK[1], cx, 0.03 + H / 2, cz));
+  box(st, W + 0.02, 0.025, D + 0.02, M.white, cx, 0.03 + H, cz);
+  // Giriş: beyaz sütunlar ve alınlık, saat, tabela, kapı
+  const [dx, dz] = site.door;
+  for (const s of [-1, 1]) add(st, new THREE.CylinderGeometry(0.014, 0.016, 0.24, 10), M.white, dx + s * 0.11, 0.15, dz + 0.07);
+  box(st, 0.3, 0.025, 0.1, M.white, dx, 0.27, dz + 0.05);
+  const tri = new THREE.Shape([new THREE.Vector2(-0.16, 0), new THREE.Vector2(0.16, 0), new THREE.Vector2(0, 0.07)]);
+  add(st, new THREE.ExtrudeGeometry(tri, { depth: 0.1, bevelEnabled: false }), M.white, dx, 0.295, dz);
+  add(st, new THREE.CylinderGeometry(0.04, 0.04, 0.01, 18).rotateX(Math.PI / 2), M.white, dx, 0.33, front + 0.006);
+  add(st, new THREE.CylinderGeometry(0.032, 0.032, 0.012, 18).rotateX(Math.PI / 2), M.dark, dx, 0.33, front + 0.008);
+  box(st, 0.34, 0.06, 0.012, signMat('OKUL', '#ef6c00'), cx + 0.36, 0.26, front + 0.007);
+  entrance(st, dx, dz, 0.12, 0.17, M.white);
+  // Basketbol sahası, bayrak direği, banklar
+  box(st, 0.4, 0.006, 0.3, M.court, -0.7, 0.034, -0.2);
+  box(st, 0.4, 0.002, 0.008, M.line, -0.7, 0.04, -0.2);
+  for (const x of [-0.88, -0.52]) {
+    add(st, new THREE.CylinderGeometry(0.004, 0.004, 0.14, 4), M.steel, x, 0.1, -0.2);
+    box(st, 0.004, 0.04, 0.06, M.white, x + (x < -0.7 ? 0.008 : -0.008), 0.14, -0.2);
   }
-  // Koşu pisti ve futbol sahası
-  box(st, 0.4, 0.006, 0.6, M.track, 0.26, 0.02, 0.1);
-  box(st, 0.32, 0.008, 0.52, M.grass, 0.26, 0.022, 0.1);
-  box(st, 0.32, 0.002, 0.006, M.line, 0.26, 0.031, 0.1);
-  for (const z of [-0.15, 0.35]) box(st, 0.08, 0.04, 0.006, M.white, 0.26, 0.03, z);
-  flag(st, -0.44, -0.08, 0.5, '#d32f2f');
-  tree(st, -0.44, 0.4, 0.8);
-  tree(st, 0.44, -0.38, 0.8);
+  flag(st, 0.08, -0.4, 0.55, '#d32f2f');
+  for (const x of [-0.15, 0.02]) box(st, 0.12, 0.014, 0.03, M.wood, x, 0.05, -0.1);
+  // Koşu pisti ve futbol sahası (sağda, boydan boya)
+  box(st, 0.7, 0.006, 1.84, M.track, 0.57, 0.03, 0);
+  box(st, 0.54, 0.008, 1.66, M.grass, 0.57, 0.033, 0);
+  box(st, 0.54, 0.002, 0.008, M.line, 0.57, 0.042, 0);
+  for (const z of [-0.8, 0.8]) box(st, 0.16, 0.06, 0.008, M.white, 0.57, 0.04, z);
+  tree(st, 0.1, 0.5, 1.1);
+  tree(st, 0.12, 0.85, 1.0);
   return mergeStatic([st]);
 }
 

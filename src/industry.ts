@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { type IndustryKind } from './config';
+import { FOOTPRINT, type IndustryKind } from './config';
+import { STORES2 } from './stores';
+import { SITES, drawLot, lotLight, entrance } from './sites';
 import { makeBoat } from './boats';
 import { part, windowMat, showcaseMat } from './utilities';
 import { mergeStatic } from './batcher';
@@ -83,75 +85,77 @@ function smoke(g: THREE.Group, base: THREE.Vector3) {
   g.userData.smoke = { puffs, base };
 }
 
-// --- Fabrika (2x2): üretim holü (testere dişi çatı), ofis bloğu, silolar, baca, yükleme rampası, kamyon ---
+// Yükleme kapısı (yüzü +z): açık gri kepenk, kapıdan dar çıtalar (yan yüzler titreşmesin), iki yanda tampon
+function dockDoor(st: THREE.Object3D, x: number, z: number, w: number, h: number) {
+  box(st, w, h, 0.008, pm('#d9dde2', 0.5, 0.3), x, 0.03, z + 0.004);
+  for (let k = 0; k < Math.floor(h / 0.022); k++) box(st, w - 0.008, 0.003, 0.012, M.steel, x, 0.05 + k * 0.022, z + 0.006);
+  for (const s of [-1, 1]) box(st, 0.016, 0.03, 0.02, M.dark, x + s * (w / 2 + 0.012), 0.04, z + 0.01);
+  box(st, 0.02, 0.012, 0.012, pm('#ffb300', 0.4), x + w / 2 + 0.03, 0.03 + h - 0.03, z + 0.006);
+}
+
+// --- Fabrika (2x2, dünya ölçüsünde): testere dişi çatılı üretim holü ve üç yükleme kapısı (önlerinde kamyon
+// yerleri), cam bantlı ofis bloğu (önünde çalışanların otoparkı), silolar ve konveyör, baca ---
 function factory(variant: number) {
   const g = new THREE.Group();
   const st = new THREE.Group();
-  box(st, 0.98, 0.03, 0.98, M.asphalt, 0, 0, 0);
-  for (let k = 0; k < 4; k++) box(st, 0.008, 0.002, 0.12, M.yellow, 0.12 + k * 0.08, 0.03, 0.36);
+  st.scale.setScalar(1 / 1.92);
+  const site = SITES.factory;
+  box(st, 1.92, 0.03, 1.92, M.concrete, 0, 0, 0);
+  drawLot(st, site, -0.94, 0.94, -0.0, 0.96);
   const wall = KIT.METAL[variant % 3];
-  // Üretim holü
-  st.add(part(KIT.facadeBox(0.6, 0.2, 0.5, 0.03), wall, -0.12, 0.13, -0.12));
-  box(st, 0.62, 0.015, 0.52, M.roof, -0.12, 0.23, -0.12);
-  sawtooth(st, 0.6, 0.5, 0.245, -0.12, -0.12, 5);
-  // Yükleme kapıları ve rampa
-  for (const x of [-0.3, -0.12, 0.06]) {
-    box(st, 0.12, 0.12, 0.008, pm('#d9dde2', 0.5, 0.3), x, 0.03, 0.135);
-    for (let k = 0; k < 5; k++) box(st, 0.112, 0.003, 0.01, M.steel, x, 0.05 + k * 0.022, 0.138); // çıtalar kapıdan dar (yan yüzler aynı düzlemde titreşmesin)
-  }
-  box(st, 0.5, 0.03, 0.08, M.concrete, -0.12, 0.03, 0.18);
-  // Ofis bloğu (cam bantlı, öne doğru)
-  st.add(part(KIT.facadeBox(0.22, 0.26, 0.18, 0.03), KIT.BAND[variant % 3], 0.34, 0.16, 0.24));
-  box(st, 0.23, 0.02, 0.19, M.dark, 0.34, 0.29, 0.24);
+  // Üretim holü (x -0.92..0.32, z -0.92..-0.06)
+  const HW = 1.24, HD = 0.86, HH = 0.4, hx = -0.3, hz = -0.49, hf = hz + HD / 2;
+  st.add(part(KIT.facadeBox(HW, HH, HD, 0.03), wall, hx, 0.03 + HH / 2, hz));
+  box(st, HW + 0.02, 0.02, HD + 0.02, M.roof, hx, 0.03 + HH, hz);
+  sawtooth(st, HW, HD, 0.03 + HH + 0.02, hx, hz, 6);
+  for (const x of [-0.72, -0.42, -0.12]) dockDoor(st, x, hf, 0.18, 0.2);
+  box(st, HW, 0.014, 0.05, M.concrete, hx, 0.03, hf + 0.025);
+  // Ofis bloğu (x 0.4..0.92, z -0.46..-0.06): cam bantlı cephe, koyu çatı, logo, giriş
   const logo = ['#1565c0', '#c62828', '#2e7d32'][variant % 3];
-  box(st, 0.14, 0.04, 0.008, pm(logo, 0.5), 0.34, 0.24, 0.336);
-  // Silolar ya da tanklar
+  st.add(part(KIT.facadeBox(0.52, 0.34, 0.4, 0.03), KIT.BAND[variant % 3], 0.66, 0.03 + 0.17, -0.26));
+  box(st, 0.54, 0.02, 0.42, M.dark, 0.66, 0.37, -0.26);
+  box(st, 0.26, 0.06, 0.01, pm(logo, 0.5), 0.66, 0.29, -0.055);
+  entrance(st, site.door[0], -0.06, 0.1, 0.15, M.dark);
+  box(st, 0.18, 0.01, 0.08, pm(logo, 0.5), site.door[0], 0.2, -0.02);
+  // Silolar ve konveyör
   for (let k = 0; k < 3; k++) {
-    const x = 0.24 + k * 0.1, z = -0.34;
-    add(st, new THREE.CylinderGeometry(0.045, 0.045, 0.32, 16), pm('#e3e6ea', 0.4, 0.5), x, 0.19, z);
-    add(st, new THREE.ConeGeometry(0.047, 0.05, 16), pm('#c9cfd6', 0.4, 0.5), x, 0.375, z);
-    for (const y of [0.1, 0.2, 0.3]) add(st, new THREE.CylinderGeometry(0.047, 0.047, 0.006, 16), M.steel, x, y, z);
+    const x = 0.48 + k * 0.18, z = -0.74;
+    add(st, new THREE.CylinderGeometry(0.075, 0.075, 0.62, 18), pm('#e3e6ea', 0.4, 0.5), x, 0.03 + 0.31, z);
+    add(st, new THREE.ConeGeometry(0.078, 0.08, 18), pm('#c9cfd6', 0.4, 0.5), x, 0.03 + 0.66, z);
+    for (const y of [0.18, 0.36, 0.54]) add(st, new THREE.CylinderGeometry(0.078, 0.078, 0.01, 18), M.steel, x, y, z);
   }
-  // Konveyör boru silolardan hole
-  const pipe = add(st, new THREE.BoxGeometry(0.3, 0.02, 0.02), M.darkSteel, 0.12, 0.33, -0.34);
-  pipe.rotation.z = -0.2;
+  const pipe = add(st, new THREE.BoxGeometry(0.62, 0.03, 0.03), M.darkSteel, 0.2, 0.6, -0.74);
+  pipe.rotation.z = -0.25;
   // Baca
-  const chx = -0.4, chz = -0.38, ch = 0.62;
-  add(st, new THREE.CylinderGeometry(0.03, 0.04, ch, 12), pm('#9e8e7e', 0.9), chx, 0.03 + ch / 2, chz);
-  add(st, new THREE.CylinderGeometry(0.034, 0.034, 0.03, 12), M.darkSteel, chx, 0.03 + ch - 0.011, chz); // bilezik bacanın ağzından biraz yüksek
-  // Önde kamyon ve paletler
-  const truck = carModel('truck', '#eceff1');
-  truck.position.set(0.12, 0.03, 0.3);
-  truck.rotation.y = Math.PI;
-  truck.scale.multiplyScalar(0.62);
-  st.add(truck);
-  for (let k = 0; k < 3; k++) box(st, 0.06, 0.02, 0.06, M.wood, -0.36 + k * 0.07, 0.03, 0.4);
-  box(st, 0.05, 0.04, 0.05, M.crate, -0.36, 0.05, 0.4);
+  const chx = -0.82, chz = -0.82, ch = 1.1;
+  add(st, new THREE.CylinderGeometry(0.05, 0.07, ch, 14), pm('#9e8e7e', 0.9), chx, 0.03 + ch / 2, chz);
+  for (const y of [0.4, 0.75]) add(st, new THREE.CylinderGeometry(0.066 - y * 0.02, 0.066 - y * 0.02, 0.03, 14), pm('#e53935', 0.6), chx, y, chz);
+  add(st, new THREE.CylinderGeometry(0.056, 0.056, 0.04, 14), M.darkSteel, chx, 0.03 + ch - 0.015, chz); // bilezik bacanın ağzından biraz yüksek
+  // Hol ile ofis arasında paletler ve kasalar, otopark lambaları
+  for (let k = 0; k < 2; k++) box(st, 0.1, 0.02, 0.1, M.wood, 0.1 + k * 0.12, 0.03, -0.03);
+  box(st, 0.08, 0.06, 0.08, M.crate, 0.1, 0.05, -0.03);
+  lotLight(st, -0.935, 0.6);
+  lotLight(st, 0.935, 0.6);
   g.add(mergeStatic([st]));
-  smoke(g, new THREE.Vector3(chx, 0.03 + ch + 0.02, chz));
+  smoke(g, new THREE.Vector3(chx, 0.03 + ch + 0.03, chz).multiplyScalar(1 / 1.92));
   return g;
 }
 
-// --- Depo: oluklu sac depo, büyük sürgülü kapılar, yükleme rampası, konteynerler ---
+// --- Depo: oluklu sac depo, üç büyük yükleme kapısı (önlerinde kamyon yerleri), yanda çalışan kapısı ---
 function depot(variant: number) {
   const st = new THREE.Group();
-  box(st, 0.96, 0.03, 0.96, M.asphalt, 0, 0, 0);
-  st.add(part(KIT.facadeBox(0.74, 0.24, 0.46, 0.03), KIT.METAL[variant % 3], 0, 0.15, -0.16));
-  // Hafif eğimli çatı
-  const roof = add(st, new THREE.BoxGeometry(0.78, 0.02, 0.5), M.roof, 0, 0.28, -0.16);
+  const site = SITES.depot;
+  box(st, 0.96, 0.03, 0.96, M.concrete, 0, 0, 0);
+  drawLot(st, site, -0.46, 0.46, 0.02, 0.48);
+  st.add(part(KIT.facadeBox(0.86, 0.24, 0.44, 0.03), KIT.METAL[variant % 3], 0, 0.15, -0.24));
+  // Hafif eğimli çatı ve havalandırmalar
+  const roof = add(st, new THREE.BoxGeometry(0.9, 0.02, 0.48), M.roof, 0, 0.28, -0.24);
   roof.rotation.x = 0.06;
-  for (const x of [-0.2, 0.2]) add(st, new THREE.CylinderGeometry(0.02, 0.02, 0.03, 8), M.steel, x, 0.305, -0.2);
-  for (const x of [-0.22, 0.0, 0.22]) {
-    box(st, 0.16, 0.16, 0.008, pm('#e9edf1', 0.5, 0.3), x, 0.03, 0.074);
-    for (let k = 0; k < 6; k++) box(st, 0.152, 0.003, 0.01, M.steel, x, 0.05 + k * 0.024, 0.077); // çıtalar kapıdan dar
-  }
-  box(st, 0.7, 0.03, 0.07, M.concrete, 0, 0.03, 0.115);
-  box(st, 0.3, 0.05, 0.012, signMat('DEPO', '#37474f'), -0.15, 0.2, 0.08);
-  // Konteynerler
-  container(st, -0.3, 0.03, 0.34, variant, Math.PI / 2);
-  container(st, -0.3, 0.08, 0.34, variant + 2, Math.PI / 2);
-  container(st, 0.05, 0.03, 0.34, variant + 4, Math.PI / 2);
-  box(st, 0.06, 0.02, 0.06, M.wood, 0.34, 0.03, 0.34);
+  for (const x of [-0.2, 0.2]) add(st, new THREE.CylinderGeometry(0.02, 0.02, 0.03, 8), M.steel, x, 0.305, -0.28);
+  for (const x of [-0.25, 0, 0.25]) dockDoor(st, x, -0.02, 0.17, 0.17);
+  box(st, 0.86, 0.012, 0.04, M.concrete, 0, 0.03, 0.0);
+  box(st, 0.26, 0.045, 0.012, signMat('DEPO', '#37474f'), -0.13, 0.215, -0.012);
+  entrance(st, site.door[0], -0.02, 0.06, 0.13, M.dark);
   return mergeStatic([st]);
 }
 
@@ -335,7 +339,10 @@ function tradeCenter() {
   return depot(1);
 }
 
-export function makeIndustry(kind: IndustryKind, variant = 0): THREE.Object3D {
+// fp: kapladığı alan (dükkânlar 2x2 ve otoparklı; eski kayıtlarda kalan 1x1 dükkânlar eski çizimiyle)
+export function makeIndustry(kind: IndustryKind, variant = 0, fp = FOOTPRINT[kind] ?? 1): THREE.Object3D {
+  const store = STORES2[kind];
+  if (store && fp === 2) return store();
   if (kind === 'trade') return tradeCenter();
   if (kind === 'factory') return factory(variant);
   if (kind === 'store') return store();

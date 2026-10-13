@@ -1518,7 +1518,7 @@ export class CityView {
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       if ((t.kind === 'parking' || t.kind === 'metro') && t.level > 0) o.add(starSign(t.level, 1));
     } else if (isIndustry(t.kind)) {
-      o = makeIndustry(t.kind, t.variant);
+      o = makeIndustry(t.kind, t.variant, t.fp ?? 1);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       if (t.level > 0) o.add(starSign(t.level, 1 / ((t.fp ?? 1) * 0.96)));
     } else if (t.level === 0) {

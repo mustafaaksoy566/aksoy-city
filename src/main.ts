@@ -499,10 +499,12 @@ function renderCard() {
     : openCard === 'hall' ? describeHall(city, cardActions)
     : describeTile(city, openCard, cardActions);
   if (!card) openCard = null;
-  // Taşınabilen binanın kartında "Taşı" (döndürmek de taşıma çubuğundaki ↻ ile)
+  // Taşınabilen binanın kartında "Taşı" (döndürmek de taşıma çubuğundaki ↻ ile). Eski küçük dükkân taşınınca
+  // otoparklı 2x2 dükkân olur.
   if (card && typeof openCard === 'number' && tool === 'pan' && city.tiles[openCard] && city.canMove(openCard)) {
     const i = openCard;
-    card.actions = [...(card.actions ?? []), { label: '✋ Taşı', enabled: true, run: () => startMove(i) }];
+    const label = grows(city.anchorOf(i)) ? '🅿️ Taşı · otoparklı 2x2 olsun' : '✋ Taşı';
+    card.actions = [...(card.actions ?? []), { label, enabled: true, run: () => startMove(i) }];
   }
   showInfo(card);
 }
@@ -1012,9 +1014,11 @@ function makeHousePictures() {
 // Basılı tut (ya da kartta "Taşı"): bina kalkar. Sürükle: yeni yeri yeşil/kırmızı görünür. Bırakınca orada bekler:
 // ✓ yerleştir, ✗ eski yerine ve eski yönüne dön, ↻ çeyrek tur döndür. Beklerken binaya dokunup yeniden sürüklenebilir.
 let moving: { from: number; n: number; to: number; turns: number; dragging: boolean } | null = null;
+// Eski kayıttan kalan küçük bina (1x1 dükkân): taşınınca yeni boyunda (otoparklı 2x2) yerleşir
+const grows = (a: number) => (city.tiles[a]?.fp ?? 1) < sizeOf(city.tiles[a]!.kind);
 function startMove(cell: number) {
   const a = city.anchorOf(cell);
-  moving = { from: a, n: city.tiles[a]!.fp ?? 1, to: a, turns: 0, dragging: false };
+  moving = { from: a, n: Math.max(city.tiles[a]!.fp ?? 1, sizeOf(city.tiles[a]!.kind)), to: a, turns: 0, dragging: false };
   openTile(null);
   view.startMove(a);
   setPlaceBar(true, { ok: confirmMove, cancel: cancelMove, rotate: rotateMove });
@@ -1024,7 +1028,7 @@ function startMove(cell: number) {
 }
 function moveError() {
   const m = moving!;
-  return m.to === m.from ? null : city.moveCheck(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+  return m.to === m.from && !grows(m.from) ? null : city.moveCheck(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
 }
 function showMovePreview() {
   const m = moving!;
@@ -1041,7 +1045,7 @@ function endMoving() {
 function confirmMove() {
   const m = moving;
   if (!m) return;
-  if (m.to === m.from && m.turns === 0) {
+  if (m.to === m.from && m.turns === 0 && !grows(m.from)) {
     view.endMove(false);
     endMoving();
     return;

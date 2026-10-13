@@ -1072,3 +1072,11 @@ export function makeElectro(): THREE.Object3D {
   lamp(st, 0.46, 0.46);
   return mergeStatic([st]);
 }
+
+// Yeni 2x2 otoparklı dükkânlar (stores.ts) aynı parçaları kullanır
+export {
+  person, car, greenhouse, sapling, flowerStand, gnome, wheelbarrow, soilPallet, plantCart, potStack, umbrella, patioTable,
+  giantCone, giantBurger, fridge, washer, tv, carton, featherFlag, handTruck, roundedBox, screenGeo, screenMat, menuMat,
+  SCREENS, AD, SHOP_GLASS, litWall, waffleMat, rng, canvasTex, glowMat, once, tiledBox, gableGeo, arrow,
+  CHROME, CARDBOARD, TAPE, TERRACOTTA, POT, GRAVEL, FRAME, CONCRETE, LEAVES, BLOSSOM, PINE, ASPHALT, LINE, LEAF_MOUND, BLOOM, DOOR_GLASS,
+};

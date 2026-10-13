@@ -380,6 +380,8 @@ export const KIT = { facadeBox, facadeCylinder, GLASS, DARK, BAND, STONE, HOME, 
 
 // Menüler ve şehir için hazır kuleler: 'proc/tower-<boy>-<çeşit>'. types: hangi biçimler (sırayla)
 export const TOWER_MODELS: Record<string, () => THREE.Object3D> = {};
+// Konutların giriş kapısı (yerel x, z; ön yüz +z): insanlar yürüyerek bu kapıdan girip çıkar
+export const DOORS: Record<string, [number, number]> = {};
 // Çatısında helikopter pisti olan kuleler: pistin yerden yüksekliği (helikopterler buraya iner)
 export const HELIPADS: Record<string, number> = {};
 export const towerPaths = (height: number, count: number, seed: number, types: number[]) =>
@@ -389,6 +391,7 @@ export const towerPaths = (height: number, count: number, seed: number, types: n
     const type = types[k % types.length];
     TOWER_MODELS[path] = () => makeTower(h, seed + k * 13, type);
     if (type === 0) HELIPADS[path] = h + 0.17;
+    DOORS[path] = [0, type === 5 || type === 6 ? 0.41 : 0.44];
     return path;
   });
 
@@ -399,5 +402,6 @@ export const midrisePaths = (height: number, count: number, seed: number, types:
     const h = height * (0.92 + hash(seed + k, 9) * 0.16);
     const type = types[k % types.length];
     TOWER_MODELS[path] = () => makeTower(h, seed + k * 13, type);
+    DOORS[path] = [0, type === 5 || type === 6 ? 0.41 : 0.44];
     return path;
   });

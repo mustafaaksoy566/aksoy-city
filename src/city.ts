@@ -1497,7 +1497,7 @@ export class City {
     const t = this.tiles[this.anchorOf(from)];
     if (!t) return [0, 1, 2, 3];
     const to = t.kind === 'station' ? 'rail' : NEEDS_WATER.includes(t.kind as BuildTool) ? 'water' : 'road';
-    const list = this.openSides(idx(x, z), t.fp ?? 1, to);
+    const list = this.openSides(idx(x, z), Math.max(t.fp ?? 1, sizeOf(t.kind)), to);
     return list.length ? list : [0, 1, 2, 3];
   }
 
@@ -1525,7 +1525,10 @@ export class City {
   moveBuilding(from: number, x: number, z: number, facing?: number): { error: string | null; cells: number[] } {
     const a = this.anchorOf(from);
     const to = idx(x, z);
-    if (to === a) {
+    // Eski kayıttan kalan küçük bina (1x1 dükkân) taşınınca yeni boyuna (otoparklı 2x2) büyür
+    const t0 = this.tiles[a];
+    const grow = !!t0 && (t0.fp ?? 1) < sizeOf(t0.kind);
+    if (to === a && !grow) {
       // Yerinde döndürme
       if (facing === undefined || !this.canMove(a)) return { error: null, cells: [] };
       this.tiles[a]!.facing = facing;
@@ -1535,8 +1538,10 @@ export class City {
     const err = this.moveCheck(a, x, z);
     if (err) return { error: err, cells: [] };
     const t = this.tiles[a]!;
-    const n = t.fp ?? 1;
+    // Eski kareler büyümeden önce alınır (yoksa 1x1 dükkânın yanındaki binalar da silinirdi)
     const old = this.cellsOf(a);
+    const n = Math.max(t.fp ?? 1, sizeOf(t.kind));
+    if (n > 1) t.fp = n;
     const jobs = this.jobs.get(a);
     for (const c of old) {
       this.tiles[c] = null;
@@ -1859,7 +1864,22 @@ export class City {
     });
     c.placeHall();
     c.refresh();
+    c.growShops();
     c.fillQuests();
     return c;
+  }
+
+  // Eski kayıtlardaki 1x1 dükkânlar: yanında boş yer varsa yerinde otoparklı 2x2 dükkâna büyür
+  // (yer yoksa eski haliyle kalır; kartındaki "Taşı" ile boş bir yere taşınınca büyür)
+  growShops() {
+    this.tiles.forEach((t, i) => {
+      if (!t || !SHOPS.includes(t.kind as IndustryKind) || (t.fp ?? 1) >= sizeOf(t.kind)) return;
+      const x = i % SIZE, z = Math.floor(i / SIZE);
+      for (const [ax, az] of [[x, z], [x - 1, z], [x, z - 1], [x - 1, z - 1]]) {
+        if (!block(ax, az, 2) || this.moveCheck(i, ax, az)) continue;
+        this.moveBuilding(i, ax, az);
+        break;
+      }
+    });
   }
 }
