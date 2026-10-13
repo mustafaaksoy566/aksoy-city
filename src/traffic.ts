@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, Z0, ROAD_GRADES, ENTRANCE_Z, UNDERPASS, INDUSTRY, RES_LEVELS } from './config';
+import { SIZE, X0, Z0, ROAD_GRADES, ENTRANCE_Z, UNDERPASS, INDUSTRY, RES_LEVELS } from './config';
 import { CarSet, CAR_KINDS, CAR_SCALE, BUS_SCALE, carPaint, type CarKind } from './cars';
 import { City, DIRS, idx, inBounds } from './city';
 import { bakeModel, vertexColorMat } from './batcher';
@@ -608,7 +608,7 @@ export class Traffic {
   private frontRoad(i: number, facing: number, site: Site, x: number) {
     const fronts = this.city.cellsOf(i).map(c => neighbor(c, facing)).filter(r => isRoadTile(this.city, r));
     const ahead = this.siteWorld(i, facing, site, x, site.n / 2 + 0.5);
-    const ax = Math.floor(ahead.x + SIZE / 2), az = Math.floor(ahead.z + Z0);
+    const ax = Math.floor(ahead.x + X0), az = Math.floor(ahead.z + Z0);
     const road = inBounds(ax, az) ? idx(ax, az) : -1;
     if (fronts.includes(road)) return road;
     let best = Infinity, near = -1;

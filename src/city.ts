@@ -5,7 +5,7 @@ import {
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
-  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
+  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH,
   HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
@@ -304,7 +304,7 @@ export class City {
     }
     const out = [i];
     for (const s of [-1, 1]) {
-      for (let k = 1; k < SIZE; k++) {
+      for (let k = 1; k < ROWS; k++) {
         const x = alongX ? x0 + s * k : x0, z = alongZ ? z0 + s * k : z0;
         if (!this.isRoad(x, z)) break;
         const mk = this.roadMask(x, z);
@@ -1772,8 +1772,10 @@ export class City {
     // Eski 32x32 kayıtlar yeni haritanın ortasına taşınır; kare haritalı kayıtlar kuzeye eklenen deniz sıraları kadar aşağı kayar
     const oldSize = data.v === 5 ? data.sz : OLD_SIZE;
     const oldRows = (data.v === 5 && data.rows) || oldSize;
-    const shiftX = (SIZE - oldSize) / 2;
-    const shiftZ = shiftX + (ROWS - SIZE) - (oldRows - oldSize);
+    // 48 kareden dar eski haritalar 48'lik haritanın ortasındaydı; 48 ve daha geniş haritalar batıdan hizalı
+    // (harita doğuya ve güneye büyüdü, eski kareler aynı yerde kalır)
+    const shiftX = oldSize < OLD_W ? (OLD_W - oldSize) / 2 : 0;
+    const shiftZ = shiftX + NORTH - (oldRows - oldSize);
     const move = (i: number) => idx((i % oldSize) + shiftX, Math.floor(i / oldSize) + shiftZ);
     if (data.v === 5) {
       c.owned.fill(0);

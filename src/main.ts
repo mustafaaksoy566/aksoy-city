@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  SIZE, ROWS, X0, Z0, PLOT, PLOTS, DAY_SECONDS, dayNumber, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
@@ -100,7 +100,7 @@ camera.position.set(start.x + 8, 11, start.z + 8);
 // Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
 // Kamera şehrin batısındaki dağın eteğine (kayak merkezi, tünel, kavşak) kadar gidebilir
 // Batıda göbek kavşağa ve tünel ağzına kadar gezilir (tünel ağzı x = -44'te; hedef dağın içine girmesin)
-const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2 - 19, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 + 6 });
+const rig = new CameraRig(camera, renderer.domElement, { minX: -X0 - 19, maxX: SIZE - X0, minZ: -Z0, maxZ: ROWS - Z0 + 6 });
 rig.target.copy(start);
 rig.distance = 15;
 rig.apply();
@@ -135,7 +135,7 @@ function followShadow() {
 // İnşa ızgarası: haritanın kareleri (dikdörtgen)
 const grid = (() => {
   const pts: number[] = [];
-  const x0 = -SIZE / 2, x1 = SIZE / 2, z0 = -Z0, z1 = ROWS - Z0;
+  const x0 = -X0, x1 = SIZE - X0, z0 = -Z0, z1 = ROWS - Z0;
   for (let x = x0; x <= x1; x++) pts.push(x, 0, z0, x, 0, z1);
   for (let z = z0; z <= z1; z++) pts.push(x0, 0, z, x1, 0, z);
   const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
@@ -234,7 +234,7 @@ const updateStats = () =>
     storage: { used: city.storageUsed, cap: city.storageCap },
     happiness: city.happiness,
     questsReady: city.quests.filter(q => questDone(city, q)).length,
-    day: city.day,
+    day: dayNumber(city.day),
     night: phase(((city.day % CYCLE_DAYS) + 0.5) / CYCLE_DAYS).night > 0.5,
   });
 let cityName = readPref(NAME_KEY) || 'Aksoy City';
@@ -1741,7 +1741,7 @@ loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod, dayNight, frame } });
   })
   .catch(err => {
     console.error(err);

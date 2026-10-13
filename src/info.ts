@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
   MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, type MatId, type BuildTool,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, DAY_SECONDS, perDay, dayNumber, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -157,7 +157,7 @@ export function describeHall(city: City, act: CardActions): InfoCard {
     tone: '#3949ab',
     stats: [
       { icon: '🏛️', value: `💰${fmt(pending)}`, label: 'Toplanacak', good: pending > 0 },
-      { icon: '📈', value: `+${fmt(Math.round(city.dailyTax))}`, label: 'Günlük vergi' },
+      { icon: '📈', value: `+${fmt(Math.round(perDay(city.dailyTax)))}`, label: 'Günlük vergi' },
       { icon: '😊', value: `${mood(happy)} ${pct(happy)}`, label: 'Mutluluk' },
     ],
     lines: [{ text: `Mutlu şehir daha çok vergi öder: şu an x${(0.5 + happy).toFixed(1)}` }],
@@ -175,18 +175,19 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
     else if (isIndustry(t.kind)) upkeep.industry += INDUSTRY[t.kind].upkeep;
     else if (isDecor(t.kind)) upkeep.decor += DECOR[t.kind].upkeep;
   }
-  const income = Math.round(city.dailyTax);
-  const net = city.dailyIncome;
+  // Kartta bir günün (gece-gündüz turu) toplamı yazılır
+  const income = Math.round(perDay(city.dailyTax));
+  const net = perDay(city.dailyIncome);
   const pending = Math.floor(city.treasury);
   const lines: InfoCard['lines'] = [
-    { text: `👥 Konut vergisi: +${fmt(Math.round(city.residentTax))}` },
-    { text: `💼 İş yeri vergisi: +${fmt(Math.round(city.jobsTotal * TAX_PER_JOB))}` },
+    { text: `👥 Konut vergisi: +${fmt(Math.round(perDay(city.residentTax)))}` },
+    { text: `💼 İş yeri vergisi: +${fmt(Math.round(perDay(city.jobsTotal * TAX_PER_JOB)))}` },
   ];
-  if (city.tourism) lines.push({ text: `🏖️ Turizm: +${fmt(city.tourism)}` });
-  lines.push({ text: `⚡ Altyapı bakımı: −${fmt(upkeep.util)}` });
-  lines.push({ text: `🚒 Hizmet bakımı: −${fmt(upkeep.service)}` });
-  if (upkeep.industry) lines.push({ text: `🏭 Sanayi bakımı: −${fmt(upkeep.industry)}` });
-  if (upkeep.decor) lines.push({ text: `🎡 Simge yapı bakımı: −${fmt(upkeep.decor)}` });
+  if (city.tourism) lines.push({ text: `🏖️ Turizm: +${fmt(perDay(city.tourism))}` });
+  lines.push({ text: `⚡ Altyapı bakımı: −${fmt(perDay(upkeep.util))}` });
+  lines.push({ text: `🚒 Hizmet bakımı: −${fmt(perDay(upkeep.service))}` });
+  if (upkeep.industry) lines.push({ text: `🏭 Sanayi bakımı: −${fmt(perDay(upkeep.industry))}` });
+  if (upkeep.decor) lines.push({ text: `🎡 Simge yapı bakımı: −${fmt(perDay(upkeep.decor))}` });
   if (city.hall !== null) lines.push({ text: 'Vergiler belediyede birikir, oradan toplanır.' });
   return {
     title: 'Bütçe',
@@ -195,7 +196,7 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
     tone: '#2e7d32',
     stats: [
       { icon: '📈', value: `+${fmt(income)}`, label: 'Gelir' },
-      { icon: '📉', value: `−${fmt(city.upkeep)}`, label: 'Gider' },
+      { icon: '📉', value: `−${fmt(perDay(city.upkeep))}`, label: 'Gider' },
       { icon: '💰', value: `${net >= 0 ? '+' : ''}${fmt(net)}`, label: 'Günlük kâr', good: net >= 0, bad: net < 0 },
     ],
     lines,
@@ -212,7 +213,7 @@ export function describeCity(city: City, name = 'Aksoy City'): InfoCard {
   const shops = city.tiles.filter(t => t && (MAKERS as string[]).includes(t.kind) && t.kind !== 'factory').length;
   return {
     title: name,
-    subtitle: `Şehir seviyesi ${p.level} · ${fmt(city.day)}. gün`,
+    subtitle: `Şehir seviyesi ${p.level} · ${fmt(dayNumber(city.day))}. gün`,
     icon: '🏙️',
     tone: '#1e6fd9',
     stats: [
@@ -425,7 +426,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     if (t.fire) {
       return {
         title: `${name} yanıyor!`,
-        subtitle: `${FIRE.days - t.fire + 1} gün içinde söndürülmeli`,
+        subtitle: `${(FIRE.days - t.fire + 1) * DAY_SECONDS} saniye içinde söndürülmeli`,
         icon: '🔥',
         tone: '#e64a19',
         lines: [
@@ -533,7 +534,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       stats: [
         { icon: '😊', value: `+${pct(city.decorHappy(i))}`, label: `${city.decorRadius(i)} kare çevre` },
         { icon: '⭐', value: `${t.level + 1}/${METRO_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
-        { icon: '🔧', value: `−${DECOR.metro.upkeep + t.level * 3}`, label: 'Günlük bakım' },
+        { icon: '🔧', value: `−${fmt(perDay(DECOR.metro.upkeep + t.level * 3))}`, label: 'Günlük bakım' },
       ],
       lines,
       actions,
@@ -558,7 +559,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       stats: [
         { icon: '🚗', value: `${lv.cars}`, label: 'Araba yeri' },
         { icon: '⭐', value: `${t.level + 1}/${PARKING_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
-        { icon: '🔧', value: `−${DECOR.parking.upkeep + t.level}`, label: 'Günlük bakım' },
+        { icon: '🔧', value: `−${fmt(perDay(DECOR.parking.upkeep + t.level))}`, label: 'Günlük bakım' },
       ],
       lines,
       actions: next
@@ -577,9 +578,9 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     if (d.road) lines.push(road);
     const stats: NonNullable<InfoCard['stats']> = [
       { icon: '😊', value: `+${pct(d.happy)}`, label: `${d.radius} kare çevre` },
-      { icon: '🔧', value: `−${d.upkeep}`, label: 'Günlük bakım' },
+      { icon: '🔧', value: `−${fmt(perDay(d.upkeep))}`, label: 'Günlük bakım' },
     ];
-    if (d.income) stats.unshift({ icon: '✈️', value: `+${fmt(d.income)}`, label: 'Turist/gün', good: true });
+    if (d.income) stats.unshift({ icon: '✈️', value: `+${fmt(perDay(d.income))}`, label: 'Turist/gün', good: true });
     return { title: TOOL_INFO[t.kind].label, subtitle: 'Simge yapı', thumb: t.kind, tone: groupColor(t.kind), stats, lines };
   }
 
@@ -600,7 +601,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       stats: [
         { icon: u.power ? '⚡' : '💧', value: `+${(u.power || u.water) * mult}`, label: u.power ? 'Elektrik' : 'Su' },
         { icon: '⭐', value: `${t.level + 1}/${UTIL_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
-        { icon: '🔧', value: `−${Math.round(u.upkeep * (1 + t.level * 0.5))}`, label: 'Günlük bakım' },
+        { icon: '🔧', value: `−${fmt(Math.round(perDay(u.upkeep * (1 + t.level * 0.5))))}`, label: 'Günlük bakım' },
       ],
       lines,
       actions: next && cost !== null
@@ -620,7 +621,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
       stats: [
         { icon: '📏', value: `${s.radius} kare`, label: 'Kapsama' },
         { icon: '🏠', value: fmt(homes), label: 'Konut' },
-        { icon: '🔧', value: `−${s.upkeep}`, label: 'Bakım' },
+        { icon: '🔧', value: `−${fmt(perDay(s.upkeep))}`, label: 'Günlük bakım' },
       ],
       lines: [road],
     };

@@ -6,10 +6,11 @@
 const cityMod = await import('/src/city.ts');
 const cfg = await import('/src/config.ts');
 const { City, serviceArea } = cityMod;
-const W = 48;
+const W = cfg.SIZE;
 const I = (x, z) => z * W + x;
 const c = new City();
-c.owned.fill(1);
+// Hazır şehir eski 48x64'lük alanda kurulur; doğudaki ve güneydeki yeni araziler satın alınmamış kalır
+c.owned.forEach((_, p) => (c.owned[p] = p % cfg.PLOTS < 6 && Math.floor(p / cfg.PLOTS) < 8 ? 1 : 0));
 c.xp = 99999;
 c.money = 5e8;
 const errs = [];

@@ -1,6 +1,6 @@
 import {
   BUILD_GROUPS, TOOL_INFO, COST, FOOTPRINT, UTILITIES, SERVICES, DECOR, MATERIALS, MAT_IDS, DEPOT_STORAGE,
-  RES_LEVELS, HOUSE_PRICE, houseName,
+  RES_LEVELS, HOUSE_PRICE, houseName, perDay,
   type Tool, type BuildTool, type BuildGroup,
 } from './config';
 import { isUtility, isService, isDecor, type Service } from './city';
@@ -50,10 +50,10 @@ function effectOf(t: BuildTool): string {
     if (t === 'station') return '🚆 Tren seferleri';
     if (t === 'busstop') return '🚌 Otobüs hattı';
     if (t === 'parking') return '🚗 3 araçlık park yeri';
-    if (t === 'beach') return `🏖️ +${fmt(d.income ?? 0)}/gün, su kıyısı`;
-    if (t === 'marina') return `⛵ +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
-    if (t === 'lighthouse') return `🗼 +${fmt(d.income ?? 0)}/gün, deniz kıyısı`;
-    if (d.income) return `✈️ +${fmt(d.income)}/gün turist`;
+    if (t === 'beach') return `🏖️ +${fmt(perDay(d.income ?? 0))}/gün, su kıyısı`;
+    if (t === 'marina') return `⛵ +${fmt(perDay(d.income ?? 0))}/gün, deniz kıyısı`;
+    if (t === 'lighthouse') return `🗼 +${fmt(perDay(d.income ?? 0))}/gün, deniz kıyısı`;
+    if (d.income) return `✈️ +${fmt(perDay(d.income))}/gün turist`;
     if (d.covers) return `🎓 ${d.radius} kare okul alanı`;
     return `😊 Mutluluk +%${Math.round(d.happy * 100)}`;
   }
@@ -263,7 +263,7 @@ export function setCityName(name: string) {
 
 export function setStats(s: Stats) {
   $('money-v').textContent = fmt(s.money);
-  $('income-v').textContent = `${s.income >= 0 ? '+' : ''}${fmt(s.income)}/gün`;
+  $('income-v').textContent = `${s.income >= 0 ? '+' : ''}${fmt(perDay(s.income))}/gün`;
   $('income-v').classList.toggle('neg', s.income < 0);
   $('pop-v').textContent = fmt(s.pop);
   $('lvl-v').textContent = String(s.level.level);

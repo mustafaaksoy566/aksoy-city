@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, ROWS, Z0 } from './config';
+import { SIZE, ROWS, X0, Z0 } from './config';
 import type { City } from './city';
 
 // Yeraltı (metro) görünümü: şehir koyu bir örtüyle kararır, sokaklar silik görünür, metro hatları
@@ -10,7 +10,7 @@ export const LINE_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fbc02d', '#8e24aa
 const IDLE = '#9aa5b1';
 const Y = 0.14;
 const DIRS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-const center = (i: number, y = Y) => new THREE.Vector3((i % SIZE) - SIZE / 2 + 0.5, y, Math.floor(i / SIZE) - Z0 + 0.5);
+const center = (i: number, y = Y) => new THREE.Vector3((i % SIZE) - X0 + 0.5, y, Math.floor(i / SIZE) - Z0 + 0.5);
 
 // Üstte çizilen (örtünün üstünde kalan) düz malzeme
 const overlay = (color: string, opacity = 1) =>

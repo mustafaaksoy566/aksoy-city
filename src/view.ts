@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
+import { SIZE, X0, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
@@ -43,7 +43,7 @@ const POLE_MAT = new THREE.MeshStandardMaterial({ color: '#3a4652', roughness: 0
 const STREET = {
   base: new THREE.CylinderGeometry(0.014, 0.018, 0.016, 8),
   pole: new THREE.CylinderGeometry(0.0048, 0.0072, 0.42, 7),
-  arm: new THREE.TorusGeometry(0.06, 0.0035, 5, 10, Math.PI / 2),
+  arm: new THREE.TorusGeometry(0.06, 0.0035, 4, 6, Math.PI / 2), // lamba çok, az üçgenli
   reach: new THREE.CylinderGeometry(0.0035, 0.0035, 0.07, 5).rotateZ(Math.PI / 2),
   head: new THREE.BoxGeometry(0.07, 0.012, 0.03),
   lens: new THREE.BoxGeometry(0.056, 0.004, 0.022),
@@ -192,7 +192,7 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
     if (!nearJunction) {
       add(roadDeco.geo.barrier, roadDeco.curb, 0, 0.066, 0);
       for (const side of [-1, 1]) add(roadDeco.geo.edge, roadDeco.yellow, side * 0.03, 0.0515, 0);
-      if (along % 3 === 0) lamp(0.36);
+      if (along % 2 === 0) lamp(0.36);
     }
   }
   if (alongX) g.rotation.y = Math.PI / 2;
@@ -600,7 +600,11 @@ export function entranceTile(grade: number, along: number) {
   r.rotation.y = Math.PI / 2;
   g.add(r);
   if (grade) g.add(roadExtras(grade, true, along, false, along * 7));
-  else if (along % 3 === 0) g.add(streetLight(0, 0.46, -Math.PI / 2));
+  else {
+    // Şehirdeki yollar gibi her karede lamba, sırayla iki kaldırımda
+    const side = along % 2 === 0 ? 1 : -1;
+    g.add(streetLight(0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
+  }
   return g;
 }
 
@@ -649,9 +653,9 @@ export function roadPiece(mask: number) {
 // Binaların kapısı modelde güneye bakıyor; istenen yöne çevirmek için kaç tur
 export const FACING_TURNS = [2, 1, 0, 3];
 
-export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - SIZE / 2 + 0.5, 0, z - Z0 + 0.5);
+export const tileCenter = (x: number, z: number) => new THREE.Vector3(x - X0 + 0.5, 0, z - Z0 + 0.5);
 // Kare kenarlarının dünya koordinatı
-const wx = (x: number) => x - SIZE / 2;
+const wx = (x: number) => x - X0;
 const wz = (z: number) => z - Z0;
 
 type IconType = 'road' | 'power' | 'water' | 'upgrade' | 'full' | 'fire' | 'repair' | 'coin' | 'sale' | 'traffic';
@@ -1666,17 +1670,34 @@ export class CityView {
     if (straight && !grade && !nearJunction) g.add(streetDetails(x, z, alongX));
     if (straight) {
       const along = alongX ? x : z;
-      const side = hash(x, z) < 0.5 ? 1 : -1;
-      // Lambanın kolu yola doğru uzansın (bulvarda lambalar refüjde)
-      if (grade === 0 && along % 3 === 0) {
-        if (alongX) g.add(streetLight(0, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
-        else g.add(streetLight(side * 0.46, 0, side > 0 ? 0 : Math.PI));
-      } else if (grade === 0 && along % 5 === 1 && hash(x, z, 2) < 0.6) {
-        if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
-        else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
+      // Sokak lambası her karede, sırayla bir sağ bir sol kaldırımda (her kaldırımda iki karede bir lamba).
+      // Kolu yola doğru uzanır; yaya geçidi olan karede geçitten uzakta durur. Bulvar ve caddede lambalar refüjde.
+      const side = (along + (alongX ? z : x)) % 2 === 0 ? 1 : -1;
+      const off = nearJunction ? 0.3 : 0;
+      if (grade === 0) {
+        if (alongX) g.add(streetLight(off, side * 0.46, side > 0 ? -Math.PI / 2 : Math.PI / 2));
+        else g.add(streetLight(side * 0.46, off, side > 0 ? 0 : Math.PI));
+        // Yangın musluğu karşı kaldırımda
+        if (along % 5 === 1 && hash(x, z, 2) < 0.6) {
+          if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
+          else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
+        }
       }
     } else if (p.model === 'proc/road-junction' || p.model === 'proc/road-tsplit') {
       g.add(signalPost(idx(x, z), mask));
+      // T kavşağın düz kaldırımında (yolun gelmediği yanda) kavşağı aydınlatan lamba
+      if (p.model === 'proc/road-tsplit' && grade === 0) {
+        const holder = new THREE.Group();
+        holder.rotation.y = (p.k * Math.PI) / 2;
+        holder.add(streetLight(-0.46, 0, Math.PI));
+        g.add(holder);
+      }
+    } else if (p.model === 'proc/road-corner' && grade === 0) {
+      // Virajın dış kaldırımında, kolu dönemecin ortasına uzanan lamba
+      const holder = new THREE.Group();
+      holder.rotation.y = (p.k * Math.PI) / 2;
+      holder.add(streetLight(0.5 - 0.975 * Math.SQRT1_2, 0.5 - 0.975 * Math.SQRT1_2, (3 * Math.PI) / 4));
+      g.add(holder);
     }
     if (!straight && grade) g.add(junctionExtras(grade, mask));
     return g;

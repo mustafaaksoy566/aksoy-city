@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { DAY_STEPS } from './config';
 
 // Gece-gündüz: bir tam döngü CYCLE_DAYS oyun günü sürer.
 // Gece olunca ışık azalır, gökyüzü kararır, pencereler ve araba farları yanar.
-export const CYCLE_DAYS = 30;
+export const CYCLE_DAYS = DAY_STEPS;
 
 const SKY_DAY = new THREE.Color('#9fd8f0');
 const SKY_DUSK = new THREE.Color('#f4a26b');

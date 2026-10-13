@@ -2,11 +2,15 @@
 import { midrisePaths } from './towers';
 import { skylinePaths, SKY_NAMES } from './skyline';
 import { cottagePaths, familyPaths, smallAptPaths } from './houses';
-export const SIZE = 48; // haritanın genişliği (x yönünde kare sayısı)
+// Harita 48x64'ten doğuya ve güneye 16'şar kare büyüdü (nehrin ötesinde yeni araziler). Eski kareler
+// dünyada aynı yerde kalır: batı kenarı x = -24, kuzey kenarı z = -40.
+export const SIZE = 64; // haritanın genişliği (x yönünde kare sayısı)
 // Harita kuzeye, denize doğru uzatıldı: kuzeydeki 16 sıra deniz ve içinde bir ada
 export const NORTH = 16;
 export const ROWS = SIZE + NORTH; // haritanın boyu (z yönünde kare sayısı)
-export const Z0 = SIZE / 2 + NORTH; // kare z'den dünya z'ye: dünya z = z - Z0
+export const X0 = 24; // kare x'ten dünya x'e: dünya x = x - X0 (batı kenarı)
+export const Z0 = X0 + NORTH; // kare z'den dünya z'ye: dünya z = z - Z0
+export const OLD_W = 48; // 48 kare genişliğindeki kayıtlar yeni haritada kaymadan durur
 
 // Arazi: harita 8x8'lik parçalara bölünür. Başta ortadaki 32x32 alan senindir, gerisi satın alınır.
 export const PLOT = 8;
@@ -21,8 +25,8 @@ export const LAND = { price: 1500, step: 750, level: 3 }; // her yeni parça bir
 
 // Nehir: başlangıç arazisinin doğusundan ve güneyinden geçer, kuzeyde denize dökülür.
 // Su üstüne sadece yol ya da ray (köprü) yapılabilir; köprü normalden pahalıdır.
-export const RIVER = [SIZE - 7, SIZE - 6]; // nehrin doğudaki iki sütunu (x)
-export const RIVER_ROWS = [ROWS - 7, ROWS - 6]; // nehrin güneydeki iki satırı (z)
+export const RIVER = [41, 42]; // nehrin doğudaki iki sütunu (x)
+export const RIVER_ROWS = [57, 58]; // nehrin güneydeki iki satırı (z)
 export const BRIDGE_COST = 6; // köprü, normal yol/rayın kaç katı
 // Sahil: haritanın kuzey kenarındaki ilk iki sıra deniz, sonraki iki sıra kumsal (kuzeydeki arazilerle satın alınır)
 export const SEA_ROWS = 2;
@@ -32,13 +36,20 @@ export const COAST_ROW = NORTH + SEA_ROWS; // ana karanın ilk kumsal sırası
 export const ISLAND = { cx: 22, cz: 7.5, rx: 9.6, rz: 4.3 };
 // Denizin üstündeki yol: asma köprü (normal yolun kaç katı, hangi seviyede açılır)
 export const SEA_BRIDGE = { cost: 15, level: 5 };
-export const DAY_SECONDS = 4; // bir oyun günü kaç saniye sürer
+// Ekonomi adımı (vergi, bakım, binaların büyümesi) kaç saniyede bir olur. Ekranda yazan gün bundan
+// yavaştır: bir gün = bir gece-gündüz turu (CYCLE_DAYS adım, bkz. daynight.ts dayNumber).
+export const DAY_SECONDS = 4;
+export const DAY_STEPS = 30; // bir gün (gece-gündüz turu, 2 dakika) kaç ekonomi adımı
+// Adım başına değerin (vergi, bakım, turist) bir günlük toplamı: kartlarda "günlük" diye bu yazılır
+export const perDay = (v: number) => v * DAY_STEPS;
+// Ekranda yazan gün: güneş doğarken (turun %93'ünde) bir artar; ilk gün 1
+export const dayNumber = (step: number) => Math.floor((step + 2) / DAY_STEPS) + 1;
 export const START_MONEY = 3000;
 export const TAX_PER_PERSON = 0.5; // kişi başı günlük vergi
 export const TAX_PER_JOB = 0.5; // iş yeri başına günlük vergi
 
 // Şehir girişi: haritanın sol kenarından giren, yıkılamayan yol (satın alınmamış arazinin içinden geçer)
-export const ENTRANCE_Z = SIZE / 2 + NORTH;
+export const ENTRANCE_Z = Z0;
 export const ENTRANCE_LEN = PLOT * START_PLOT_MIN + 3;
 
 // Elektrik ve su yapıları

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE } from './config';
+import { SIZE, X0 } from './config';
 import { makeBoat, SEA_BOATS } from './boats';
 import { makeAirliner } from './planes';
 import { busModel } from './vehicles';
@@ -12,7 +12,7 @@ import type { City } from './city';
 // Havalimanı varsa uçaklar pistten kalkıp iner; yoksa arada bir şehrin üstünden geçer.
 // Hepsi sadece görüntü; oyunu etkilemez.
 
-const HALF = SIZE / 2;
+const HALF = X0; // gemi yolları: şehrin kuzeyindeki deniz (eski haritanın yarısı kadar açıkta)
 const UP = new THREE.Vector3(0, 1, 0);
 
 // --- Basit modeller ---
