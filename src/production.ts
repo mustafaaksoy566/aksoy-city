@@ -48,8 +48,7 @@ export class ProductionPanel {
   i: number | null = null;
   private root: HTMLElement;
   private head: HTMLElement;
-  private belt: HTMLElement;
-  private crates: HTMLElement;
+  private lines: HTMLElement;
   private shelf: HTMLElement;
   private tip: HTMLElement;
   private ring: HTMLElement;
@@ -79,18 +78,14 @@ export class ProductionPanel {
       <div class="ptg"></div>
       <div class="pbench">
         <div class="pbhead"><span class="pbt">Üretim bandı</span><small class="pbc"></small><button class="pu"></button></div>
-        <div class="pline">
-          <div class="pcrates"></div>
-          <div class="pbelt"><i class="roll l"></i><i class="roll r"></i></div>
-        </div>
+        <div class="plines"></div>
         <div class="pshelf"></div>
       </div>
       <div class="ptip" hidden></div>`;
     document.body.appendChild(root);
     this.root = root;
     this.head = root.querySelector('.ph')!;
-    this.belt = root.querySelector('.pbelt')!;
-    this.crates = root.querySelector('.pcrates')!;
+    this.lines = root.querySelector('.plines')!;
     this.shelf = root.querySelector('.pshelf')!;
     this.tip = root.querySelector('.ptip')!;
     this.ring = root.querySelector('.ptg')!;
@@ -110,6 +105,12 @@ export class ProductionPanel {
       const t = e.target as HTMLElement;
       if (!t.closest('.ptip') && !t.closest('.cr')) this.hideTip();
     });
+    // Ekran dönünce ya da boyu değişince koliler banda yeniden sığdırılsın
+    window.addEventListener('resize', () => {
+      if (this.i === null) return;
+      this.lines.dataset.shape = '';
+      this.renderBelt();
+    });
   }
 
   get isOpen() {
@@ -124,7 +125,7 @@ export class ProductionPanel {
     this.hideTip();
     if (was !== i) {
       this.shelfSig = '';
-      this.crates.dataset.shape = '';
+      this.lines.dataset.shape = '';
       this.shelf.scrollLeft = 0;
     }
     this.refresh();
@@ -332,7 +333,7 @@ export class ProductionPanel {
     const list: Job[] = city.jobs.get(i) ?? [];
     const slots = city.makerSlots(i);
     const factory = this.kind === 'factory';
-    let html = '';
+    const cells: string[] = [];
     let shape = '';
     const live: { p: number; label: string }[] = [];
     let running = 0;
@@ -346,28 +347,46 @@ export class ProductionPanel {
       const label = ready ? '✓ Topla' : run ? clock((job.end - now) / 1000) : 'Sırada';
       live.push({ p, label });
       shape += `${k}${cls}${job.mat};`;
-      html += `<button class="cr ${cls}" data-k="${k}" style="--p:${p.toFixed(3)}"><span class="crp">${productPic(job.mat)}</span><i class="lid"></i><i class="box"></i><i class="bar"><b></b></i><small>${label}</small></button>`;
+      cells.push(`<button class="cr ${cls}" data-k="${k}" style="--p:${p.toFixed(3)}"><span class="crp">${productPic(job.mat)}</span><i class="lid"></i><i class="box"></i><i class="bar"><b></b></i><small>${label}</small></button>`);
     });
-    for (let n = list.length; n < slots; n++) html += `<button class="cr empty" data-k="-1"><i class="box"></i><small>Boş</small></button>`;
+    for (let n = list.length; n < slots; n++) cells.push(`<button class="cr empty" data-k="-1"><i class="box"></i><small>Boş</small></button>`);
     const price = city.slotPrice(i);
-    if (price !== null) html += `<button class="cr plus" data-k="-2"><b>+</b><small>💰${fmt(price)}</small></button>`;
+    if (price !== null) cells.push(`<button class="cr plus" data-k="-2"><b>+</b><small>💰${fmt(price)}</small></button>`);
     shape += `${slots}|${price}|${PICS.size}`;
-    this.belt.classList.toggle('moving', running > 0);
     this.count.textContent = `${list.length}/${slots} ${factory ? 'aynı anda' : 'sırada'}`;
     // Düzen aynıysa sadece süre ve dolum çubuğu güncellenir (dokunurken koli yerinden oynamasın)
-    if (this.crates.dataset.shape === shape) {
-      this.crates.querySelectorAll<HTMLElement>('.cr').forEach((b, n) => {
+    if (this.lines.dataset.shape === shape) {
+      this.lines.querySelectorAll<HTMLElement>('.cr').forEach((b, n) => {
         const v = live[n];
         if (!v) return;
         b.style.setProperty('--p', v.p.toFixed(3));
         const s = b.querySelector('small');
         if (s && s.textContent !== v.label) s.textContent = v.label;
       });
+      this.lines.querySelectorAll('.pbelt').forEach(b => b.classList.toggle('moving', running > 0));
       return;
     }
-    this.crates.dataset.shape = shape;
-    this.crates.innerHTML = html;
-    this.crates.querySelectorAll<HTMLButtonElement>('.cr').forEach(b => b.addEventListener('click', () => this.tapCrate(+b.dataset.k!, b)));
+    this.lines.dataset.shape = shape;
+    // Koliler hep banda sığar (yana kaymaz): gerekirse küçülür, çok koli olunca ikinci bant açılır
+    const { rows, zoom } = this.fit(cells.length);
+    const per = Math.ceil(cells.length / rows);
+    let html = '';
+    for (let r = 0; r < rows; r++) {
+      html += `<div class="pline"><div class="pcrates">${cells.slice(r * per, (r + 1) * per).join('')}</div><div class="pbelt${running > 0 ? ' moving' : ''}"><i class="roll l"></i><i class="roll r"></i></div></div>`;
+    }
+    this.lines.style.setProperty('--z', zoom.toFixed(3));
+    this.lines.innerHTML = html;
+    this.lines.querySelectorAll<HTMLButtonElement>('.cr').forEach(b => b.addEventListener('click', () => this.tapCrate(+b.dataset.k!, b)));
+  }
+
+  // Kaç sıra bant ve koliler ne kadar küçülsün: tek bantta %70'in altına inecekse iki bant
+  private fit(n: number) {
+    const CRATE = 66, GAP = 10;
+    const avail = Math.max(200, this.lines.clientWidth - 28); // bant ve koli kenar boşlukları
+    const zoomFor = (cols: number) => Math.min(1, (avail - (cols - 1) * GAP) / (cols * CRATE));
+    const one = zoomFor(n);
+    if (one >= 0.7 || n < 4) return { rows: 1, zoom: Math.max(0.5, one) };
+    return { rows: 2, zoom: Math.max(0.5, zoomFor(Math.ceil(n / 2))) };
   }
 
   private tapCrate(k: number, el: HTMLElement) {
@@ -432,7 +451,7 @@ export class ProductionPanel {
       this.hideTip();
       this.refresh();
     });
-    const el = this.crates.querySelector<HTMLElement>(`.cr[data-k="${k}"]`);
+    const el = this.lines.querySelector<HTMLElement>(`.cr[data-k="${k}"]`);
     if (el) this.placeTip(el.getBoundingClientRect());
   }
 

@@ -821,9 +821,13 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 
 /* ---------------- Üretim ekranı (fabrika ve dükkanlar): önden yakın plan, üretim bandı ve ürün rafı ---------------- */
 body.prod-on #res, body.prod-on #actions, body.prod-on #cam, body.prod-on #mode, body.prod-on #info { display: none !important; }
+/* Atölyede sağ sütundan sadece depo kalır (ürünler oraya uçar), diğerleri tabelanın altından taşmasın; uyarı yazıları tabelanın altında çıkar */
+body.prod-on #quests, body.prod-on #metro-btn, body.prod-on #settings { visibility: hidden; }
+body.prod-on #toast { top: calc(var(--top) + 186px); }
 #prod { position: fixed; inset: 0; z-index: 8; pointer-events: none; --ax: 50%; --ay: 40%; }
 #prod > * { pointer-events: auto; }
-#prod .pv, #prod .ptg { pointer-events: none; }
+/* Uçan ürün resmi dokunuşu yutmasın (karta art arda dokunulabilsin) */
+#prod .pv, #prod .ptg, #prod .pghost { pointer-events: none; }
 /* Kenarlar hafif kararır, bina aydınlık kalır */
 #prod .pv { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 55% at var(--ax) var(--ay), rgba(8, 20, 40, 0) 40%, rgba(8, 20, 40, 0.38) 100%); animation: pfade 0.3s ease-out; }
 @keyframes pfade { from { opacity: 0; } }
@@ -864,8 +868,11 @@ body.prod-on #res, body.prod-on #actions, body.prod-on #cam, body.prod-on #mode,
 #prod .pu:disabled { opacity: 0.8; font-size: 11.5px; }
 /* Konveyör bant: koliler bandın üstünde durur; üretim varken bant akar */
 #prod .pline { position: relative; padding: 0 6px; }
-#prod .pcrates { position: relative; z-index: 1; display: flex; align-items: flex-end; gap: 10px; min-height: 82px; padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
-#prod .pcrates::-webkit-scrollbar { display: none; }
+#prod .pline + .pline { margin-top: 2px; }
+#prod .pline + .pline .pcrates { padding-top: 4px; }
+/* Koliler banda sığdırılır (production.ts fit): --z küçültme oranı, kaydırma yok */
+#prod .pcrates { position: relative; z-index: 1; display: flex; align-items: flex-end; gap: 10px; min-height: calc(80px * var(--z, 1)); padding: 14px 8px 0; }
+#prod .pcrates .cr { zoom: var(--z, 1); }
 #prod .pbelt { position: relative; height: 16px; margin-top: -5px; border-radius: 8px; background: repeating-linear-gradient(90deg, #2a2f36 0 12px, #3b414a 12px 14px); box-shadow: inset 0 2px 0 #59616c, inset 0 -2px 0 #15181c, 0 4px 0 #0d1014; }
 #prod .pbelt.moving { animation: pbelt 0.9s linear infinite; }
 @keyframes pbelt { to { background-position: 28px 0; } }
@@ -881,9 +888,9 @@ body.prod-on #res, body.prod-on #actions, body.prod-on #cam, body.prod-on #mode,
 .cr .box { position: absolute; z-index: 2; left: 5px; right: 5px; bottom: 4px; height: 40px; border-radius: 4px 4px 5px 5px; background: linear-gradient(#d8a96c, #b98549); box-shadow: inset 0 0 0 2px rgba(110, 70, 30, 0.45), inset 0 8px 0 rgba(255, 255, 255, 0.08), 0 3px 0 #6e4a22; }
 .cr .box::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 10px; margin-left: -5px; background: rgba(240, 214, 160, 0.55); }
 .cr .lid { position: absolute; z-index: 0; left: 1px; right: 1px; bottom: 40px; height: 9px; border-radius: 3px 3px 0 0; background: #8a5d2c; }
-.cr .bar { position: absolute; z-index: 3; left: 11px; right: 11px; bottom: 21px; height: 7px; border-radius: 4px; background: rgba(40, 24, 8, 0.45); overflow: hidden; display: none; }
+.cr .bar { position: absolute; z-index: 3; left: 11px; right: 11px; bottom: 27px; height: 7px; border-radius: 4px; background: rgba(40, 24, 8, 0.45); overflow: hidden; display: none; }
 .cr .bar b { display: block; height: 100%; width: calc(var(--p) * 100%); border-radius: 4px; background: linear-gradient(90deg, #8ef09d, #34a853); transition: width 0.25s linear; }
-.cr small { position: absolute; z-index: 4; left: 50%; bottom: -6px; transform: translateX(-50%); padding: 0 6px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.5); }
+.cr small { position: absolute; z-index: 4; left: 50%; bottom: 7px; transform: translateX(-50%); padding: 0 6px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.5); }
 .cr.run .crp { top: 6px; opacity: 0.92; }
 .cr.run .bar { display: block; }
 /* Sırada: kapalı koli, önünde küçük ürün etiketi */
