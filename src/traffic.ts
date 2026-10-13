@@ -654,9 +654,10 @@ export class Traffic {
     const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 && !this.city.rampOf(spot.road) ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
     const { dir, pt } = this.exitTo(spot, v);
     const f = fwd(spot.face);
-    const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.3);
+    // Binanın içinden tam boyda çıkar (küçükten büyümez)
+    const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, -0.04);
     if (this.busyAt(pt)) return false;
-    v.man = { segs: [seg([g, g.clone().addScaledVector(f, 0.2), pt.clone().addScaledVector(fwd(dir), -0.4), pt])], k: 0, u: 0, end: 'road', dir, road: spot.road, fadeIn: true };
+    v.man = { segs: [seg([g, g.clone().addScaledVector(f, 0.45), pt.clone().addScaledVector(fwd(dir), -0.4), pt])], k: 0, u: 0, end: 'road', dir, road: spot.road, fadeIn: true };
     this.cars.push(v);
     return true;
   }
@@ -697,8 +698,9 @@ export class Traffic {
       const b = this.bayPos(lot, dest.bay!);
       v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), b.clone().addScaledVector(f, 0.4), b])], k: 0, u: 0, end: 'lot', lot, bay: dest.bay, site: lot.tile };
     } else {
-      const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.3);
-      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.25), g])], k: 0, u: 0, end: 'garage', fadeOut: true };
+      // Garaja girerken küçülmez: binanın içine kadar sürer, duvarların arkasında kaybolur
+      const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, -0.04);
+      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.45), g])], k: 0, u: 0, end: 'garage', fadeOut: true };
     }
   }
 
@@ -1108,7 +1110,9 @@ export class Traffic {
       }
       this.tmp.rotation.set(pitch, yaw, 0, 'YXZ');
     }
-    this.tmp.scale.setScalar(CAR_SCALE * THREE.MathUtils.smoothstep(v.fade, 0, 1));
+    // Garaja girip çıkarken boyu değişmez (bina gizler); diğer belirip kaybolmalarda küçülüp büyür
+    const garage = v.man && (v.man.fadeIn || v.man.fadeOut);
+    this.tmp.scale.setScalar(CAR_SCALE * (garage ? 1 : THREE.MathUtils.smoothstep(v.fade, 0, 1)));
     this.tmp.updateMatrix();
     return this.tmp.matrix;
   }

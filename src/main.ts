@@ -42,7 +42,8 @@ import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
   setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, thumbOf, type Quality,
 } from './ui';
-import { ProductionPanel } from './production';
+import { ProductionPanel, setProductPics } from './production';
+import { makeItem, ITEM_IDS } from './items';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
 const QUALITY_KEY = 'aksoy-city-quality';
@@ -166,6 +167,7 @@ function save() {
 let city = loadCity();
 const view = new CityView(city);
 scene.add(view.root);
+view.cam = camera;
 // Yeraltı (metro) görünümü: metro hatları, istasyonlar ve trenler
 const metroView = new MetroView();
 scene.add(metroView.root);
@@ -652,15 +654,16 @@ function openTile(cell: CardKey | null) {
   openCard = cell;
   renderCard();
   highlight();
-  // Hizmet, elektrik ya da su binasına (ya da üstteki elektrik/su göstergesine) dokununca hizmet haritası açılır
-  mapKind = typeof cell === 'number' ? mapKindOf(cell) : cell === 'power' || cell === 'water' ? cell : null;
+  // Hizmet, elektrik ya da su binasına (ya da üstteki elektrik/su göstergesine) dokununca hizmet haritası açılır.
+  // Harita açıkken haritayı kaydırmak, boşa ya da başka binaya dokunmak onu kapatmaz (alanı rahatça görülsün);
+  // başka bir hizmet binasına dokununca onun haritasına geçer, sadece haritanın ✕ düğmesi kapatır.
+  const k = typeof cell === 'number' ? mapKindOf(cell) : cell === 'power' || cell === 'water' ? cell : null;
+  if (k) mapKind = k;
   renderServiceMap();
 }
 onInfoClose(() => {
   openCard = null;
   highlight();
-  mapKind = null;
-  renderServiceMap();
 });
 
 // --- Hizmet haritası (SimCity'deki gibi): şehir beyazlaşır; hizmetin ulaştığı yer yeşil, ulaşmayan evler kırmızı ---
@@ -765,6 +768,11 @@ function highlight() {
 function toggleCard(key: CardKey) {
   if (tool !== 'pan') pickTool('pan');
   catalog.close();
+  // Elektrik/su göstergesine ikinci kez dokununca haritası da kapanır
+  if (openCard === key && (key === 'power' || key === 'water')) {
+    mapKind = null;
+    renderServiceMap();
+  }
   openTile(openCard === key ? null : key);
   play('click', 0.3);
 }
@@ -1174,6 +1182,8 @@ document.getElementById('build')!.addEventListener('click', () => {
   closeProduction();
   if (tool !== 'pan') pickTool('pan');
   openTile(null);
+  mapKind = null;
+  renderServiceMap();
   catalog.open();
   play('click', 0.4);
 });
@@ -1501,6 +1511,21 @@ function makeMenuPictures() {
   }
 }
 
+// Ürün resimleri: her ürünün gerçekçi 3D modeli bir kere çizilir (atölye, depo, liman ve baloncuklarda kullanılır)
+function makeProductPictures() {
+  try {
+    const r = thumbRenderer(160, { env: true });
+    const pics = r.render(ITEM_IDS.map(id => [id, makeItem(id)] as [string, THREE.Object3D]));
+    r.dispose();
+    setProductPics(pics);
+    view.setItemPics(pics);
+    if (prod.isOpen) prod.refresh();
+    renderCard();
+  } catch (err) {
+    console.warn('Ürün resimleri çizilemedi', err);
+  }
+}
+
 Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), loadSkins(SKINS)])
   .then(() => {
     scene.add(buildSurroundings());
@@ -1519,6 +1544,8 @@ Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), 
     if (city.seaRefund) toast(`Kuzey kıyısı artık deniz! Oradaki yapıların parası iade edildi: 💰${fmt(city.seaRefund)}`);
     afterChange();
     hideLoading();
+    // Ürün resimleri oyun açıldıktan hemen sonra çizilir (açılışı yavaşlatmasın)
+    setTimeout(makeProductPictures, 300);
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)

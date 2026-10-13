@@ -171,7 +171,7 @@ export class CameraRig {
   private move(e: PointerEvent) {
     if (this.rotating) {
       this.yaw -= (e.clientX - this.rotating.x) * 0.008;
-      this.tiltBy(-(e.clientY - this.rotating.y) * TILT_SPEED);
+      this.tiltBy((e.clientY - this.rotating.y) * TILT_SPEED);
       this.rotating.x = e.clientX;
       this.rotating.y = e.clientY;
       this.apply();
@@ -224,7 +224,8 @@ export class CameraRig {
       return;
     }
     if (this.twoMode === 'tilt') {
-      this.tiltBy(-(y - prev.y) * TILT_SPEED);
+      // iPhone Haritalar gibi: iki parmak yukarı kayınca harita yatar (yandan görünüm), aşağı kayınca kuşbakışına döner
+      this.tiltBy((y - prev.y) * TILT_SPEED);
       this.two = { x, y, dist, angle };
       this.apply();
       return;

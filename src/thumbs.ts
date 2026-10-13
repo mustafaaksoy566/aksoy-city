@@ -3,7 +3,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 
 // Menüler için küçük resimler: her aracın 3D modelini bir kere çizip resme çeviriyoruz.
 // Aynı çizici birkaç kez kullanılabilir (ev modellerinin resimleri parça parça çizilir).
-// env: ürün resimleri için oda ışığı yansımaları (metal ve plastik gerçek gibi parlasın) ve oyunla aynı renk tonlaması
+// env: ürün resimleri için oda ışığı yansımaları (metal ve plastik gerçek gibi parlasın); o zaman ortam ışığı
+// kısılır (beyazlar patlamasın) ve renk tonlaması yapılmaz
 export function thumbRenderer(size = 160, opts: { env?: boolean } = {}) {
   let renderer: THREE.WebGLRenderer | null;
   try {
@@ -14,13 +15,9 @@ export function thumbRenderer(size = 160, opts: { env?: boolean } = {}) {
   renderer?.setSize(size, size);
   renderer?.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
-  if (renderer && opts.env) {
-    renderer.toneMapping = THREE.NeutralToneMapping;
-    scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.8;
-  }
-  scene.add(new THREE.HemisphereLight('#ffffff', '#8aa0b0', 2.2));
-  const sun = new THREE.DirectionalLight('#ffffff', 1.6);
+  if (renderer && opts.env) scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.add(new THREE.HemisphereLight('#ffffff', '#8aa0b0', opts.env ? 0.25 : 2.2));
+  const sun = new THREE.DirectionalLight('#ffffff', opts.env ? 1.1 : 1.6);
   sun.position.set(-3, 6, 4);
   scene.add(sun);
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);

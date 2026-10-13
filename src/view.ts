@@ -17,6 +17,7 @@ import { makeModel, ROAD_COLORS } from './assets';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
 import { makeIndustry, setWorking, animatePort } from './industry';
+import { makeItem, type ItemId } from './items';
 
 // Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
@@ -622,6 +623,37 @@ function readyMat(mat: MatId) {
   READY_MATS.set(mat, m);
   return m;
 }
+// Hazır ürünün 3D modeli: ürün yavaşça döner, altında parlayan yeşil halka (dokununca depoya gelir).
+// Her ürünün modeli bir kere kurulur, sonra kopyalanır (geometri ve malzemeler ortak)
+const READY_3D_MAX = 24; // bundan fazla hazır bina varsa kalanlarda baloncuk resmi
+const READY_TEMPLATES = new Map<MatId, THREE.Object3D>();
+const READY_RING = new THREE.TorusGeometry(0.42, 0.035, 8, 40).rotateX(-Math.PI / 2);
+const READY_RING_MAT = new THREE.MeshStandardMaterial({ color: '#3fdc5a', emissive: '#3fdc5a', emissiveIntensity: 0.8 });
+const READY_GLOW = new THREE.CircleGeometry(0.46, 32).rotateX(-Math.PI / 2);
+const READY_GLOW_MAT = new THREE.MeshBasicMaterial({ color: '#fffbd0', transparent: true, opacity: 0.35, depthWrite: false });
+function readyMarker(mat: MatId) {
+  let tpl = READY_TEMPLATES.get(mat);
+  if (!tpl) {
+    tpl = makeItem(mat as ItemId);
+    tpl.traverse(o => {
+      o.castShadow = false;
+      o.receiveShadow = false;
+    });
+    READY_TEMPLATES.set(mat, tpl);
+  }
+  const g = new THREE.Group();
+  const item = tpl.clone();
+  item.scale.setScalar(0.62);
+  item.position.y = 0.06;
+  g.add(item);
+  const ring = new THREE.Mesh(READY_RING, READY_RING_MAT);
+  g.add(ring);
+  const glow = new THREE.Mesh(READY_GLOW, READY_GLOW_MAT);
+  glow.position.y = -0.005;
+  g.add(glow);
+  return g;
+}
+
 // Boşta bekleyen fabrika ve dükkanın üstünde "Zz"
 const IDLE_MAT = (() => {
   const c = document.createElement('canvas');
@@ -959,7 +991,8 @@ export class CityView {
   private holes = new Map<number, THREE.Mesh>(); // alt geçit rampalarında zemindeki delikler
   private unders = new Set<number>(); // alt geçitli kavşaklar (değişince rampalar yeniden çizilir)
   private iconsOn = true; // binaların üstündeki simgeler görünsün mü (üretim ekranında gizlenir)
-  private icons = new Map<string, THREE.Sprite>();
+  private icons = new Map<string, THREE.Object3D>();
+  cam: THREE.Camera | null = null; // hazır ürünler uzaktan da görünsün diye boyları kameraya göre ayarlanır
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
   private live = new Set<number>(); // ayrı çizilen kareler
   private chunks = new Map<number, THREE.Group>(); // birleştirilmiş bölgeler
@@ -1546,8 +1579,8 @@ export class CityView {
       p.copy(s.position).project(camera);
       if (p.z > 1) continue;
       const sx = rect.left + ((p.x + 1) / 2) * rect.width, sy = rect.top + ((1 - p.y) / 2) * rect.height;
-      // Baloncuğun ekrandaki yarıçapı (uzaklığa göre)
-      q.copy(s.position).addScaledVector(camera.up, s.scale.y / 2).project(camera);
+      // Baloncuğun ya da 3D ürünün ekrandaki yarıçapı (uzaklığa göre)
+      q.copy(s.position).addScaledVector(camera.up, s.scale.y * (s.userData.foot ? 0.6 : 0.5)).project(camera);
       const r = Math.max(22, Math.abs(q.y - p.y) * rect.height * 0.5 * 1.1);
       const d = Math.hypot(x - sx, y - sy);
       if (d < r && d < bestD) {
@@ -1630,15 +1663,24 @@ export class CityView {
       this.icons.set(key, s);
     }
     // Hazır ürün baloncukları ve "Zz": büyük binada ortada, binanın tepesinin biraz üstünde
+    let shown3d = 0;
     for (const [key, { i, mat }] of extra) {
-      if (this.icons.has(key)) continue;
-      const s = new THREE.Sprite(mat ? readyMat(mat) : IDLE_MAT);
+      if (this.icons.has(key)) {
+        if (mat && this.icons.get(key)!.userData.foot) shown3d++;
+        continue;
+      }
       const n = this.city.tiles[i]?.fp ?? 1;
+      // Hazır ürün: ürünün gerçekçi 3D modeli binanın üstünde döner (çok fazlaysa baloncuk resmi)
+      const use3d = !!mat && shown3d < READY_3D_MAX;
+      if (use3d) shown3d++;
+      const s: THREE.Object3D = use3d ? readyMarker(mat!) : new THREE.Sprite(mat ? readyMat(mat) : IDLE_MAT);
       s.position.copy(tileCenter((i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2));
-      s.userData.y = (mat ? 1.05 : 0.95) + (n - 1) * 0.35;
+      const top = this.tall.get(i)?.top ?? 0.45;
+      s.userData.y = use3d ? top + 0.25 : (mat ? 1.05 : 0.95) + (n - 1) * 0.35;
       s.userData.phase = (i * 0.37) % (Math.PI * 2);
       s.userData.ready = mat ? i : undefined;
-      s.scale.setScalar(mat ? 0.62 : 0.34);
+      if (use3d) s.userData.foot = 0.45 + n * 0.12;
+      s.scale.setScalar(use3d ? s.userData.foot : mat ? 0.62 : 0.34);
       s.renderOrder = 2;
       s.visible = this.iconsOn;
       this.root.add(s);
@@ -1809,6 +1851,12 @@ export class CityView {
     // Uyarı simgeleri hafifçe zıplasın
     for (const s of this.icons.values()) {
       s.position.y = s.userData.y + Math.sin(this.time * 3 + s.userData.phase) * 0.06;
+      // 3D hazır ürün: yavaşça döner; harita ne kadar uzaktan görünürse görünsün en az binası kadar, ekranda da seçilecek boyda kalır
+      if (s.userData.foot) {
+        s.rotation.y = this.time * 1.1 + s.userData.phase;
+        const d = this.cam ? this.cam.position.distanceTo(s.position) : 10;
+        s.scale.setScalar(Math.max(s.userData.foot, d * 0.045));
+      }
     }
     for (const o of this.animated) {
       animateUtility(o, this.time, dt);
