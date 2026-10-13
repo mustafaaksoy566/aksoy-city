@@ -324,8 +324,8 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
-  repair(i) {
-    const err = city.repair(i);
+  repair(i, buy) {
+    const err = city.repair(i, buy);
     if (err) toast(err, 'error');
     else {
       toast('🔧 Bina onarıldı!');

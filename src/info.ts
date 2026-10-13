@@ -16,7 +16,7 @@ export interface InfoCard {
   tone?: string; // başlık rengi
   stats?: { icon: string; value: string; label: string; bad?: boolean; good?: boolean }[];
   lines: { ok?: boolean; text: string }[];
-  cost?: { text: string; ok: boolean }[]; // yükseltme malzemeleri (eldeki/gereken)
+  cost?: { text: string; ok: boolean; pic?: string }[]; // gereken malzemeler (resim, ad, eldeki/gereken)
   jobs?: { text: string; progress: number }[]; // üretimdeki malzemeler
   tiles?: { icon: string; name: string; sub: string; note?: string; section?: string; enabled: boolean; run: () => void }[];
   quests?: { text: string; pics?: string; progress: number; count: string; reward: string; done: boolean; button?: string; run: () => void }[];
@@ -28,7 +28,7 @@ export interface CardActions {
   make(i: number, mat: MatId): void;
   collect(): void;
   extinguish(i: number): void;
-  repair(i: number): void;
+  repair(i: number, buy?: boolean): void;
   claim(n: number): void;
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
@@ -51,11 +51,21 @@ const mood = (x: number) => (x >= 0.75 ? '😄' : x >= 0.5 ? '🙂' : x >= 0.3 ?
 const groupColor = (t: BuildTool) => BUILD_GROUPS.find(g => g.tools.includes(t))?.color ?? '#3d8bff';
 const costText = (cost: Partial<Record<MatId, number>>) =>
   (Object.entries(cost) as [MatId, number][]).map(([m, n]) => `${MATERIALS[m].icon}${n}`).join(' ');
+// Gereken malzemeler: ürün resmi, adı ve depodaki/gereken sayısı (emoji her telefonda görünmüyor)
 const haveNeed = (city: City, cost: Partial<Record<MatId, number>>) =>
   (Object.entries(cost) as [MatId, number][]).map(([m, n]) => ({
-    text: `${MATERIALS[m].icon} ${Math.min(city.storage[m], n)}/${n}`,
+    text: `${MATERIALS[m].name} ${Math.min(city.storage[m], n)}/${n}`,
+    pic: productPic(m, 'ccp'),
     ok: city.storage[m] >= n,
   }));
+// Eksik malzemeler nerede yapılır: "Metal, Odun → Fabrika üretir"
+function whereMade(city: City, cost: Partial<Record<MatId, number>>): InfoCard['lines'][number] | null {
+  const missing = (Object.entries(cost) as [MatId, number][]).filter(([m, n]) => city.storage[m] < n).map(([m]) => m);
+  if (!missing.length) return null;
+  const makers = [...new Set(missing.map(m => MATERIALS[m].maker))];
+  const text = makers.map(k => `${missing.filter(m => MATERIALS[m].maker === k).map(m => MATERIALS[m].name).join(', ')} → ${TOOL_INFO[k].label} üretir`).join(' · ');
+  return { text: `📦 Depoda eksik: ${text}` };
+}
 
 export function describeLand(city: City, plot: number, act: CardActions): InfoCard {
   const err = city.canBuyPlot(plot);
@@ -442,9 +452,11 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
         subtitle: 'Depremde hasar gördü',
         icon: '🔧',
         tone: '#607d8b',
-        lines: [{ ok: false, text: 'Onarılana kadar kimse yaşamaz.' }],
+        lines: [{ ok: false, text: 'Onarılana kadar kimse yaşamaz.' }, { text: 'Onarım için gereken malzemeler:' }, ...[whereMade(city, QUAKE.repair)].filter(l => l !== null)],
         cost: haveNeed(city, QUAKE.repair),
-        actions: [{ label: 'Onar', enabled: city.hasMaterials(QUAKE.repair), primary: true, run: () => act.repair(i) }],
+        actions: city.hasMaterials(QUAKE.repair)
+          ? [{ label: 'Onar', enabled: true, primary: true, run: () => act.repair(i) }]
+          : [{ label: `Eksikleri satın al ve onar  💰${fmt(city.missingPrice(QUAKE.repair))}`, enabled: city.money >= city.missingPrice(QUAKE.repair), primary: true, run: () => act.repair(i, true) }],
       };
     }
     const lack = city.lacking.get(i);
@@ -477,6 +489,8 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
         const blocker = city.upgradeBlocker(i);
         if (blocker) lines.push({ ok: false, text: blocker });
         cost = haveNeed(city, upCost);
+        const where = whereMade(city, upCost);
+        if (where && !blocker) lines.push(where);
         actions = [{ label: `Yükselt → ${t.level + 1}. seviye`, enabled: city.canUpgrade(i), primary: true, run: () => act.upgrade(i) }];
       }
     } else {

@@ -878,11 +878,15 @@ export class City {
   }
 
   // Deprem hasarını malzemeyle onar
-  repair(i: number): string | null {
+  // Onar: malzeme depoda yoksa buy ile eksikleri parayla alınır (depodakiler yine kullanılır)
+  repair(i: number, buy = false): string | null {
     const t = this.tiles[i];
     if (!t?.damaged) return 'Bu bina hasarlı değil';
-    if (!this.hasMaterials(QUAKE.repair)) return 'Depoda yeterli malzeme yok';
-    this.take(QUAKE.repair);
+    const price = this.missingPrice(QUAKE.repair);
+    if (price > 0 && !buy) return 'Depoda yeterli malzeme yok';
+    if (this.money < price) return 'Yeterli para yok';
+    this.money -= price;
+    for (const [m, n] of Object.entries(QUAKE.repair) as [MatId, number][]) this.storage[m] -= Math.min(this.storage[m], n);
     t.damaged = false;
     this.refresh();
     return null;
@@ -962,6 +966,11 @@ export class City {
 
   get storageCap() {
     return BASE_STORAGE + DEPOT_STORAGE * this.tiles.filter(t => t?.kind === 'depot').length;
+  }
+
+  // Depoda eksik kalan malzemelerin parayla bedeli (satış fiyatının iki katı)
+  missingPrice(cost: Partial<Record<MatId, number>>) {
+    return (Object.entries(cost) as [MatId, number][]).reduce((s, [m, n]) => s + Math.max(0, n - this.storage[m]) * MATERIALS[m].price * 2, 0);
   }
 
   hasMaterials(cost: Partial<Record<MatId, number>>) {

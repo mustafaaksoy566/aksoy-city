@@ -498,7 +498,9 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 .line.bad { color: #b71c1c; }
 .line.bad::before { content: '✕'; background: var(--red); }
 .cost { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
-.cost .cc { padding: 3px 10px; border-radius: 12px; background: #e9f7ec; color: #1d7a33; font-size: 14px; font-weight: 600; }
+.cost .cc { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 4px; border-radius: 16px; background: #e9f7ec; color: #1d7a33; font-size: 14px; font-weight: 600; }
+.cost .cc .ccp { width: 28px; height: 28px; object-fit: contain; flex: none; }
+.cost .cc .ccp.emo { font-size: 18px; line-height: 28px; text-align: center; }
 .cost .cc.miss { background: #fdecea; color: #c62828; }
 .jobs { margin: 6px 0; }
 .job { margin: 6px 0; font-size: 13.5px; font-weight: 600; }

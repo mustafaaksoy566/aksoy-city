@@ -495,7 +495,12 @@ function update(el: HTMLElement, card: InfoCard) {
   el.querySelectorAll<HTMLElement>('.cc').forEach((d, n) => {
     const c = card.cost![n];
     d.className = 'cc' + (c.ok ? '' : ' miss');
-    d.textContent = c.text;
+    // Resim her yenilemede baştan çizilmesin (titremesin): sadece yazı değişince
+    const key = `${c.text}|${c.pic ? 1 : 0}`;
+    if (d.dataset.k !== key) {
+      d.dataset.k = key;
+      d.innerHTML = `${c.pic ?? ''}<span>${esc(c.text)}</span>`;
+    }
   });
   el.querySelectorAll<HTMLButtonElement>('.act').forEach(b => {
     b.disabled = !card.actions![+b.dataset.n!].enabled;
