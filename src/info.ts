@@ -464,7 +464,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     if (isRes) {
       // Sonraki seviyelerin şartları
       if (t.level < 3) lines.push({ ok: city.parkNear(i), text: '3. seviye için: yakında park' });
-      if (t.level < 4) lines.push({ ok: city.shopNear(i), text: '4. seviye için: yakında dükkan (Sanayi)' });
+      if (t.level < 4) lines.push({ ok: city.shopNear(i), text: '4. seviye için: dükkan (yakında ya da şehirde yeterince)' });
       if (t.level < 5) {
         const missing = SERVICE_KINDS.filter(k => !city.isCovered(i, k)).map(k => SERVICES[k].name);
         lines.push({ ok: missing.length === 0, text: missing.length ? `5. seviye için eksik: ${missing.join(', ')}` : '5. seviye için: bütün hizmetler var' });

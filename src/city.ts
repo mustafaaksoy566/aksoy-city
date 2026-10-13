@@ -1,6 +1,6 @@
 import {
   SIZE, START_MONEY, ENTRANCE_Z, ENTRANCE_LEN, COST, RES_LEVELS, COM_LEVELS, RES_BASE_MAX, PARK_RADIUS,
-  SHOP_RADIUS, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_KINDS, TAX_PER_PERSON,
+  SHOP_RADIUS, SHOP_HOMES, POP_PER_COM_LEVEL, JOBS_PER_PERSON, BUILD_CHANCE, GROW_CHANCE, PARK_KINDS, TAX_PER_PERSON,
   TAX_PER_JOB, UTILITIES, SERVICES, SERVICE_KINDS, INDUSTRY, INDUSTRY_KINDS, FACTORY_SLOTS, STORE_QUEUE, MAKER_LEVELS, SHOPS, EXTRA_SLOTS, SPEEDUP,
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
@@ -560,6 +560,7 @@ export class City {
     this.updateReach();
     this.updateService();
     this.updateCoverage();
+    this.updateShops();
     this.updateTraffic();
     this.updateHappiness();
   }
@@ -906,8 +907,35 @@ export class City {
     return this.near(i % SIZE, Math.floor(i / SIZE), PARK_RADIUS, n => n.kind === 'park');
   }
 
+  // Dükkân: 4 kare yakında dükkân varsa ya da şehrin dükkânları (çarşı) bu evi de besleyebiliyorsa
   shopNear(i: number) {
-    return this.near(i % SIZE, Math.floor(i / SIZE), SHOP_RADIUS, n => SHOPS.includes(n.kind as IndustryKind));
+    return this.shopServed[i] === 1 || this.near(i % SIZE, Math.floor(i / SIZE), SHOP_RADIUS, n => SHOPS.includes(n.kind as IndustryKind));
+  }
+
+  // Çarşı: yola bağlı her dükkân SHOP_HOMES ev besler (her yükseltmede yarısı kadar daha). Dükkânlar tek yerde
+  // toplansa da şehrin evleri dükkânlı sayılır; dükkân yetmezse dükkânlara en yakın evler önce beslenir.
+  private shopServed = new Uint8Array(SIZE * ROWS);
+  private updateShops() {
+    this.shopServed.fill(0);
+    const shops: [number, number][] = [];
+    let cap = 0;
+    this.tiles.forEach((t, i) => {
+      if (!t || !SHOPS.includes(t.kind as IndustryKind) || !this.isConnected(i)) return;
+      const n = t.fp ?? 1;
+      shops.push([(i % SIZE) + (n - 1) / 2, Math.floor(i / SIZE) + (n - 1) / 2]);
+      cap += SHOP_HOMES * (1 + t.level * 0.5);
+    });
+    if (!shops.length) return;
+    const homes: [number, number][] = [];
+    this.tiles.forEach((t, i) => {
+      if (t?.kind !== 'res' || !this.isConnected(i)) return;
+      const x = i % SIZE, z = Math.floor(i / SIZE);
+      let d = Infinity;
+      for (const [sx, sz] of shops) d = Math.min(d, Math.abs(sx - x) + Math.abs(sz - z));
+      homes.push([d, i]);
+    });
+    homes.sort((a, b) => a[0] - b[0]);
+    for (let k = 0; k < homes.length && k < cap; k++) this.shopServed[homes[k][1]] = 1;
   }
 
   maxLevel(i: number) {
@@ -1250,7 +1278,7 @@ export class City {
     if (!this.isServed(i)) return 'Önce yol, elektrik ve su lazım';
     if (t.level >= this.maxLevel(i)) {
       if (!this.parkNear(i)) return 'Yakında park lazım';
-      if (!this.shopNear(i)) return 'Yakında dükkan lazım (Sanayi: hırdavatçı, pazar, fırın…)';
+      if (!this.shopNear(i)) return 'Dükkan lazım: yakına dükkan kur ya da çarşıya yeni dükkan ekle (Sanayi)';
       if (!this.allCovered(i)) return 'Dört hizmetin de kapsaması lazım';
       if (this.decorBonus[i] < LUXURY_DECOR - 1e-6) return 'Yakında bir simge yapı lazım (heykel, dönme dolap, stadyum…)';
       if (this.bestRoad(i) < 1) return 'Gökdelen için yanındaki yol en az bulvar olmalı';

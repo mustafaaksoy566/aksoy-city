@@ -136,7 +136,7 @@ place('health', 24, 38);
 place('school', 26, 38);
 // Kuzey ve güneyde ikinci üniversite ve okullar
 place('uni', 0, 30);
-// Otoparklı dükkânlar
+// Otoparklı dükkânlar: hepsi doğudaki çarşıda (aşağıda); evler çarşıdan beslenir (city.ts updateShops)
 const shops = [
   ['store', 0, 38], ['market', 2, 38], ['furniture', 6, 38], ['bakery', 13, 38], ['fashion', 15, 38],
   ['garden', 12, 36], ['electro', 15, 36], ['store', 30, 38], ['market', 32, 38], ['cafe', 30, 36], ['fashion', 32, 36],
@@ -144,7 +144,13 @@ const shops = [
   ['cafe', 36, 41], ['furniture', 30, 53], ['store', 12, 53], ['market', 36, 53], ['electro', 24, 53],
   ['cafe', 6, 44], ['bakery', 33, 27],
 ];
-for (const [k, x, z] of shops) place(k, x, z);
+// Mahallelerdeki eski dükkân yerleri yeşil alan olur: sırayla gölet, çimenli tepe ya da dört küçük park
+// (evlerin sayısı ve şehir girişine giden trafik değişmez)
+shops.forEach(([, x, z], n) => {
+  if (n % 3 === 0) place('lake', x, z);
+  else if (n % 3 === 1) place('hill', x, z);
+  else for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) place('park', x + dx, z + dz);
+});
 // Metro istasyonları ve tüneller
 for (const [x, z] of [[24, 31], [22, 44], [12, 39], [34, 39], [24, 50]]) place('metro', x, z);
 const tun = [...line(23, 31, 23, 50), ...line(12, 40, 34, 40), I(24, 31), I(22, 44), I(12, 39), I(34, 39), I(24, 50)];
@@ -277,14 +283,13 @@ c.tiles.forEach((t, i) => {
 
 // --- Doğuda sanayi ve enerji, güneyde havalimanı ve güneş-rüzgâr tarlası ---
 const westSlots = [18, 20, 22, 24, 26, 30, 32, 34, 36, 38, 40, 42, 44, 47, 49, 51, 53, 55, 57, 59, 61];
-// 20, 32 ve 44 boş kalır: z = 21, 33 ve 45 sıralarından doğudaki Dünya Harikaları bölgesine yol geçer
-const eastSlots = [18, 22, 24, 26, 28, 30, 34, 36, 38, 40, 42, 46, 48, 50, 52, 54, 56, 58, 60];
+// 20, 32, 44 ve 56 boş kalır: z = 21, 33, 45 ve 57 sıralarından doğudaki Dünya Harikaları bölgesine ve
+// çarşıya yol geçer
+const eastSlots = [18, 22, 24, 26, 28, 30, 34, 36, 38, 40, 42, 46, 48, 50, 52, 54, 58, 60];
 const slots = [...westSlots.map(z => [43, z]), ...eastSlots.map(z => [46, z])].sort((a, b) => a[1] - b[1]);
 const industry = [];
 for (const [x, z] of slots) industry.push([x, z]);
-// Önce birkaç fabrika ve depo
-const fixedInd = [['factory', 43, 30], ['factory', 46, 26], ['depot', 43, 32], ['factory', 43, 40], ['factory', 46, 40], ['depot', 46, 48], ['factory', 43, 47], ['factory', 46, 28]];
-for (const [k, x, z] of fixedInd) place(k, x, z);
+// Fabrikalar ve depolar nehrin doğusundaki bu şeritte değil, aşağıdaki sanayi ve çarşı bölgesinde
 // Elektrik ve su: ihtiyaç kadar santral ve pompa, hepsi en üst seviyeye yükseltilir
 const free = industry.filter(([x, z]) => !c.tiles[I(x, z)]);
 c.refresh();
@@ -309,9 +314,10 @@ for (const x of [0, 3, 6, 9, 13, 19, 22, 26, 30, 33, 37, 40, 43]) if (!c.tiles[I
 c.refresh();
 
 // --- Ulaşım: otobüs durakları, katlı otoparklar, metro yükseltmesi, alt geçit ---
-for (const [x, z] of [[4, 24], [10, 27], [16, 41], [28, 44], [34, 45], [6, 53], [28, 27], [24, 9], [18, 50], [6, 31], [4, 28], [10, 24], [2, 37], [4, 21], [10, 33]]) {
+for (const [x, z] of [[4, 24], [10, 27], [16, 41], [28, 44], [34, 45], [6, 53], [28, 27], [24, 8], [18, 50], [6, 31], [4, 28], [10, 24], [2, 37], [4, 21], [10, 33]]) {
   const i = I(x, z);
-  if (c.tiles[i] && c.tiles[i].kind !== 'res') continue;
+  // Ev ya da park olan yere kurulur (adadaki otellerin durağı parkın yerine)
+  if (c.tiles[i] && c.tiles[i].kind !== 'res' && !(c.tiles[i].kind === 'park' && near(x, z))) continue;
   if (c.tiles[i]) c.apply('bulldoze', [i]);
   place('busstop', x, z);
 }
@@ -365,6 +371,30 @@ for (let x = 48; x <= 63; x++) {
     place('park', x, z);
   }
 }
+c.refresh();
+
+// --- Sanayi ve Çarşı: bütün dükkânlar ve fabrikalar doğudaki tek bölgede (z 46-62, x 49-63) ---
+// Yollar: x = 48 ve 55 (bulvar) kuzeyden güneye, z = 51, 57 ve 63 doğu-batı. Her şeritte yola bakan iki sıra 2x2
+// bina: kuzey şeritlerinde dükkânlar (çarşı), en güneyde fabrikalar ve depolar (evlerden uzakta, kirlilik yok).
+road(48, 45, 48, 63);
+road(55, 45, 55, 63, 1);
+road(48, 51, 63, 51);
+if (c.tiles[I(46, 57)] || c.tiles[I(47, 57)]) errs.push('çarşı yolu dolu 57');
+road(46, 57, 63, 57);
+road(46, 63, 63, 63);
+const lots = z0 => [49, 51, 53, 56, 58, 60, 62].flatMap(x => [[x, z0], [x, z0 + 3]]);
+const bazaar = [...lots(46), ...lots(52)].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+shops.forEach(([k], n) => {
+  const spot = bazaar[n];
+  if (spot) place(k, spot[0], spot[1]);
+  else errs.push('çarşıda yer yok: ' + k);
+});
+// Çarşıda kalan yerlere birkaç dükkân daha (sıra boş kalmasın)
+const extra = ['furniture', 'garden', 'electro', 'market'];
+bazaar.slice(shops.length).forEach(([x, z], n) => place(extra[n % extra.length], x, z));
+// Sanayi şeridi dolu: on fabrika ve dört depo
+const yard = lots(58).sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+yard.forEach(([x, z], n) => place(n % 4 === 2 ? 'depot' : 'factory', x, z));
 c.refresh();
 
 // --- Son ayarlar ---

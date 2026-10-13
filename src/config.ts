@@ -492,6 +492,9 @@ export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviye
 // park +1, dükkan +1 seviye; dört hizmetin hepsi kapsıyorsa bir seviye daha (5. seviye)
 export const PARK_RADIUS = 3; // park bu kadar kare yakındaysa +1 seviye
 export const SHOP_RADIUS = 4; // dükkan bu kadar kare yakındaysa +1 seviye
+// Çarşı: dükkânlar yeterince varsa uzaktaki evlere de hizmet eder (insanlar arabayla çarşıya gider).
+// Her dükkân bu kadar evi besler (her yükseltmede yarısı kadar daha); dükkâna en yakın evlerden başlanır.
+export const SHOP_HOMES = 12;
 export const POP_PER_COM_LEVEL = 150; // ticaret her bu kadar nüfusta bir seviye daha çıkabilir
 export const JOBS_PER_PERSON = 0.5; // iş yeri sayısı nüfusun yarısını geçmesin
 export const BUILD_CHANCE = 0.35; // boş arsaya bir günde bina yapılma şansı
