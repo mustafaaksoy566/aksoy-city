@@ -368,13 +368,15 @@ export class City {
     const mask = this.roadMask(x, z);
     if ([1, 2, 4, 8].filter(b => mask & b).length < 3) return 'Alt geçit sadece kavşağa yapılır';
     if (isWater(i)) return 'Suyun üstüne yapılamaz';
+    if (i % SIZE === 0) return 'Şehrin giriş karesine yapılamaz';
     const along = axis === 0 ? 0b0101 : 0b1010;
     if ((mask & along) !== along) return 'Bu yönde iki tarafta da yol olmalı';
     for (const s of [-1, 1]) {
       const n = this.axisNeighbor(i, axis, s);
       const nt = n >= 0 ? this.tiles[n] : null;
       if (nt?.kind !== 'road' || (nt.grade ?? 0) < 2) return 'Kavşağın iki yanındaki yol cadde olmalı (çift şerit)';
-      if (nt.locked || isWater(n) || nt.under !== undefined) return 'Rampa için yer yok';
+      // Giriş yolu da olur (kilitli kare sadece yıkılamaz demek); otobana bağlanan en kenar kare olmaz
+      if (isWater(n) || nt.under !== undefined || n % SIZE === 0) return 'Rampa için yer yok';
       if (this.roadMask(n % SIZE, Math.floor(n / SIZE)) !== along) return 'Kavşağın iki yanında rampa için düz yol olmalı';
       // İki alt geçidin rampaları üst üste binmesin
       const far = this.axisNeighbor(n, axis, s);
@@ -410,7 +412,7 @@ export class City {
   // Alt geçidin kapalı karesi olabilir mi: yol, doğrultu boyunca iki yanda yol; düz kareyse cadde
   private underTileOk(i: number, axis: number) {
     const t = this.tiles[i];
-    if (t?.kind !== 'road' || isWater(i) || t.locked) return false;
+    if (t?.kind !== 'road' || isWater(i) || i % SIZE === 0) return false;
     const along = axis === 0 ? 0b0101 : 0b1010;
     const mask = this.roadMask(i % SIZE, Math.floor(i / SIZE));
     if ((mask & along) !== along) return false;
@@ -419,7 +421,7 @@ export class City {
   // Rampa olabilir mi: doğrultu boyunca düz cadde (kapalı değil)
   private rampOk(i: number, axis: number) {
     const t = this.tiles[i];
-    if (t?.kind !== 'road' || (t.grade ?? 0) < 2 || t.locked || isWater(i) || t.under !== undefined) return false;
+    if (t?.kind !== 'road' || (t.grade ?? 0) < 2 || i % SIZE === 0 || isWater(i) || t.under !== undefined) return false;
     return this.roadMask(i % SIZE, Math.floor(i / SIZE)) === (axis === 0 ? 0b0101 : 0b1010);
   }
   // Alt geçidin kapalı kısmı (i kapalı bir kare): baştan sona kareler ve iki uçtaki rampalar

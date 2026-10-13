@@ -1315,11 +1315,18 @@ async function resetCity() {
 }
 
 // Ekran bilgisi (ayarların altında): ana ekrandan açılınca bulanıklık olursa nedenini görmek için
+declare const __BUILD__: string;
 function screenInfo() {
   const nav = navigator as Navigator & { standalone?: boolean };
   const app = nav.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
   const el = renderer.domElement;
-  return `${app ? 'Ana ekran' : 'Tarayıcı'} · pencere ${innerWidth}×${innerHeight} · ekran ${screen.width}×${screen.height} · tuval ${el.clientWidth}×${el.clientHeight} → ${el.width}×${el.height} · keskinlik ${pixelRatio.toFixed(2)}/${dpr()} · ${Math.round(fpsAvg)} fps`;
+  // Güvenli alan (saat çubuğu) yüksekliği: env() değeri ancak bir öğeye uygulanınca okunabiliyor
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;padding-top:env(safe-area-inset-top);visibility:hidden';
+  document.body.appendChild(probe);
+  const inset = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  return `Sürüm ${__BUILD__} · ${app ? 'Ana ekran' : 'Tarayıcı'} · üst boşluk ${Math.round(inset)} · pencere ${innerWidth}×${innerHeight} · ekran ${screen.width}×${screen.height} · tuval ${el.clientWidth}×${el.clientHeight} → ${el.width}×${el.height} · keskinlik ${pixelRatio.toFixed(2)}/${dpr()} · ${Math.round(fpsAvg)} fps`;
 }
 
 document.getElementById('settings')!.addEventListener('click', () => {
@@ -1376,6 +1383,7 @@ function fitStandalone() {
   if (!app) return;
   const nav = navigator as Navigator & { standalone?: boolean };
   const standalone = nav.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  document.documentElement.classList.toggle('standalone', standalone);
   if (!standalone) {
     app.removeAttribute('style');
     document.documentElement.style.removeProperty('--sgap');

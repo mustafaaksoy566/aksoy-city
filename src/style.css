@@ -429,8 +429,9 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
   width: 100%;
   height: env(safe-area-inset-top);
   background-color: #5bb8ec;
-  pointer-events: none;
 }
+/* Ana ekrandan açılınca en az 8px (iOS en az 6px boyundaki öğeyi tanıyor) */
+html.standalone #statusbar { min-height: 8px; }
 #statusbar::after {
   content: '';
   position: absolute;

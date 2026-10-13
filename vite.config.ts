@@ -35,6 +35,8 @@ function demoCityWriter(): Plugin {
 export default defineConfig({
   // GitHub Pages alt klasörde yayınladığı için göreli yol kullanıyoruz
   base: './',
+  // Ayarlar'da görünen sürüm (telefon yeni sürümü mü çalıştırıyor, anlaşılsın)
+  define: { __BUILD__: JSON.stringify(new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')) }, // Türkiye saati
   plugins: [demoCityWriter()],
   server: {
     // ngrok adreslerinden gelen isteklere izin ver

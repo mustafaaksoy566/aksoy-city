@@ -248,7 +248,7 @@ const BUILD: Record<string, () => THREE.BufferGeometry[]> = {
 export const ROAD_KIT: Record<string, () => THREE.Object3D> = {};
 for (const [path, build] of Object.entries(BUILD)) {
   ROAD_KIT[path] = () => {
-    const geo = topUV(mergeGeometries(build().map(g => g.toNonIndexed()))!);
+    const geo = topUV(mergeGeometries(build().map(g => (g.index ? g.toNonIndexed() : g)))!);
     const mesh = new THREE.Mesh(geo, roadMat());
     mesh.receiveShadow = true;
     const g = new THREE.Group();
