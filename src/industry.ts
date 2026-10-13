@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FOOTPRINT, type IndustryKind } from './config';
 import { STORES2 } from './stores';
-import { SITES, drawLot, lotLight, entrance } from './sites';
+import { SITES, OLD_SITES, drawLot, lotLight, entrance } from './sites';
 import { makeBoat } from './boats';
 import { part, windowMat, showcaseMat } from './utilities';
 import { mergeStatic } from './batcher';
@@ -9,6 +9,7 @@ import { KIT } from './towers';
 import { signMat } from './signs';
 import { carModel } from './cars';
 import { makeGarden, makeCafe, makeElectro } from './shops';
+import { makeDepot2 } from './stations';
 
 // Sanayi ve dükkanlar gökdelenler gibi ayrıntılı çizilir: testere dişi çatılı fabrika, depo, tabelalı dükkanlar
 // (hırdavatçı, pazar, mobilyacı, fırın, butik) ve konteyner vinçli liman. Ön yüz +z (yola bakar).
@@ -144,7 +145,7 @@ function factory(variant: number) {
 // --- Depo: oluklu sac depo, üç büyük yükleme kapısı (önlerinde kamyon yerleri), yanda çalışan kapısı ---
 function depot(variant: number) {
   const st = new THREE.Group();
-  const site = SITES.depot;
+  const site = OLD_SITES.depot;
   box(st, 0.96, 0.03, 0.96, M.concrete, 0, 0, 0);
   drawLot(st, site, -0.46, 0.46, 0.02, 0.48);
   st.add(part(KIT.facadeBox(0.86, 0.24, 0.44, 0.03), KIT.METAL[variant % 3], 0, 0.15, -0.24));
@@ -354,7 +355,7 @@ export function makeIndustry(kind: IndustryKind, variant = 0, fp = FOOTPRINT[kin
   if (kind === 'cafe') return makeCafe();
   if (kind === 'electro') return makeElectro();
   if (kind === 'port') return port();
-  return depot(variant);
+  return fp === 2 ? makeDepot2(variant) : depot(variant);
 }
 
 // Fabrika çalışıyorsa duman göster

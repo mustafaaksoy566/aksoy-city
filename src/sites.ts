@@ -47,22 +47,30 @@ export const SITES: Record<string, Site> = {
     door: [0.66, -0.06],
     walk: -0.01,
   },
-  // Depo: üç yükleme kapısının önünde kamyon yerleri (biri deponun kamyonu, biri çöp kamyonu)
+  // Depo (2x2): dört yükleme kapısının önünde kamyon yerleri (biri deponun kamyonu, biri çöp kamyonu), ofisin
+  // önünde iki çalışan yeri. Kamyon şoförleri yükleme rampasının önünden ofisin kapısına yürür.
   depot: {
-    n: 1,
-    bays: [{ x: -0.25, z: 0.24, truck: true, fleet: 'truck' }, { x: 0, z: 0.24, truck: true }, { x: 0.25, z: 0.24, truck: true, fleet: 'garbage' }],
-    door: [0.39, -0.02],
-    walk: 0.0,
+    n: 2,
+    bays: [
+      { x: -0.76, z: 0.25, truck: true, fleet: 'truck' }, { x: -0.46, z: 0.25, truck: true }, { x: -0.16, z: 0.25, truck: true },
+      { x: 0.14, z: 0.25, truck: true, fleet: 'garbage' }, { x: 0.44, z: 0.27 }, { x: 0.84, z: 0.27 },
+    ],
+    door: [0.64, -0.36],
+    walk: -0.1,
   },
-  // Karakol: iki polis arabası ve bir ziyaretçi yeri
+  // Karakol (2x2): solda ziyaretçi yerleri, sağda üç polis arabasının yeri; ortada camlı girişe giden yol
   police: {
-    n: 1,
-    bays: [{ x: -0.02, z: 0.27, fleet: 'police' }, { x: 0.18, z: 0.27, fleet: 'police' }, { x: 0.38, z: 0.27 }],
-    door: [-0.3, -0.08],
+    n: 2,
+    bays: [
+      { x: -0.84, z: 0.27 }, { x: -0.64, z: 0.27 }, { x: -0.44, z: 0.27 },
+      { x: 0.24, z: 0.27 }, { x: 0.44, z: 0.27, fleet: 'police' }, { x: 0.64, z: 0.27, fleet: 'police' }, { x: 0.84, z: 0.27, fleet: 'police' },
+    ],
+    door: [-0.1, -0.24],
     walk: 0.03,
   },
-  // İtfaiye: araçlar açık garaj kapılarından girip çıkar; çalışanlar yürüyerek gelir
-  fire: { n: 1, bays: [], door: [0.29, 0.09], walk: 0.14, garages: [[-0.2, 0.095], [0.08, 0.095]] },
+  // İtfaiye (2x2): araçlar üç açık garaj kapısından girip çıkar (önleri sarı çizgili çıkış alanı), sağda
+  // çalışanların iki park yeri ve ofis kapısı
+  fire: { n: 2, bays: [{ x: 0.28, z: 0.27 }, { x: 0.8, z: 0.27 }], door: [0.54, -0.4], walk: 0.03, garages: [[-0.72, -0.3], [-0.4, -0.3], [-0.08, -0.3]] },
   // Hastane: ana girişin iki yanında ziyaretçi yerleri, acil girişinin önünde iki ambulans yeri
   health: {
     n: 2,
@@ -82,10 +90,28 @@ export const SITES: Record<string, Site> = {
   },
 };
 
-// Bu bina kendi otoparklı haliyle mi duruyor? (eski kayıtlardaki 1x1 dükkânların otoparkı yok)
+// Eski kayıtlarda kalan 1x1 depo, karakol ve itfaiye (eski çizimleriyle; taşınınca 2x2 olurlar)
+export const OLD_SITES: Record<string, Site> = {
+  depot: {
+    n: 1,
+    bays: [{ x: -0.25, z: 0.24, truck: true, fleet: 'truck' }, { x: 0, z: 0.24, truck: true }, { x: 0.25, z: 0.24, truck: true, fleet: 'garbage' }],
+    door: [0.39, -0.02],
+    walk: 0.0,
+  },
+  police: {
+    n: 1,
+    bays: [{ x: -0.02, z: 0.27, fleet: 'police' }, { x: 0.18, z: 0.27, fleet: 'police' }, { x: 0.38, z: 0.27 }],
+    door: [-0.3, -0.08],
+    walk: 0.03,
+  },
+  fire: { n: 1, bays: [], door: [0.29, 0.09], walk: 0.14, garages: [[-0.2, 0.095], [0.08, 0.095]] },
+};
+
+// Bu binanın kapladığı alana uyan otopark ve kapı (eski kayıtlardaki 1x1 dükkânların otoparkı yok)
 export function siteOf(kind: string, fp: number | undefined): Site | null {
-  const s = SITES[kind];
-  return s && s.n === (fp ?? 1) ? s : null;
+  const n = fp ?? 1;
+  for (const s of [SITES[kind], OLD_SITES[kind]]) if (s && s.n === n) return s;
+  return null;
 }
 
 // --- Çizim yardımcıları (dünya ölçüsünde, binanın düzleminde) ---
@@ -95,6 +121,7 @@ const YELLOW_LINE = pm('#f2c14e', 0.6);
 const WHEEL_STOP = pm('#c9c4b8', 0.9);
 const POLICE_MARK = pm('#1e4fa3', 0.7);
 const RED_MARK = pm('#d32f2f', 0.7);
+const GREEN_MARK = pm('#2e7d32', 0.7);
 
 // Otoparkın asfaltı (x0..x1, z0..z1) ve park yerlerinin çizgileri: her yerin iki yanında çizgi, burun tarafında
 // tekerlek takozu; kamyon yerleri sarı; polis ve ambulans yerlerinde yerde renkli işaret.
@@ -116,7 +143,7 @@ export function paintBays(g: THREE.Object3D, site: Site) {
         box(g, 0.08, 0.0012, 0.025, m, b.x, 0.034, b.z + d / 2 - 0.05);
         box(g, 0.025, 0.0012, 0.08, m, b.x, 0.034, b.z + d / 2 - 0.05);
       } else box(g, w - 0.04, 0.0012, 0.02, m, b.x, 0.034, b.z + d / 2 - 0.03);
-    }
+    } else if (b.fleet === 'garbage') box(g, w - 0.06, 0.0012, 0.02, GREEN_MARK, b.x, 0.034, b.z + d / 2 - 0.03);
   }
 }
 // Kapı (yüzü +z, x ortası, z binanın ön yüzü): çerçeve, koyu camlı iki kanat, kulplar, önünde paspas.

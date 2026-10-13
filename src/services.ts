@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import type { ServiceKind } from './config';
+import { FOOTPRINT, type ServiceKind } from './config';
 import { part } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
-import { SITES, drawLot, lotLight, entrance } from './sites';
+import { SITES, OLD_SITES, drawLot, lotLight, entrance } from './sites';
+import { makePolice2, makeFire2 } from './stations';
 
 // Hizmet binaları gökdelenler gibi ayrıntılı çizilir: karakol, itfaiye, hastane, okul ve belediye.
 // Önlerinde kendi araçları park etmiş; karakol ve itfaiyenin çatısında yanıp sönen ışıklar var.
@@ -59,7 +60,7 @@ function blinkers(g: THREE.Group, y: number, x: number, z: number) {
 function police() {
   const g = new THREE.Group();
   const st = new THREE.Group();
-  const site = SITES.police;
+  const site = OLD_SITES.police;
   box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
   drawLot(st, site, -0.12, 0.48, 0.1, 0.48);
   st.add(part(KIT.facadeBox(0.6, 0.24, 0.36, 0.03), KIT.BAND[1], -0.16, 0.15, -0.26));
@@ -86,7 +87,7 @@ function police() {
 function fireStation() {
   const g = new THREE.Group();
   const st = new THREE.Group();
-  const site = SITES.fire;
+  const site = OLD_SITES.fire;
   box(st, 0.96, 0.03, 0.96, M.paving, 0, 0, 0);
   box(st, 0.62, 0.004, 0.38, M.asphalt, -0.06, 0.03, 0.29);
   for (const [x] of site.garages!) for (const s of [-1, 1]) box(st, 0.006, 0.0012, 0.34, M.yellow, x + s * 0.1, 0.034, 0.29);
@@ -231,9 +232,10 @@ export function makeHall(): THREE.Object3D {
   return mergeStatic([st]);
 }
 
-export function makeService(kind: ServiceKind): THREE.Object3D {
-  if (kind === 'police') return police();
-  if (kind === 'fire') return fireStation();
+// fp: kapladığı alan (karakol ve itfaiye 2x2 ve otoparklı; eski kayıtlarda kalan 1x1 olanlar eski çizimiyle)
+export function makeService(kind: ServiceKind, fp = FOOTPRINT[kind] ?? 1): THREE.Object3D {
+  if (kind === 'police') return fp === 2 ? makePolice2() : police();
+  if (kind === 'fire') return fp === 2 ? makeFire2() : fireStation();
   if (kind === 'health') return hospital();
   return school();
 }

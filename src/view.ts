@@ -1511,7 +1511,7 @@ export class CityView {
       o = makeHall();
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isService(t.kind)) {
-      o = makeService(t.kind);
+      o = makeService(t.kind, t.fp ?? 1);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isDecor(t.kind)) {
       o = t.kind === 'parking' && t.level > 0 ? parkingGarage(t.level) : t.kind === 'metro' ? metro(t.level) : makeDecor(t.kind);

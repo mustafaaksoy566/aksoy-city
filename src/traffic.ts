@@ -429,7 +429,7 @@ interface Inside {
 // İtfaiye: araçlar garaj kapılarından girip çıkar
 interface FireStation {
   spot: Spot;
-  doors: THREE.Vector3[];
+  doors: { at: THREE.Vector3; road: number }[]; // garaj kapıları ve önlerindeki yol
   trucks: number; // içeride kaç araç var
 }
 
@@ -603,28 +603,32 @@ export class Traffic {
 
   // Binanın kendi otoparkı: her park yerinin dünyadaki yeri, önündeki yol ve sürücünün kapıya yürüyeceği yol.
   // Binanın yola bakan yanında yol yoksa null.
+  // Binanın önünde, kendi düzlemindeki x hizasındaki yol karesi; o kare yol değilse ön yüzdeki en yakın yol
+  // (yoksa -1)
+  private frontRoad(i: number, facing: number, site: Site, x: number) {
+    const fronts = this.city.cellsOf(i).map(c => neighbor(c, facing)).filter(r => isRoadTile(this.city, r));
+    const ahead = this.siteWorld(i, facing, site, x, site.n / 2 + 0.5);
+    const ax = Math.floor(ahead.x + SIZE / 2), az = Math.floor(ahead.z + Z0);
+    const road = inBounds(ax, az) ? idx(ax, az) : -1;
+    if (fronts.includes(road)) return road;
+    let best = Infinity, near = -1;
+    for (const r of fronts) {
+      const d = center(r).distanceToSquared(ahead);
+      if (d < best) {
+        best = d;
+        near = r;
+      }
+    }
+    return near;
+  }
+
   private siteLot(i: number, facing: number, site: Site, key: string): Lot | null {
-    const cells = this.city.cellsOf(i);
-    const fronts = cells.map(c => neighbor(c, facing)).filter(r => isRoadTile(this.city, r));
-    if (!fronts.length) return null;
+    if (this.frontRoad(i, facing, site, 0) < 0) return null;
     const W = (x: number, z: number) => this.siteWorld(i, facing, site, x, z);
     const [dx, dz] = site.door;
     const slots: Slot[] = site.bays.map(b => {
       const pos = W(b.x, b.z);
-      // Yerin tam önündeki kare yol değilse ön yüzdeki en yakın yol
-      const ahead = W(b.x, site.n / 2 + 0.5);
-      const ax = Math.floor(ahead.x + SIZE / 2), az = Math.floor(ahead.z + Z0);
-      let road = inBounds(ax, az) ? idx(ax, az) : -1;
-      if (!fronts.includes(road)) {
-        let best = Infinity;
-        for (const r of fronts) {
-          const d = center(r).distanceToSquared(pos);
-          if (d < best) {
-            best = d;
-            road = r;
-          }
-        }
-      }
+      const road = this.frontRoad(i, facing, site, b.x);
       // Sürücü arabanın sol yanından (park çizgisinden) binaya doğru yürür, yaya yolundan kapıya gider
       const walk = [W(b.x - BAY_W / 2, b.z), W(b.x - BAY_W / 2, site.walk), W(dx, site.walk), W(dx, dz), W(dx, dz - 0.09)].map(p => p.setY(WALK_Y));
       return { pos, road, truck: b.truck, fleet: b.fleet, walk };
@@ -714,7 +718,7 @@ export class Traffic {
       let lot: Lot | undefined;
       if (site?.garages) {
         const old = this.fires.get(i);
-        const doors = site.garages.map(([x, z]) => this.siteWorld(i, t.facing, site, x, z));
+        const doors = site.garages.map(([x, z]) => ({ at: this.siteWorld(i, t.facing, site, x, z), road: this.frontRoad(i, t.facing, site, x) }));
         fires.set(i, { spot: { tile: i, road: spot.road, face: t.facing }, doors, trucks: old?.trucks ?? 2 });
       }
       if (site?.bays.length) {
@@ -878,8 +882,15 @@ export class Traffic {
     const exit: Dest = { kind: 'exit', road: idx(0, ENTRANCE_Z) };
     if (v.fleet || v.job === 'service') {
       if (base?.garage) {
+        // İtfaiye aracı çıktığı garaj kapısına (bina değiştiyse en yakın kapıya) döner
         const fs = this.fires.get(base.garage.tile);
-        if (fs) return { kind: 'garage', spot: base.garage, road: fs.spot.road, site: base.garage.tile, what: 'fire' };
+        const at = base.garage.at;
+        const doors = fs?.doors.filter(d => d.road >= 0) ?? [];
+        const door = at ? doors.reduce<(typeof doors)[number] | undefined>((b, d) => (!b || d.at.distanceToSquared(at) < b.at.distanceToSquared(at) ? d : b), undefined) : doors[0];
+        if (fs && door) {
+          const spot: Spot = { ...fs.spot, at: door.at, road: door.road };
+          return { kind: 'garage', spot, road: door.road, site: base.garage.tile, what: 'fire' };
+        }
         return exit;
       }
       // Yalnızca kendi binasına döner (başka binanın aracının yerine park etmez; yerinde boş yer hep kalır).
@@ -1418,8 +1429,9 @@ export class Traffic {
           () => {
             const fs = rnd([...this.fires.values()].filter(f => f.trucks > 0));
             if (!fs) return false;
-            const door = rnd(fs.doors);
-            const spot: Spot = { ...fs.spot, at: door };
+            const door = rnd(fs.doors.filter(d => d.road >= 0));
+            if (!door) return false;
+            const spot: Spot = { ...fs.spot, at: door.at, road: door.road };
             if (!this.driveOut(spot, { type: CAR_KINDS.indexOf('fire'), job: 'service', trip: roam, plan: [{ kind: 'home', road: -1 }], base: { garage: spot } })) return false;
             fs.trucks--;
             return true;

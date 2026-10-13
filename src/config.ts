@@ -1,5 +1,6 @@
 // Oyunun ayarları: fiyatlar, harita boyutu, bina seviyeleri
-import { towerPaths, midrisePaths } from './towers';
+import { midrisePaths } from './towers';
+import { skylinePaths, SKY_NAMES } from './skyline';
 import { cottagePaths, familyPaths, smallAptPaths } from './houses';
 export const SIZE = 48; // haritanın genişliği (x yönünde kare sayısı)
 // Harita kuzeye, denize doğru uzatıldı: kuzeydeki 16 sıra deniz ve içinde bir ada
@@ -306,10 +307,10 @@ export const COST: Record<BuildTool, number> = {
   zoo: 11000, lake: 1500, biglake: 3500, hill: 1200, volley: 2500, casino: 15000, observatory: 9000, eiffel: 30000, liberty: 25000, pisa: 12000, colosseum: 32000, galata: 10000, pyramid: 28000,
 };
 
-// Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar 2x2: önlerinde kendi otoparkları var
-// (eski kayıtlardaki 1x1 dükkânlar taşınınca 2x2 olur)
+// Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar, karakol, itfaiye ve depo 2x2:
+// önlerinde kendi otoparkları var (eski kayıtlardaki 1x1 olanlar yanında yer varsa ya da taşınınca 2x2 olur)
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
-  store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2,
+  store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
   health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
 };
 
@@ -415,10 +416,10 @@ export const RES_LEVELS = [
   { pop: 14, need: 2, models: familyPaths() },
   { pop: 30, need: 4, models: smallAptPaths() },
   { pop: 60, need: 7, models: midrisePaths(1.15, 3, 950, [6, 5, 7]) },
-  { pop: 100, need: 12, models: towerPaths(1.8, 3, 50, [6, 5, 0]) },
-  { pop: 160, need: 18, models: towerPaths(2.3, 3, 150, [2, 1, 3]) },
-  { pop: 240, need: 25, models: towerPaths(2.8, 3, 100, [0, 2, 4]) },
-  { pop: 340, need: 33, models: towerPaths(3.5, 3, 200, [4, 3, 1]) },
+  { pop: 100, need: 12, models: skylinePaths(1.8, ['green', 'wave', 'terrace'], 50) },
+  { pop: 160, need: 18, models: skylinePaths(2.3, ['twist', 'crystal', 'ribbon'], 150) },
+  { pop: 240, need: 25, models: skylinePaths(2.8, ['diagrid', 'twins', 'sail', 'holding'], 100) },
+  { pop: 340, need: 33, models: skylinePaths(3.5, ['burj', 'deco', 'pyramid'], 200) },
 ];
 
 // Konut seçimi: İnşa Et → Konut'ta istenen ev modeli seçilip doğrudan o seviyede kurulur.
@@ -430,6 +431,7 @@ export function houseName(path: string) {
   if (path.startsWith('proc/family-')) return 'İki katlı ev';
   if (path.startsWith('proc/smallapt-')) return 'Küçük apartman';
   if (path.startsWith('proc/midrise-')) return 'Apartman bloğu';
+  if (path.startsWith('proc/sky-')) return SKY_NAMES[path] ?? 'Gökdelen';
   if (path.startsWith('proc/tower-1.8')) return 'Konut kulesi';
   if (path.startsWith('proc/tower-')) return 'Gökdelen';
   return 'Ev';

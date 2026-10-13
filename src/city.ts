@@ -1869,11 +1869,11 @@ export class City {
     return c;
   }
 
-  // Eski kayıtlardaki 1x1 dükkânlar: yanında boş yer varsa yerinde otoparklı 2x2 dükkâna büyür
+  // Eski kayıtlardaki 1x1 dükkân, karakol, itfaiye ve depo: yanında boş yer varsa yerinde otoparklı 2x2'ye büyür
   // (yer yoksa eski haliyle kalır; kartındaki "Taşı" ile boş bir yere taşınınca büyür)
   growShops() {
     this.tiles.forEach((t, i) => {
-      if (!t || !SHOPS.includes(t.kind as IndustryKind) || (t.fp ?? 1) >= sizeOf(t.kind)) return;
+      if (!t || t.kind === 'part' || t.locked || (t.fp ?? 1) >= sizeOf(t.kind)) return;
       const x = i % SIZE, z = Math.floor(i / SIZE);
       for (const [ax, az] of [[x, z], [x - 1, z], [x, z - 1], [x - 1, z - 1]]) {
         if (!block(ax, az, 2) || this.moveCheck(i, ax, az)) continue;

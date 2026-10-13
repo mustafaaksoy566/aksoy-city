@@ -41,14 +41,14 @@ function lotAndWalk(st: THREE.Group, site: Site) {
 }
 
 // Düz çatı: kenar duvarı ve klima/havalandırma kutuları
-function flatRoof(st: THREE.Object3D, cx: number, cz: number, w: number, d: number, y: number, edge: THREE.Material) {
+export function flatRoof(st: THREE.Object3D, cx: number, cz: number, w: number, d: number, y: number, edge: THREE.Material) {
   box(st, w + 0.012, 0.006, d + 0.012, pm('#8f979f', 0.9), cx, y, cz);
   for (const s of [-1, 1]) {
     box(st, w + 0.02, 0.03, 0.012, edge, cx, y, cz + (s * (d + 0.008)) / 2);
     box(st, 0.012, 0.03, d - 0.004, edge, cx + (s * (w + 0.008)) / 2, y, cz);
   }
 }
-function hvac(st: THREE.Object3D, x: number, z: number, y: number) {
+export function hvac(st: THREE.Object3D, x: number, z: number, y: number) {
   box(st, 0.09, 0.045, 0.07, pm('#cfd8dc', 0.5), x, y, z);
   for (const dx of [-0.022, 0.022]) add(st, new THREE.CylinderGeometry(0.016, 0.016, 0.003, 14), M.iron, x + dx, y + 0.0465, z);
 }
