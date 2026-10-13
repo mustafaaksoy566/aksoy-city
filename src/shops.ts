@@ -300,7 +300,7 @@ function greenhouse(st: THREE.Object3D, cx: number, cz: number, W: number, D: nu
   for (const x of [cx - W / 2, cx, cx + W / 2]) {
     for (const z of [cz - D / 2, cz + D / 2]) box(st, 0.012, H + 0.006, 0.012, FRAME, x, y0, z);
   }
-  for (const x of [cx - W / 2, cx + W / 2]) box(st, 0.014, 0.012, D + 0.02, FRAME, x, eave - 0.004, cz);
+  for (const x of [cx - W / 2, cx + W / 2]) box(st, 0.014, 0.012, D + 0.016, FRAME, x, eave - 0.004, cz); // uçları cam çatının ucundan içeride
   for (const z of [cz - D / 2, cz + D / 2]) box(st, W + 0.014, 0.01, 0.012, FRAME, cx, eave - 0.004, z);
   box(st, 0.022, 0.012, D + 0.03, pm('#b8c2c8', 0.5, 0.4), cx, eave, cz);
 }
@@ -308,7 +308,7 @@ function greenhouse(st: THREE.Object3D, cx: number, cz: number, W: number, D: nu
 // Saksıda fidan: 0 yuvarlak taçlı, 1 çam, 2 çiçekli, 3 çalı
 function sapling(g: THREE.Object3D, x: number, z: number, k: number) {
   cyl(g, 0.014, 0.011, 0.022, k % 5 === 4 ? TERRACOTTA : POT, x, 0.034, z, 8);
-  cyl(g, 0.012, 0.012, 0.002, M.soil, x, 0.055, z, 8);
+  cyl(g, 0.012, 0.012, 0.002, M.soil, x, 0.056, z, 8); // toprak saksı ağzından belirgin yüksekte (aynı boyda titreşir)
   const kind = k % 4;
   const leaf = LEAVES[(k * 3) % LEAVES.length];
   if (kind === 0 || kind === 2) {
@@ -358,7 +358,7 @@ function gnome(g: THREE.Object3D, x: number, z: number, rot: number, k: number) 
 function wheelbarrow(g: THREE.Object3D, x: number, z: number, rot: number) {
   const w = item(g, x, z, rot);
   add(w, frustum(0.034, 0.05, 0.022, 0.05, 0.072), pm('#2e9d4a', 0.5), 0, 0.044, 0); // ağzı geniş, tabanı dar
-  box(w, 0.046, 0.004, 0.066, M.soil, 0, 0.051, 0);
+  box(w, 0.046, 0.004, 0.066, M.soil, 0, 0.053, 0);
   add(w, new THREE.IcosahedronGeometry(0.012, 0), LEAVES[1], 0.006, 0.062, -0.01);
   const wheel = add(w, new THREE.CylinderGeometry(0.012, 0.012, 0.007, 12).rotateZ(Math.PI / 2), M.iron, 0, 0.012, 0.045);
   wheel.castShadow = true;
@@ -404,7 +404,7 @@ function plantCart(g: THREE.Object3D, x: number, z: number, rot: number) {
 function potStack(g: THREE.Object3D, x: number, z: number) {
   for (let k = 0; k < 4; k++) cyl(g, 0.017, 0.012, 0.02, TERRACOTTA, x, 0.03 + k * 0.009, z, 10);
   cyl(g, 0.02, 0.015, 0.024, TERRACOTTA, x + 0.035, 0.03, z + 0.01, 10);
-  cyl(g, 0.017, 0.017, 0.002, M.soil, x + 0.035, 0.052, z + 0.01, 10);
+  cyl(g, 0.017, 0.017, 0.002, M.soil, x + 0.035, 0.054, z + 0.01, 10);
 }
 
 export function makeGarden(): THREE.Object3D {
@@ -416,7 +416,7 @@ export function makeGarden(): THREE.Object3D {
   const front = cz + D / 2;
   const green = pm('#2e7d32', 0.6);
   box(st, 0.2, 0.17, 0.06, green, cx, 0.03, front + 0.03);
-  box(st, 0.22, 0.012, 0.075, M.white, cx, 0.2, front + 0.035);
+  box(st, 0.22, 0.016, 0.075, M.white, cx, 0.2, front + 0.035); // üstü sera oluğundan belirgin yüksekte
   box(st, 0.13, 0.13, 0.004, pm('#1b4d22', 0.5), cx, 0.035, front + 0.061);
   box(st, 0.056, 0.12, 0.005, windowMat, cx - 0.031, 0.035, front + 0.063);
   box(st, 0.056, 0.12, 0.005, windowMat, cx + 0.031, 0.035, front + 0.063);
@@ -424,7 +424,7 @@ export function makeGarden(): THREE.Object3D {
   box(st, 0.16, 0.003, 0.05, pm('#6d4c41', 1), cx, 0.03, front + 0.085);
   // BAHÇE tabelası (girişin üstünde, iki alınlığın önünde)
   box(st, 0.34, 0.085, 0.014, green, cx, 0.205, front + 0.05);
-  box(st, 0.31, 0.065, 0.016, signMat('BAHÇE', '#2e7d32'), cx, 0.215, front + 0.051);
+  box(st, 0.31, 0.065, 0.012, signMat('BAHÇE', '#2e7d32'), cx, 0.215, front + 0.053); // arka yüzü panonun içinde, ön yüzü önünde
   for (const sx of [-1, 1]) {
     // Tabelanın iki yanında yaprak süsü
     add(st, new THREE.SphereGeometry(0.014, 8, 6).scale(1, 0.55, 0.4), LEAVES[1], cx + sx * 0.185, 0.27, front + 0.052).rotation.z = sx * 0.6;
@@ -561,7 +561,7 @@ const menuMat = once(() => {
 
 // Çizgili şemsiye: 8 dilim, iki renk sırayla
 function umbrella(g: THREE.Object3D, x: number, z: number, h: number, r: number, a: THREE.Material, b: THREE.Material) {
-  rod(g, [x, 0.03, z], [x, 0.03 + h + 0.01, z], 0.0028, M.white, 6);
+  rod(g, [x, 0.088, z], [x, 0.03 + h + 0.01, z], 0.0024, M.white, 6); // masanın üstünden çıkar (masa ayağıyla iç içe titreşmesin)
   for (let k = 0; k < 8; k++) {
     add(g, new THREE.ConeGeometry(r, r * 0.38, 2, 1, true, (k * Math.PI) / 4, Math.PI / 4), k % 2 ? b : a, x, 0.03 + h, z);
   }
@@ -569,7 +569,7 @@ function umbrella(g: THREE.Object3D, x: number, z: number, h: number, r: number,
 }
 // Yuvarlak masa ve sandalyeler; seats: sandalyelerin açıları, sitters: oturanlar (sandalye sırası -> renk)
 function patioTable(g: THREE.Object3D, x: number, z: number, seats: number[], sitters: [number, number][], chair: THREE.Material) {
-  cyl(g, 0.014, 0.016, 0.004, CHROME, x, 0.03, z, 10);
+  cyl(g, 0.014, 0.016, 0.008, CHROME, x, 0.03, z, 10); // ayak tabanı teras zemininden ve damalardan belirgin yüksekte
   cyl(g, 0.003, 0.003, 0.056, CHROME, x, 0.034, z, 6);
   cyl(g, 0.03, 0.03, 0.005, M.white, x, 0.088, z, 14);
   seats.forEach((a, i) => {
@@ -707,7 +707,7 @@ export function makeCafe(): THREE.Object3D {
   // Teras: dama desenli zemin, alçak beyaz parmaklık, şemsiyeli masalar, oturan insanlar
   box(st, 0.62, 0.004, 0.46, cream, 0, 0.03, 0.245);
   for (let i = 0; i < 8; i++) {
-    for (let j = 0; j < 6; j++) if ((i + j) % 2) box(st, 0.0775, 0.001, 0.0767, pm('#ef9a9a', 0.9), -0.31 + 0.0388 + i * 0.0775, 0.034, 0.015 + 0.0383 + j * 0.0767);
+    for (let j = 0; j < 6; j++) if ((i + j) % 2) box(st, 0.0775, 0.002, 0.0767, pm('#ef9a9a', 0.9), -0.31 + 0.0388 + i * 0.0775, 0.034, 0.015 + 0.0383 + j * 0.0767);
   }
   for (const sx of [-1, 1]) {
     const x = sx * 0.318;
@@ -940,8 +940,9 @@ export function makeElectro(): THREE.Object3D {
   box(st, W - 0.03, GT - 0.036, 0.004, SHOP_GLASS, cxs, 0.036, ZF);
   for (let k = 0; k <= 6; k++) box(st, 0.006, GT - 0.036, 0.008, dark, X0 + 0.015 + (k * (W - 0.03)) / 6, 0.036, ZF);
   box(st, W - 0.03, 0.006, 0.008, dark, cxs, 0.17, ZF);
-  box(st, W + 0.014, TOP + 0.026 - GT, 0.03, navy, cxs, GT, ZF - 0.008);
-  box(st, 0.03, TOP + 0.026 - GT, 0.16, navy, X1 + 0.001, GT, ZF - 0.07);
+  // Saçak, çatı kenar duvarından biraz yüksek (üstleri aynı boyda titreşiyordu)
+  box(st, W + 0.014, TOP + 0.03 - GT, 0.03, navy, cxs, GT, ZF - 0.008);
+  box(st, 0.03, TOP + 0.03 - GT, 0.16, navy, X1 + 0.001, GT, ZF - 0.07);
   box(st, W + 0.016, 0.01, 0.032, orange, cxs, GT, ZF - 0.008);
   box(st, 0.032, 0.01, 0.162, orange, X1 + 0.001, GT, ZF - 0.07);
   box(st, 0.44, 0.052, 0.006, signMat('ELEKTRONİK', '#1a237e', '#ffeb3b'), cxs - 0.05, GT + 0.012, ZF + 0.009);
@@ -1018,7 +1019,7 @@ export function makeElectro(): THREE.Object3D {
   washer(st, -0.355, 0.038, zs - 0.004);
   washer(st, -0.29, 0.038, zs - 0.004);
   fridge(st, -0.235, zs, 0);
-  for (const x of [-0.42, -0.355, -0.29, -0.235]) box(st, 0.022, 0.016, 0.002, tag, x, x === -0.42 || x === -0.235 ? 0.09 : 0.075, zs + 0.025);
+  for (const x of [-0.42, -0.355, -0.29, -0.235]) box(st, 0.022, 0.016, 0.002, tag, x, x === -0.42 || x === -0.235 ? 0.09 : 0.075, zs + 0.0275); // kapı kollarının önünde
   box(st, 0.16, 0.035, 0.004, signMat('KAMPANYA', '#ff6f00'), -0.33, 0.2, ZF + 0.005);
   featherFlag(st, -0.45, 0.42, orange, navy);
   featherFlag(st, 0.12, 0.42, navy, orange);
@@ -1042,7 +1043,7 @@ export function makeElectro(): THREE.Object3D {
   }
   const dz = -0.3;
   box(st, 0.006, 0.16, 0.13, pm('#e9edf1', 0.5, 0.3), X1 + 0.003, 0.03, dz);
-  for (let k = 0; k < 7; k++) box(st, 0.008, 0.003, 0.13, M.gray, X1 + 0.004, 0.05 + k * 0.021, dz);
+  for (let k = 0; k < 7; k++) box(st, 0.008, 0.003, 0.122, M.gray, X1 + 0.004, 0.05 + k * 0.021, dz); // çıtalar kapıdan dar
   box(st, 0.05, 0.01, 0.16, navy, X1 + 0.025, 0.21, dz);
   for (const z of [dz - 0.07, dz + 0.07]) box(st, 0.012, 0.03, 0.012, M.iron, X1 + 0.006, 0.03, z);
   const vx = 0.33, vz = 0.14;

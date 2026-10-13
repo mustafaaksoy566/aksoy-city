@@ -471,7 +471,7 @@ export function fountain() {
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, M.paving, 0, 0, 0);
   cyl(st, 0.44, 0.44, 0.004, M.terracotta, 0, 0.03, 0, 40);
-  cyl(st, 0.4, 0.4, 0.005, M.stone, 0, 0.03, 0, 40);
+  cyl(st, 0.4, 0.4, 0.007, M.stone, 0, 0.03, 0, 40);
   // Havuz: dolu taban, su ve sekiz kenarlı taş kenar
   cyl(st, 0.27, 0.28, 0.04, M.rim, 0, 0.03, 0, 8);
   cyl(st, 0.25, 0.25, 0.004, WATER, 0, 0.07, 0, 8);
@@ -486,10 +486,10 @@ export function fountain() {
   // Ortadaki sütun ve kâseler
   cyl(st, 0.035, 0.045, 0.15, M.stone, 0, 0.07, 0, 12);
   cyl(st, 0.13, 0.045, 0.035, M.stone, 0, 0.2, 0, 20);
-  cyl(st, 0.12, 0.12, 0.003, WATER, 0, 0.232, 0, 20);
+  cyl(st, 0.12, 0.12, 0.003, WATER, 0, 0.234, 0, 20); // su kâsenin ağzından belirgin yüksekte (aynı boyda titreşiyordu)
   cyl(st, 0.022, 0.03, 0.09, M.stone, 0, 0.235, 0, 10);
   cyl(st, 0.07, 0.025, 0.025, M.stone, 0, 0.31, 0, 16);
-  cyl(st, 0.062, 0.062, 0.003, WATER, 0, 0.332, 0, 16);
+  cyl(st, 0.062, 0.062, 0.003, WATER, 0, 0.334, 0, 16);
   add(st, new THREE.SphereGeometry(0.018, 10, 8), M.stone, 0, 0.345, 0);
   // Su perdeleri ve havuz fıskiyeleri
   add(st, new THREE.CylinderGeometry(0.131, 0.16, 0.161, 24, 1, true), SPRAY, 0, 0.074 + 0.08, 0);
@@ -624,7 +624,7 @@ export function observatory() {
   const s = 1 / (2 * 0.96);
   box(st, 0.98, 0.03, 0.98, M.lawn, 0, 0, 0);
   // Yollar ve otopark
-  box(st, 0.12, 0.004, 0.5, M.path, 0.05, 0.03, 0.24);
+  box(st, 0.12, 0.007, 0.5, M.path, 0.05, 0.03, 0.24); // yol, meydandan ve otoparktan belirgin yüksekte (üst üste binen yerler titreşmesin)
   cyl(st, 0.3, 0.3, 0.004, M.paving, -0.12, 0.03, -0.1, 36);
   box(st, 0.36, 0.004, 0.2, M.granite, 0.28, 0.03, 0.36);
   for (let k = 0; k < 5; k++) box(st, 0.004, 0.002, 0.09, M.white, 0.14 + k * 0.07, 0.034, 0.32);

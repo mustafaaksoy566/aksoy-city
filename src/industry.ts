@@ -97,7 +97,7 @@ function factory(variant: number) {
   // Yükleme kapıları ve rampa
   for (const x of [-0.3, -0.12, 0.06]) {
     box(st, 0.12, 0.12, 0.008, pm('#d9dde2', 0.5, 0.3), x, 0.03, 0.135);
-    for (let k = 0; k < 5; k++) box(st, 0.12, 0.003, 0.01, M.steel, x, 0.05 + k * 0.022, 0.138);
+    for (let k = 0; k < 5; k++) box(st, 0.112, 0.003, 0.01, M.steel, x, 0.05 + k * 0.022, 0.138); // çıtalar kapıdan dar (yan yüzler aynı düzlemde titreşmesin)
   }
   box(st, 0.5, 0.03, 0.08, M.concrete, -0.12, 0.03, 0.18);
   // Ofis bloğu (cam bantlı, öne doğru)
@@ -118,7 +118,7 @@ function factory(variant: number) {
   // Baca
   const chx = -0.4, chz = -0.38, ch = 0.62;
   add(st, new THREE.CylinderGeometry(0.03, 0.04, ch, 12), pm('#9e8e7e', 0.9), chx, 0.03 + ch / 2, chz);
-  add(st, new THREE.CylinderGeometry(0.034, 0.034, 0.03, 12), M.darkSteel, chx, 0.03 + ch - 0.015, chz);
+  add(st, new THREE.CylinderGeometry(0.034, 0.034, 0.03, 12), M.darkSteel, chx, 0.03 + ch - 0.011, chz); // bilezik bacanın ağzından biraz yüksek
   // Önde kamyon ve paletler
   const truck = carModel('truck', '#eceff1');
   truck.position.set(0.12, 0.03, 0.3);
@@ -143,7 +143,7 @@ function depot(variant: number) {
   for (const x of [-0.2, 0.2]) add(st, new THREE.CylinderGeometry(0.02, 0.02, 0.03, 8), M.steel, x, 0.305, -0.2);
   for (const x of [-0.22, 0.0, 0.22]) {
     box(st, 0.16, 0.16, 0.008, pm('#e9edf1', 0.5, 0.3), x, 0.03, 0.074);
-    for (let k = 0; k < 6; k++) box(st, 0.16, 0.003, 0.01, M.steel, x, 0.05 + k * 0.024, 0.077);
+    for (let k = 0; k < 6; k++) box(st, 0.152, 0.003, 0.01, M.steel, x, 0.05 + k * 0.024, 0.077); // çıtalar kapıdan dar
   }
   box(st, 0.7, 0.03, 0.07, M.concrete, 0, 0.03, 0.115);
   box(st, 0.3, 0.05, 0.012, signMat('DEPO', '#37474f'), -0.15, 0.2, 0.08);

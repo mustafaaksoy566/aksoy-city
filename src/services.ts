@@ -98,7 +98,7 @@ function fireStation() {
   box(st, 0.19, 0.18, 0.012, M.dark, -0.2, 0.03, 0.098);
   box(st, 0.22, 0.2, 0.01, M.white, 0.08, 0.03, 0.095);
   box(st, 0.19, 0.18, 0.012, M.red, 0.08, 0.03, 0.098);
-  for (let k = 0; k < 6; k++) box(st, 0.19, 0.003, 0.014, pm('#e57373', 0.6), 0.08, 0.05 + k * 0.026, 0.1);
+  for (let k = 0; k < 6; k++) box(st, 0.182, 0.003, 0.014, pm('#e57373', 0.6), 0.08, 0.05 + k * 0.026, 0.1); // çıtalar kapıdan dar (yan yüzler titreşmesin)
   box(st, 0.4, 0.06, 0.012, signMat('İTFAİYE', '#c62828'), -0.06, 0.25, 0.1);
   // Hortum kurutma kulesi
   st.add(part(KIT.facadeBox(0.14, 0.62, 0.14, 0.03), KIT.BRICK[0], 0.36, 0.34, -0.3));

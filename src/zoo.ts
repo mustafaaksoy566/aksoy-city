@@ -325,10 +325,11 @@ function ground(st: THREE.Group) {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   geo.computeVertexNormals();
   add(st, geo, VC, 0, 0, 0);
-  // Kenarlarda ince yan duvar (komşu karelere bitişik)
-  for (const sd2 of [-1, 1]) {
-    box(st, 0.98, G, 0.004, M.soil, 0, 0, sd2 * 0.488);
-    box(st, 0.004, G, 0.98, M.soil, sd2 * 0.488, 0, 0);
+  // Kenarlarda yan duvar (komşu karelere bitişik): dışa bakan düz yüzler, üstleri yok (ince kutuların üstü çimenle
+  // aynı boyda kalıp titreşiyordu)
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2;
+    add(st, new THREE.PlaneGeometry(0.98, G).rotateY(a), M.soil, Math.sin(a) * 0.49, G / 2, Math.cos(a) * 0.49);
   }
 }
 
@@ -372,12 +373,13 @@ function ribbon(st: THREE.Group, pts: Pt[], w: number, lift: number, closed: boo
 }
 function pathsAndPlaza(st: THREE.Group) {
   polys().forEach((pl, k) => {
-    ribbon(st, pl, HW * 2, 0.0014 + k * 0.0002, PATHS[k].closed);
-    if (!PATHS[k].closed) for (const e of [pl[0], pl[pl.length - 1]]) add(st, new THREE.CircleGeometry(HW, 14).rotateX(-Math.PI / 2), Z.pave, e[0], G + 0.0013 + k * 0.0002, e[1]);
+    // Her yol bir öncekinden belirgin yüksekte: kesiştikleri yerde kenar ve orta renkleri titreşmesin
+    ribbon(st, pl, HW * 2, 0.0014 + k * 0.0006, PATHS[k].closed);
+    if (!PATHS[k].closed) for (const e of [pl[0], pl[pl.length - 1]]) add(st, new THREE.CircleGeometry(HW, 14).rotateX(-Math.PI / 2), Z.pave, e[0], G + 0.0011 + k * 0.0006, e[1]);
   });
   // Giriş meydanı: taş döşeme, ortada çember desen ve yuvarlak çiçeklik
-  add(st, new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2).scale(PLAZA.rx, 1, PLAZA.rz), Z.pave, PLAZA.cx, G + 0.0024, PLAZA.cz);
-  add(st, new THREE.RingGeometry(0.85, 0.9, 40).rotateX(-Math.PI / 2).scale(PLAZA.rx, 1, PLAZA.rz), Z.paveDark, PLAZA.cx, G + 0.0027, PLAZA.cz);
+  add(st, new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2).scale(PLAZA.rx, 1, PLAZA.rz), Z.pave, PLAZA.cx, G + 0.0062, PLAZA.cz); // bütün yolların üstünde
+  add(st, new THREE.RingGeometry(0.85, 0.9, 40).rotateX(-Math.PI / 2).scale(PLAZA.rx, 1, PLAZA.rz), Z.paveDark, PLAZA.cx, G + 0.0068, PLAZA.cz);
   box(st, 0.1, 0.0024, 0.07, Z.pave, 0, G, 0.455);
 }
 
@@ -1242,20 +1244,21 @@ function cafe(st: THREE.Group) {
   box(o, 0.09, 0.006, 0.02, Z.timber, 0, 0.024, 0.052);
   box(o, 0.08, 0.014, 0.003, signMat('KAFE', '#ef6c00'), 0, 0.064, 0.0425);
   thatchHip(o, 0.15, 0.11, 0.05, 0.062);
-  // Teras
-  box(st, 0.12, 0.004, 0.11, Z.timber, 0.27, G, 0.4);
-  for (let k = 0; k < 8; k++) box(st, 0.12, 0.0005, 0.001, Z.timberDark, 0.27, G + 0.004, 0.35 + k * 0.014);
+  // Teras (üstü kafeye gelen yoldan belirgin yüksekte; yol terasın altına girer)
+  const TY = G + 0.007;
+  box(st, 0.12, TY - G, 0.11, Z.timber, 0.27, G, 0.4);
+  for (let k = 0; k < 8; k++) box(st, 0.12, 0.001, 0.001, Z.timberDark, 0.27, TY, 0.35 + k * 0.014);
   for (const [tx, tz, c] of [[0.24, 0.37, 0], [0.3, 0.375, 2], [0.25, 0.43, 5], [0.31, 0.435, 1]] as V3[]) {
-    const t = item(st, tx, tz, tx * 7, SC, G + 0.004);
+    const t = item(st, tx, tz, tx * 7, SC, TY);
     cyl(t, 0.026, 0.026, 0.005, M.white, 0, 0.03, 0, 10);
     rod(t, [0, 0, 0], [0, 0.03, 0], 0.003, M.iron, 4);
     rod(t, [0, 0.03, 0], [0, 0.1, 0], 0.0025, M.iron, 4);
     for (let j = 0; j < 8; j++) add(t, new THREE.ConeGeometry(0.06, 0.024, 2, 1, true, (j * Math.PI) / 4, Math.PI / 4), j % 2 ? M.white : PAINT[c], 0, 0.11, 0);
     for (const sd2 of [-1, 1]) box(t, 0.018, 0.018, 0.018, Z.timberDark, sd2 * 0.04, 0, 0);
   }
-  person(st, 0.24 - 0.014, 0.37, Math.PI / 2, 3, 1, G + 0.004 + 0.035 * SC);
-  person(st, 0.31 + 0.014, 0.435, -Math.PI / 2, 6, 1, G + 0.004 + 0.035 * SC);
-  person(st, 0.25 - 0.014, 0.43, Math.PI / 2, 8, 1, G + 0.004 + 0.035 * SC);
+  person(st, 0.24 - 0.014, 0.37, Math.PI / 2, 3, 1, TY + 0.035 * SC);
+  person(st, 0.31 + 0.014, 0.435, -Math.PI / 2, 6, 1, TY + 0.035 * SC);
+  person(st, 0.25 - 0.014, 0.43, Math.PI / 2, 8, 1, TY + 0.035 * SC);
 }
 // Ahşap seyir terası: kazıklar üstünde döşeme, korkuluk; isteğe bağlı saz çatı
 function deck(st: THREE.Group, x: number, z: number, w: number, d: number, h: number, rot: number, roof: boolean, glassSide = false) {
@@ -1583,7 +1586,7 @@ function visitors(st: THREE.Group) {
     [-0.23, 0.035, Math.PI, 11, 0], [-0.3, 0.05, Math.PI, 12, 0, 0.7], [0.3, -0.075, 0, 13, 0], [0.235, -0.1, 0.2, 14, 0],
     [0.09, -0.17, Math.PI, 15, 0], [-0.13, 0.15, -1.3, 16, 0], [0.1, 0.24, 2.2, 17, 0],
   ];
-  for (const [x, z, rot, k, pose, size] of ppl) person(st, x, z, rot, k, pose, G + 0.002, size ?? 1);
+  for (const [x, z, rot, k, pose, size] of ppl) person(st, x, z, rot, k, pose, G + 0.004, size ?? 1);
 }
 
 // ---------- Hareket eden hayvanlar ----------

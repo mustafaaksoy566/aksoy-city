@@ -137,7 +137,7 @@ export function makeFamilyHouse(model: number) {
   b.box(0.22, 0.15, 0.32, wall, gx, 0.05, cz + 0.03);
   b.box(0.24, 0.02, 0.34, roof, gx, 0.2, cz + 0.03);
   b.box(0.16, 0.11, 0.01, mat('#eceff1', 0.5), gx, 0.05, cz + 0.19);
-  for (let k = 0; k < 4; k++) b.box(0.16, 0.003, 0.012, mat('#b0bec5'), gx, 0.07 + k * 0.025, cz + 0.196);
+  for (let k = 0; k < 4; k++) b.box(0.152, 0.003, 0.012, mat('#b0bec5'), gx, 0.07 + k * 0.025, cz + 0.196); // çıtalar kapıdan dar (yan yüzler titreşmesin)
   // Ön cephe
   const front = cz + D / 2 + 0.002;
   b.box(0.075, 0.12, 0.01, mat(f.door, 0.6), cx - 0.08, 0.05, front);

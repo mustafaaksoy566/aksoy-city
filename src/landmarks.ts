@@ -571,7 +571,7 @@ function lighthouse() {
   // Bayrak direği, çapa, bank, lamba
   rod(st, [-0.42, 0.026, -0.42], [-0.42, 0.34, -0.42], 0.003, LH.white, 6);
   box(st, 0.002, 0.045, 0.07, LH.red, -0.42, 0.29, -0.385);
-  for (const sx of [-1, 1]) add(st, new THREE.CircleGeometry(0.009, 12).rotateY((sx * Math.PI) / 2), LH.white, -0.42 + sx * 0.0012, 0.3125, -0.395);
+  for (const sx of [-1, 1]) add(st, new THREE.CircleGeometry(0.009, 12).rotateY((sx * Math.PI) / 2), LH.white, -0.42 + sx * 0.0035, 0.3125, -0.395); // bezden belirgin uzakta (yapışık daire titreşiyordu)
   const ax = -0.44, az = -0.11;
   box(st, 0.06, 0.008, 0.04, LH.stone, ax, 0.026, az);
   rod(st, [ax, 0.034, az], [ax, 0.09, az], 0.004, LH.dark, 6);
@@ -749,7 +749,7 @@ function marina() {
   box(st, 0.98, 0.03, 0.955, PM.paving, 0, 0, -0.0125);
   for (const z of [-0.08, 0.28]) box(st, 0.98, 0.002, 0.012, PM.terracotta, 0, 0.03, z);
   box(st, 0.98, 0.004, 0.09, PM.wood, 0, 0.03, 0.4);
-  for (let k = 0; k < 28; k++) box(st, 0.002, 0.001, 0.09, PM.darkWood, -0.47 + k * 0.035, 0.034, 0.4);
+  for (let k = 0; k < 28; k++) box(st, 0.002, 0.002, 0.09, PM.darkWood, -0.47 + k * 0.035, 0.034, 0.4);
   box(st, 0.98, 0.008, 0.03, PM.granite, 0, 0.03, 0.46);
   box(st, 0.98, 0.03 - (water - 0.03), 0.02, PM.rim, 0, water - 0.03, 0.475);
 
@@ -855,7 +855,7 @@ function marina() {
   for (const px of [-0.3, 0, 0.3]) {
     const len = z1 - z0, zc = (z0 + z1) / 2;
     box(st, 0.05, 0.01, len, PM.wood, px, DY - 0.01, zc);
-    for (const sx of [-1, 1]) box(st, 0.006, 0.016, len, PM.darkWood, px + sx * 0.026, DY - 0.018, zc);
+    for (const sx of [-1, 1]) box(st, 0.006, 0.016, len - 0.006, PM.darkWood, px + sx * 0.026, DY - 0.018, zc); // kirişler tahtalardan kısa (uç yüzleri titreşmesin)
     for (let k = 0; k < 13; k++) box(st, 0.05, 0.0015, 0.002, PM.darkWood, px, DY, z0 + 0.02 + k * 0.036);
     for (const z of [0.6, 0.79, 0.97]) {
       for (const sx of [-1, 1]) {
@@ -882,7 +882,7 @@ function marina() {
   }
   // Yakıt iskelesi: orta iskelenin ucunda T biçimli iskele, pompalar, tente ve YAKIT tabelası
   box(st, 0.26, 0.01, 0.05, PM.wood, 0, DY - 0.01, 0.995);
-  for (const sx of [-1, 1]) box(st, 0.26, 0.016, 0.006, PM.darkWood, 0, DY - 0.018, 0.995 + sx * 0.026);
+  for (const sx of [-1, 1]) box(st, 0.254, 0.016, 0.006, PM.darkWood, 0, DY - 0.018, 0.995 + sx * 0.026);
   for (const x of [-0.05, 0.05]) {
     const p = item(st, x, 0.99, 0, s, DY);
     box(p, 0.03, 0.06, 0.022, PM.red, 0, 0, 0);

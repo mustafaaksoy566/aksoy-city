@@ -529,7 +529,7 @@ export function parkingGarage(level: number) {
       box(st, X1 - X0, 0.03, 0.014, PARK_CON, (X0 + X1) / 2, y, 0.423);
       box(st, 0.014, 0.03, 0.9, PARK_CON, X0 + 0.007, y, -0.02);
       box(st, X1 - X0 + 0.004, 0.008, 0.004, M.blue, (X0 + X1) / 2, y + 0.012, 0.431);
-      box(st, 0.004, 0.008, 0.9, M.blue, X0 - 0.001, y + 0.012, -0.02);
+      box(st, 0.004, 0.008, 0.894, M.blue, X0 - 0.001, y + 0.012, -0.02); // uçları arka korkuluğun yüzünden içeride
       for (let k = 0; k < 4; k++) add(st, BULB_GEO, BULB, -0.35 + k * 0.2, y - 0.022, -0.02);
     }
     if (f === floors) break;
