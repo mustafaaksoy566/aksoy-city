@@ -69,7 +69,7 @@ function effectOf(t: BuildTool): string {
     case 'depot': return `📦 +${DEPOT_STORAGE} depo yeri`;
     case 'port': return '🚢 Komşu şehirlere sat';
     case 'store': case 'market': case 'furniture': case 'bakery': case 'fashion': case 'garden': case 'cafe': case 'electro':
-      return MAT_IDS.filter(m => MATERIALS[m].maker === t).map(m => MATERIALS[m].icon).join(' ');
+      return MAT_IDS.filter(m => MATERIALS[m].maker === t).map(m => MATERIALS[m].name).join(', ');
   }
   return '';
 }
@@ -572,9 +572,10 @@ export function confirmDialog(title: string, text: string, ok: string): Promise<
 }
 
 export type Quality = 'high' | 'mid' | 'low';
-export interface SettingsState { sound: boolean; quality: Quality; rain: boolean; name: string; demo: boolean; screen?: string }
+export interface SettingsState { sound: boolean; music: boolean; quality: Quality; rain: boolean; name: string; demo: boolean; screen?: string }
 export interface SettingsHandlers {
   sound(on: boolean): void;
+  music(on: boolean): void;
   quality(q: Quality): void;
   rain(on: boolean): void;
   reset(): void;
@@ -592,8 +593,10 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     <h2>${icon('gear')}Ayarlar</h2>
     <label class="row name-row"><span>Şehrin adı</span><input id="city-input" maxlength="18" value="${esc(state.name)}" autocomplete="off" spellcheck="false"></label>
     <div class="row">${icon(state.sound ? 'soundOn' : 'soundOff')}<span>Ses efektleri</span><button class="switch${state.sound ? ' on' : ''}" data-k="sound" aria-label="Ses"></button></div>
+    <div class="row">${icon('music')}<span>Müzik</span><button class="switch${state.music ? ' on' : ''}" data-k="music" aria-label="Müzik"></button></div>
     <div class="row">${icon('rain')}<span>Yağmur</span><button class="switch${state.rain ? ' on' : ''}" data-k="rain" aria-label="Yağmur"></button></div>
     <div class="row">${icon('screen')}<span>Grafik</span><span class="segc">${q.map(([k, l]) => `<button data-q="${k}" class="${state.quality === k ? 'on' : ''}">${l}</button>`).join('')}</span></div>
+    <button class="help-row">${icon('help')}Nasıl oynanır?</button>
     <button class="demo-row">${icon('build')}${state.demo ? 'Hazır şehri yeniden aç' : 'Hazır şehri aç (örnek büyük şehir)'}</button>
     ${state.demo ? `<button class="demo-row back">${icon('rotateLeft')}Kendi şehrime dön</button>` : ''}
     <div class="save-pair"><button class="save-row" data-save="copy">📋 Şehri kopyala</button><button class="save-row" data-save="paste">📥 Kopyalanan şehri yükle</button></div>
@@ -610,7 +613,8 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
       if (b.dataset.k === 'sound') {
         on.sound(v);
         b.parentElement!.querySelector('.ic')!.outerHTML = icon(v ? 'soundOn' : 'soundOff');
-      } else on.rain(v);
+      } else if (b.dataset.k === 'music') on.music(v);
+      else on.rain(v);
     }),
   );
   el.querySelectorAll<HTMLButtonElement>('[data-q]').forEach(b =>
@@ -622,6 +626,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
   const input = el.querySelector<HTMLInputElement>('#city-input')!;
   input.addEventListener('input', () => on.rename(input.value.trim() || 'Aksoy City'));
   el.querySelector('[data-close]')!.addEventListener('click', () => (el.hidden = true));
+  el.querySelector('.help-row')!.addEventListener('click', () => openHelp(() => openSettings(state, on)));
   el.querySelector('.danger-row')!.addEventListener('click', () => {
     el.hidden = true;
     on.reset();
@@ -642,6 +647,64 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
       else on.demo();
     }),
   );
+}
+
+// --- Nasıl oynanır ---
+// Kısa rehber: oyunun kuralları bölüm bölüm (Ayarlar'dan açılır, "Geri" ayarlara döner)
+const HELP: [string, string, string[]][] = [
+  ['🛣️', 'Başlangıç', [
+    'Sağ alttaki İnşa Et düğmesinden yol çiz ve yolu soldaki şehir girişine bağla.',
+    'Yolun kenarına konut alanı çiz. Elektrik ve su gelince evler kendiliğinden yapılır.',
+    'Belediye vergileri biriktirir; belediyeye dokunup parayı topla.',
+  ]],
+  ['⚡', 'Elektrik ve su', [
+    'Rüzgâr türbini, güneş paneli ya da santral elektrik; su kulesi ya da pompa su verir.',
+    'Üstteki ⚡ ve 💧 göstergeleri ihtiyacı ve üretimi gösterir; yetmezse evler boşalır.',
+    'Bu binalar yükseltilince aynı yerde daha çok üretir.',
+  ]],
+  ['🏠', 'Evleri büyütmek', [
+    'Evin kartında "Yükselt" ile ev büyür; gereken malzemeler kartta resimleriyle yazar.',
+    '3. seviye için yakında park, 4. için dükkân (yakında ya da şehirde yeterince).',
+    '5. seviye için itfaiye, polis, hastane ve okul kapsamalı; 6. için yakında simge yapı.',
+    '7. seviye (gökdelen) için yanındaki yol bulvar ya da cadde, 8. için yakında metro ya da tren.',
+  ]],
+  ['🏭', 'Üretim', [
+    'Fabrika metal, odun gibi ham maddeleri üretir. Dükkânlar bunlardan ürün yapar.',
+    'Binaya dokun, alttaki banttan ürün seç; bitince binada baloncuk çıkar, dokununca depoya gelir.',
+    'Depo dolunca üretim durur: Depo düğmesinden fazla ürünü satabilir ya da yeni depo binası kurabilirsin.',
+    'Limandan komşu şehirlere sipariş göndererek çok para kazanırsın.',
+  ]],
+  ['🚗', 'Trafik ve ulaşım', [
+    'Kırmızı yollar tıkalıdır. Cadde sade yolun üç katı araba taşır, bulvar evleri mutlu eder.',
+    'Otobüs durağı, metro ve tren arabaları azaltır. Metro hattını Ulaşım menüsünden yerin altına çiz.',
+    'Alt geçidi cadde üstüne düz çiz: arabalar kavşakların altından ışığa takılmadan geçer.',
+  ]],
+  ['🗺️', 'Şehri büyütmek', [
+    '3. seviyeden sonra kenardaki + işaretlerine dokunup yeni arazi satın alabilirsin.',
+    'Harita doğuda ve güneyde nehrin ötesine kadar uzanır; kuzeyde deniz ve ada var.',
+    'Kız Kulesi denizin içine, Opera Binası su kıyısına kurulur.',
+  ]],
+  ['🔥', 'Olaylar', [
+    'İtfaiyenin kapsamadığı evlerde yangın çıkabilir; karttan söndür.',
+    'Polisin olmadığı yerlerde hırsızlık olur. Depremde hasar gören evleri karttan onar.',
+  ]],
+  ['🎮', 'Kumanda', [
+    'Tek parmakla kaydır, iki parmakla yakınlaştır ve döndür. İki parmağı yukarı-aşağı kaydırınca kamera eğilir.',
+    'Bir binaya basılı tut: taşı ve çevir. Pusulaya dokununca harita kuzeye döner.',
+    'Bir gün, bir gece-gündüz turudur (2 dakika). Para ve büyüme bundan bağımsız işler.',
+  ]],
+];
+// back yoksa (ilk açılışta kendiliğinden) sadece Tamam düğmesi olur
+export function openHelp(back?: () => void) {
+  const el = $('dialog');
+  el.innerHTML = `<div class="dlg help">
+    <h2>${icon('help')}Nasıl oynanır?</h2>
+    <div class="help-body">${HELP.map(([ic, title, lines]) => `<section><h3><span>${ic}</span>${esc(title)}</h3><ul>${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul></section>`).join('')}</div>
+    <div class="btns">${back ? '<button class="big-btn gray" data-back>Geri</button>' : ''}<button class="big-btn green" data-close>${back ? 'Tamam' : 'Başlayalım!'}</button></div>
+  </div>`;
+  el.hidden = false;
+  el.querySelector('[data-close]')!.addEventListener('click', () => (el.hidden = true));
+  if (back) el.querySelector('[data-back]')!.addEventListener('click', back);
 }
 
 // --- Yükleme ekranı ---

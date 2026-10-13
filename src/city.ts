@@ -1056,6 +1056,17 @@ export class City {
     return BASE_STORAGE + DEPOT_STORAGE * this.tiles.filter(t => t?.kind === 'depot').length;
   }
 
+  // Depodan satış: bir tanesi fiyatının yarısına (limandaki siparişler daha çok kazandırır)
+  sellPrice(m: MatId) {
+    return Math.max(1, Math.round(MATERIALS[m].price / 2));
+  }
+  sell(m: MatId): string | null {
+    if (this.storage[m] < 1) return 'Depoda bu üründen yok';
+    this.storage[m]--;
+    this.money += this.sellPrice(m);
+    return null;
+  }
+
   // Depoda eksik kalan malzemelerin parayla bedeli (satış fiyatının iki katı)
   missingPrice(cost: Partial<Record<MatId, number>>) {
     return (Object.entries(cost) as [MatId, number][]).reduce((s, [m, n]) => s + Math.max(0, n - this.storage[m]) * MATERIALS[m].price * 2, 0);

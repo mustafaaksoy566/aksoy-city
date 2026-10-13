@@ -14,6 +14,15 @@ let master: GainNode | null = null;
 let ambience: AudioBufferSourceNode | null = null;
 const buffers = new Map<string, AudioBuffer>();
 let muted = readMuted();
+let musicOn = readMusic();
+
+function readMusic() {
+  try {
+    return localStorage.getItem('aksoy-city-music') !== '0';
+  } catch {
+    return true;
+  }
+}
 
 function readMuted() {
   try {
@@ -176,6 +185,7 @@ function unlockAudio() {
     if (!ctx) return;
     buffers.set('ambience', ambienceSound());
     startAmbience();
+    startMusic();
   }, 400);
 }
 
@@ -218,4 +228,145 @@ export function setMuted(m: boolean) {
   } catch {
     // önemli değil
   }
+}
+
+// --- Müzik ---
+// Kodla çalınan sakin arka plan müziği: dört akorlu yumuşak bir döngü (Do, La minör, Fa, Sol), altta bas,
+// üstte pentatonik dizide marimba gibi tıngırdayan notalar (her ölçüde önceki notaya yakın, rastgele) ve
+// hafif yankı. Her 16 ölçüde ton değişir. Gece notalar seyrekleşir. Ses efektlerinden ayrı açılıp kapanır.
+let musicBus: GainNode | null = null;
+let padBus: BiquadFilterNode | null = null;
+let musicNext = 0;
+let musicBar = 0;
+let musicNote = 4;
+let musicNight = 0;
+const BAR = 2.6;
+const PROG = [[0, 4, 7, 11], [9, 12, 16, 19], [5, 9, 12, 16], [7, 11, 14, 17]];
+const KEYS = [0, 5, -3, 2];
+const PENTA = [0, 2, 4, 7, 9];
+const hz = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
+
+function startMusic() {
+  if (!ctx || musicBus) return;
+  musicBus = ctx.createGain();
+  musicBus.gain.value = musicOn ? 0.55 : 0;
+  musicBus.connect(ctx.destination);
+  // Yankı: hızla sönen gürültüden yapılmış küçük bir oda
+  const rev = ctx.createConvolver();
+  rev.buffer = buffer(2.4, (t, r) => (r() * 2 - 1) * Math.exp(-t / 0.55), 31);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.3;
+  musicBus.connect(rev);
+  rev.connect(wet);
+  wet.connect(ctx.destination);
+  // Akorlar yumuşak dursun diye tizleri kısılır
+  padBus = ctx.createBiquadFilter();
+  padBus.type = 'lowpass';
+  padBus.frequency.value = 1400;
+  padBus.connect(musicBus);
+  musicNext = ctx.currentTime + 0.6;
+  setInterval(scheduleMusic, 300);
+}
+
+// Önümüzdeki bir saniyenin ölçülerini sıraya koy (sekme gizliyken ya da müzik kapalıyken çalmaz)
+function scheduleMusic() {
+  if (!ctx || !musicBus || ctx.state !== 'running') return;
+  if (!musicOn || document.hidden) {
+    musicNext = ctx.currentTime + 0.3;
+    return;
+  }
+  if (musicNext < ctx.currentTime) musicNext = ctx.currentTime + 0.05;
+  while (musicNext < ctx.currentTime + 1.2) {
+    musicBarAt(musicNext);
+    musicNext += BAR;
+  }
+}
+
+function musicBarAt(t0: number) {
+  const chord = PROG[musicBar % PROG.length];
+  const root = 48 + KEYS[Math.floor(musicBar / 16) % KEYS.length];
+  for (const iv of chord.slice(0, 3)) pad(hz(root + 12 + iv), t0, BAR + 0.5, 0.03);
+  pluck(hz(root + chord[0] - 12), t0, 1.8, 0.09);
+  pluck(hz(root + chord[0] - 12 + 7), t0 + BAR / 2, 1.2, 0.05);
+  // Melodi: sekizlik notalar; vuruş başlarında daha sık, gece daha seyrek
+  const density = 1 - musicNight * 0.45;
+  for (let k = 0; k < 8; k++) {
+    if (Math.random() > (k % 2 ? 0.28 : 0.55) * density) continue;
+    const steps = [-2, -1, -1, 0, 1, 1, 2];
+    musicNote = Math.max(0, Math.min(9, musicNote + steps[Math.floor(Math.random() * steps.length)]));
+    const deg = PENTA[musicNote % 5] + 12 * Math.floor(musicNote / 5);
+    mallet(hz(root + 24 + deg), t0 + (k * BAR) / 8 + Math.random() * 0.015, 1.1, 0.055);
+  }
+  musicBar++;
+}
+
+// Akor sesi: yavaş açılan, iki hafif ayrı akortlu üçgen dalga
+function pad(f: number, t: number, dur: number, vol: number) {
+  const c = ctx!;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.7);
+  g.gain.setValueAtTime(vol, t + dur - 0.8);
+  g.gain.linearRampToValueAtTime(0, t + dur);
+  g.connect(padBus!);
+  for (const det of [-6, 6]) {
+    const o = c.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    o.detune.value = det;
+    o.connect(g);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+}
+// Marimba: temel ton ve hızla sönen parlak üst ton
+function mallet(f: number, t: number, dur: number, vol: number) {
+  const c = ctx!;
+  for (const [mul, v, d] of [[1, vol, dur], [4, vol * 0.35, 0.12]] as [number, number, number][]) {
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f * mul;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g);
+    g.connect(musicBus!);
+    o.start(t);
+    o.stop(t + d + 0.05);
+  }
+}
+// Bas: yuvarlak, kısa sönen ton
+function pluck(f: number, t: number, dur: number, vol: number) {
+  const c = ctx!;
+  const o = c.createOscillator();
+  o.type = 'sine';
+  o.frequency.value = f;
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g);
+  g.connect(musicBus!);
+  o.start(t);
+  o.stop(t + dur + 0.05);
+}
+
+export function isMusicOn() {
+  return musicOn;
+}
+
+export function setMusic(on: boolean) {
+  musicOn = on;
+  if (musicBus && ctx) musicBus.gain.setTargetAtTime(on ? 0.55 : 0, ctx.currentTime, 0.3);
+  try {
+    localStorage.setItem('aksoy-city-music', on ? '1' : '0');
+  } catch {
+    // önemli değil
+  }
+}
+
+// Gece müzik sakinleşir (0 gündüz, 1 gece)
+export function setMusicNight(n: number) {
+  musicNight = n;
 }

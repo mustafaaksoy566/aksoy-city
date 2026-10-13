@@ -679,6 +679,16 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
 .dlg .danger-row .ic { width: 22px; height: 22px; }
 .dlg .demo-row { margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px; border-radius: 14px; background: #e3f2fd; color: #1565c0; font-size: 15px; font-weight: 600; }
 .dlg .demo-row.back { background: #e8f5e9; color: #2e7d32; }
+/* Nasıl oynanır rehberi */
+.dlg .help-row { margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px; border-radius: 14px; background: #fff8e1; color: #8d6e00; font-size: 15px; font-weight: 600; }
+.dlg .help-row .ic { width: 22px; height: 22px; }
+.dlg.help .help-body { max-height: min(62vh, 520px); overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 4px -4px 0; padding: 0 4px; }
+.dlg.help section { padding: 10px 0; border-bottom: 1px solid #eef2f6; }
+.dlg.help section:last-child { border-bottom: none; }
+.dlg.help h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 16px; font-weight: 700; color: #1f2d3d; }
+.dlg.help h3 span { font-size: 18px; }
+.dlg.help ul { margin: 0; padding-left: 20px; }
+.dlg.help li { margin: 4px 0; font-size: 14px; line-height: 1.4; color: #3a4a5c; }
 .dlg .demo-row .ic { width: 22px; height: 22px; }
 .dlg .save-pair { display: flex; gap: 8px; margin-top: 10px; }
 .dlg .save-row { flex: 1; padding: 10px 6px; border-radius: 14px; background: #fff8e1; color: #8a5a00; font-size: 13.5px; font-weight: 600; line-height: 1.2; }

@@ -38,10 +38,10 @@ import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
 import { setSignalTime, updateSignals } from './signals';
 import { TileInput } from './input';
-import { setupAudioUnlock, play, isMuted, setMuted } from './audio';
+import { setupAudioUnlock, play, isMuted, setMuted, isMusicOn, setMusic, setMusicNight } from './audio';
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
-  setLoading, loadFailed, openSettings, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, thumbOf, type Quality,
+  setLoading, loadFailed, openSettings, openHelp, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, thumbOf, type Quality,
 } from './ui';
 import { ProductionPanel, setProductPics } from './production';
 import { makeItem, ITEM_IDS } from './items';
@@ -50,6 +50,7 @@ const SAVE_KEY = 'aksoy-city-save-v1';
 const QUALITY_KEY = 'aksoy-city-quality';
 const RAIN_KEY = 'aksoy-city-rain';
 const NAME_KEY = 'aksoy-city-name';
+const HELP_KEY = 'aksoy-city-help'; // nasıl oynanır rehberi gösterildi mi
 
 const readPref = (key: string) => {
   try {
@@ -95,7 +96,8 @@ scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnviron
 scene.environmentIntensity = 0.55;
 
 const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 400);
-const start = tileCenter(ENTRANCE_LEN + 6, ENTRANCE_Z);
+// Açılışta kamera belediyeye ve giriş yolunun ucuna bakar (yeni şehirde ilk iş buradan yol çizmek)
+const start = tileCenter(ENTRANCE_LEN + 1, ENTRANCE_Z);
 camera.position.set(start.x + 8, 11, start.z + 8);
 
 // Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
@@ -248,7 +250,7 @@ function checkLevelUps() {
     const tools = (Object.entries(UNLOCK) as [BuildTool, number][])
       .filter(([, l]) => l === level)
       .map(([t]) => ({ key: t as string, icon: TOOL_INFO[t].icon, label: TOOL_INFO[t].label }));
-    const mats = MAT_IDS.filter(m => MATERIALS[m].unlock === level).map(m => ({ icon: MATERIALS[m].icon, label: MATERIALS[m].name }));
+    const mats = MAT_IDS.filter(m => MATERIALS[m].unlock === level).map(m => ({ key: `mat:${m}`, icon: MATERIALS[m].icon, label: MATERIALS[m].name }));
     celebrateLevel(level, LEVEL_REWARD * level, [...tools, ...mats]);
     play('grow', 0.6);
   }
@@ -256,7 +258,8 @@ function checkLevelUps() {
 
 // Depo düğmesinin yanında küçük "+🔩" yazısı uçsun
 function floatStorage(mats: MatId[]) {
-  floatText('storage', '+' + mats.map(m => MATERIALS[m].icon).join(''));
+  const names = [...new Set(mats)].map(m => MATERIALS[m].name);
+  floatText('storage', '+' + (names.length <= 2 ? names.join(', ') : `${mats.length} ürün`));
 }
 
 // Yangın, hırsızlık, deprem gibi olayları ekranda göster
@@ -419,6 +422,17 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  sell(mat) {
+    const err = city.sell(mat);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      floatIncome(city.sellPrice(mat));
+      play('click', 0.4);
+    }
+    afterChange();
+  },
   renewOrders() {
     const err = city.renewOrders();
     if (err) toast(err, 'error');
@@ -492,7 +506,7 @@ const cardActions: CardActions = {
 function renderCard() {
   if (openCard === null) return showInfo(null);
   const card =
-    openCard === 'storage' ? describeStorage(city)
+    openCard === 'storage' ? describeStorage(city, cardActions)
     : openCard === 'quests' ? describeQuests(city, cardActions)
     : openCard === 'budget' ? describeBudget(city, cardActions)
     : openCard === 'city' ? describeCity(city, cityName)
@@ -1435,9 +1449,10 @@ function screenInfo() {
 document.getElementById('settings')!.addEventListener('click', () => {
   play('click', 0.3);
   openSettings(
-    { sound: !isMuted(), quality, rain: weather.enabled, name: cityName, demo: readPref(DEMO_KEY) === '1' && !!readPref(BACKUP_KEY), screen: screenInfo() },
+    { sound: !isMuted(), music: isMusicOn(), quality, rain: weather.enabled, name: cityName, demo: readPref(DEMO_KEY) === '1' && !!readPref(BACKUP_KEY), screen: screenInfo() },
     {
       sound: on => setMuted(!on),
+      music: setMusic,
       quality: applyQuality,
       rain: on => {
         weather.enabled = on;
@@ -1603,6 +1618,7 @@ function frame() {
   dayNight.dome.position.copy(camera.position);
   fireworks.update(dt, phase(tod).night, showSpots);
   dayNight.update(tod, dt, weather.amount);
+  setMusicNight(phase(tod).night);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
   if (shake > 0) {
@@ -1723,6 +1739,7 @@ function makeProductPictures() {
     r.dispose();
     setProductPics(pics);
     view.setItemPics(pics);
+    setThumbs(new Map([...pics].map(([k, v]) => [`mat:${k}`, v])));
     if (prod.isOpen) prod.refresh();
     renderCard();
   } catch (err) {
@@ -1751,6 +1768,11 @@ loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
     // Ürün resimleri oyun açıldıktan hemen sonra çizilir (açılışı yavaşlatmasın)
     setTimeout(makeProductPictures, 300);
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
+    // Oyunu ilk kez açana kısa rehber (bir kere)
+    if (!city.hasZones && readPref(HELP_KEY) !== '1') {
+      writePref(HELP_KEY, '1');
+      openHelp();
+    }
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
     if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod, dayNight, frame, makeDecor } });

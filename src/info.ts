@@ -29,6 +29,7 @@ export interface CardActions {
   collect(): void;
   extinguish(i: number): void;
   repair(i: number, buy?: boolean): void;
+  sell(mat: MatId): void;
   claim(n: number): void;
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
@@ -49,8 +50,9 @@ const fmt = (n: number) => n.toLocaleString('tr-TR');
 const pct = (x: number) => `%${Math.round(x * 100)}`;
 const mood = (x: number) => (x >= 0.75 ? '😄' : x >= 0.5 ? '🙂' : x >= 0.3 ? '😐' : '😟');
 const groupColor = (t: BuildTool) => BUILD_GROUPS.find(g => g.tools.includes(t))?.color ?? '#3d8bff';
+// Malzeme listesi adlarıyla ("2 Metal, 1 Odun"); emoji her cihazda görünmüyor
 const costText = (cost: Partial<Record<MatId, number>>) =>
-  (Object.entries(cost) as [MatId, number][]).map(([m, n]) => `${MATERIALS[m].icon}${n}`).join(' ');
+  (Object.entries(cost) as [MatId, number][]).map(([m, n]) => `${n} ${MATERIALS[m].name}`).join(', ');
 // Gereken malzemeler: ürün resmi, adı ve depodaki/gereken sayısı (emoji her telefonda görünmüyor)
 const haveNeed = (city: City, cost: Partial<Record<MatId, number>>) =>
   (Object.entries(cost) as [MatId, number][]).map(([m, n]) => ({
@@ -382,10 +384,12 @@ export function describePort(city: City, act: CardActions, now = Date.now()): In
   };
 }
 
-export function describeStorage(city: City): InfoCard {
+export function describeStorage(city: City, act?: CardActions): InfoCard {
   const have = MAT_IDS.filter(m => city.storage[m] > 0);
   const lines: InfoCard['lines'] = [];
   if (!have.length) lines.push({ text: 'Depo boş. Fabrikada metal ve odun üret.' });
+  else if (act) lines.push({ text: '💰 Bir ürüne dokun: bir tanesini satarsın (fiyatının yarısına). Depo dolunca üretim durur.' });
+  if (city.storageUsed >= city.storageCap) lines.push({ ok: false, text: 'Depo dolu! Ürün sat ya da yeni depo binası kur.' });
   lines.push({ text: `Her yeni depo binası ${DEPOT_STORAGE} yer ekler (Sanayi menüsü).` });
   return {
     title: 'Depo',
@@ -398,9 +402,10 @@ export function describeStorage(city: City): InfoCard {
       icon: productPic(m, 'tpic'),
       name: MATERIALS[m].name,
       sub: `${fmt(city.storage[m])} tane`,
+      note: act ? `Sat 💰${fmt(city.sellPrice(m))}` : undefined,
       section: MATERIALS[m].maker === 'factory' ? 'Ham maddeler' : 'Ürünler',
       enabled: true,
-      run: () => {},
+      run: () => act?.sell(m),
     })).sort((a, b) => (a.section === b.section ? 0 : a.section === 'Ham maddeler' ? -1 : 1)),
   };
 }
@@ -417,7 +422,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
   if (t.kind === 'hall') return describeHall(city, act);
   if (t.kind === 'port') return describePort(city, act, now);
   if ((MAKERS as string[]).includes(t.kind)) return production(city, i, act, now);
-  if (t.kind === 'depot') return { ...describeStorage(city), thumb: 'depot', icon: undefined };
+  if (t.kind === 'depot') return { ...describeStorage(city, act), thumb: 'depot', icon: undefined };
 
   if (t.kind === 'res' || t.kind === 'com') {
     const isRes = t.kind === 'res';

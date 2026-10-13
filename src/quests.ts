@@ -1,8 +1,13 @@
-import { MATERIALS, MAT_IDS, SERVICES, SERVICE_KINDS, TOOL_INFO, type MatId, type ServiceKind } from './config';
+import { MATERIALS, MAT_IDS, SERVICES, SERVICE_KINDS, TOOL_INFO, BUILD_GROUPS, LAND, type MatId, type ServiceKind, type BuildTool } from './config';
 import type { City } from './city';
 
 // Görevler: aynı anda 3 tane. Bitince ödül alınır ve yerine yenisi gelir.
-export type QuestType = 'pop' | 'produce' | 'upgrade' | 'build' | 'houses' | 'service' | 'stock' | 'tax' | 'ship';
+export type QuestType = 'pop' | 'produce' | 'upgrade' | 'build' | 'houses' | 'service' | 'stock' | 'tax' | 'ship' | 'land' | 'landmark';
+
+// Tarihi yapılar ve dünya harikaları (Tarihi menüsü)
+const LANDMARKS = (BUILD_GROUPS.find(g => g.group === 'historic')?.tools ?? []) as BuildTool[];
+const ownedPlots = (city: City) => city.owned.reduce((s, v) => s + v, 0);
+const landmarkCount = (city: City) => city.tiles.filter(t => t && LANDMARKS.includes(t.kind as BuildTool)).length;
 export interface Quest {
   type: QuestType;
   target: number;
@@ -43,6 +48,10 @@ export function questProgress(city: City, q: Quest): number {
       return city.tiles.some(t => t?.kind === q.service) ? 1 : 0;
     case 'stock':
       return city.storage[q.mat!];
+    case 'land':
+      return ownedPlots(city) - q.base;
+    case 'landmark':
+      return landmarkCount(city) - q.base;
     default:
       return counter(city, q) - q.base;
   }
@@ -71,6 +80,10 @@ export function questText(q: Quest): string {
       return `🏛️ Belediyeden ${fmt(q.target)} vergi topla`;
     case 'ship':
       return `🚢 Komşu şehirlere ${q.target} sipariş gönder`;
+    case 'land':
+      return `🗺️ ${q.target} yeni arazi satın al (kenardaki + işaretleri)`;
+    case 'landmark':
+      return '🏛️ Bir tarihi yapı ya da dünya harikası kur (Tarihi menüsü)';
   }
 }
 
@@ -111,6 +124,8 @@ export function newQuest(city: City, existing: Quest[]): Quest {
       return { type: 'stock', mat, target: 3 + Math.floor(lvl / 2), base: 0, ...reward(0.8) };
     },
     () => (city.tiles.some(t => t?.kind === 'port') ? { type: 'ship', target: 1 + Math.floor(lvl / 5), base: city.stats.ships ?? 0, ...reward(1.4) } : null),
+    () => (lvl >= LAND.level && city.owned.some(v => !v) ? { type: 'land', target: 1, base: ownedPlots(city), ...reward(1.3) } : null),
+    () => (LANDMARKS.some(k => city.isUnlocked(k)) ? { type: 'landmark', target: 1, base: landmarkCount(city), ...reward(1.6) } : null),
     () => ({ type: 'tax', target: Math.max(100, Math.round((city.dailyIncome * 12 + 100) / 50) * 50), base: city.stats.taxes, ...reward(1) }),
   ];
   for (let tries = 0; tries < 30; tries++) {

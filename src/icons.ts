@@ -43,6 +43,8 @@ export const ICONS = {
 <path d="M11.5 13.5l1.5 1.5 2.6-2.8M17.5 13.8h3.5M11.5 19.5l1.5 1.5 2.6-2.8M17.5 19.8h3.5" fill="none" stroke="#2e9e44" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>`),
   gear: svg(`<path d="${gear(16, 16, 13.2, 10, 8)}" fill="#9fb0c2" ${S}/><circle cx="16" cy="16" r="4.4" fill="#e9eef3" ${S}/>`),
   soundOn: svg(`${SPEAKER}<path d="M20.8 11.5a6 6 0 0 1 0 9M24.4 8a11 11 0 0 1 0 16" fill="none" stroke="#1f2d3d" stroke-width="2.3" stroke-linecap="round"/>`),
+  music: svg(`<path d="M12 23.5V8.5l13-3v15" fill="none" stroke="#1f2d3d" stroke-width="2.4" stroke-linejoin="round"/><ellipse cx="9" cy="23.5" rx="4" ry="3.2" fill="#ab47bc" stroke="#1f2d3d" stroke-width="2"/><ellipse cx="22" cy="20.5" rx="4" ry="3.2" fill="#ab47bc" stroke="#1f2d3d" stroke-width="2"/>`),
+  help: svg(`<circle cx="16" cy="16" r="12.5" fill="#4fc3f7" stroke="#1f2d3d" stroke-width="2"/><path d="M12.2 12.6a4 4 0 1 1 5.6 3.6c-1.2.6-1.8 1.4-1.8 2.7v.6" fill="none" stroke="#1f2d3d" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="23.6" r="1.7" fill="#1f2d3d"/>`),
   soundOff: svg(`${SPEAKER}<path d="M21 12l7 8M28 12l-7 8" stroke="#e53935" stroke-width="2.8" stroke-linecap="round"/>`),
   rotateRight: svg(ROTATE),
   sun: svg(`<g stroke="#1f2d3d" stroke-width="2" stroke-linecap="round">${[0, 45, 90, 135, 180, 225, 270, 315].map(a => `<path d="M16 3.5v4" transform="rotate(${a} 16 16)" stroke="#ffb300"/>`).join('')}</g><circle cx="16" cy="16" r="7" fill="#ffd23f" ${S}/>`),
