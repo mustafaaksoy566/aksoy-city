@@ -60,6 +60,17 @@ export const box = (g: THREE.Object3D, w: number, h: number, d: number, m: THREE
   add(g, new THREE.BoxGeometry(w, h, d), m, x, y + h / 2, z);
 export const cyl = (g: THREE.Object3D, rTop: number, rBot: number, h: number, m: THREE.Material, x: number, y: number, z: number, seg = 12) =>
   add(g, new THREE.CylinderGeometry(rTop, rBot, h, seg), m, x, y + h / 2, z);
+// Çerçeve: w x d dış ölçülü, rim kalınlığında dört kenar; ortası boş kalır (içine su ya da toprak konur).
+// Dolu kutunun üstüne ince bir plaka koyunca iki yüz aynı boyda olur ve telefonda titreşir; çerçeve bunu önler.
+export function frame(g: THREE.Object3D, w: number, d: number, h: number, rim: number, m: THREE.Material, x: number, y: number, z: number) {
+  for (const sz of [-1, 1]) box(g, w, h, rim, m, x, y, z + (sz * (d - rim)) / 2);
+  for (const sx of [-1, 1]) box(g, rim, h, d - rim * 2, m, x + (sx * (w - rim)) / 2, y, z);
+}
+// Havuz: çerçeve ve içinde kenardan drop kadar aşağıda su (su yüzü zeminden de kenardan da ayrı boyda)
+export function basin(g: THREE.Object3D, w: number, d: number, h: number, rim: number, m: THREE.Material, water: THREE.Material, x: number, y: number, z: number, drop = 0.006) {
+  frame(g, w, d, h, rim, m, x, y, z);
+  box(g, w - rim * 2, h - drop, d - rim * 2, water, x, y, z);
+}
 // İki nokta arasında çubuk
 export function rod(g: THREE.Object3D, a: V3, b: V3, r: number, m: THREE.Material, seg = 6) {
   const A = new THREE.Vector3(...a);

@@ -131,8 +131,9 @@ export function funfair() {
   box(st, 0.1, 0.004, 0.96, M.terracotta, 0, 0.03, 0);
   box(st, 0.4, 0.006, 0.66, M.lawn, 0.27, 0.03, -0.13);
   box(st, 0.2, 0.006, 0.2, M.lawn, -0.36, 0.03, -0.36);
-  cyl(st, 0.1, 0.1, 0.005, M.terracotta, 0, 0.03, 0.03, 28);
-  cyl(st, 0.05, 0.05, 0.007, M.lawn, 0, 0.03, 0.03, 20);
+  // Göbek: taş daire yol şeridiyle aynı boyda, ortadaki çimen ondan belirgin yüksekte (aynı boydaki yüzler titreşir)
+  cyl(st, 0.1, 0.1, 0.004, M.terracotta, 0, 0.03, 0.03, 28);
+  cyl(st, 0.05, 0.05, 0.009, M.lawn, 0, 0.03, 0.03, 20);
   planter(st, 0, 0.03, 0.035, 2);
   // Kenarlarda çit
   for (const sx of [-1, 1]) box(st, 0.02, 0.03, 0.9, M.hedge, sx * 0.48, 0.03, -0.02);
@@ -142,7 +143,7 @@ export function funfair() {
   for (const sx of [-1, 1]) {
     const x = sx * 0.1;
     box(st, 0.05, 0.2, 0.05, M.white, x, 0.03, 0.45);
-    for (let k = 0; k < 4; k++) box(st, 0.052, 0.018, 0.052, k % 2 ? M.red : M.yellow, x, 0.06 + k * 0.045, 0.45);
+    for (let k = 0; k < 4; k++) box(st, 0.056, 0.018, 0.056, k % 2 ? M.red : M.yellow, x, 0.06 + k * 0.045, 0.45); // şeritler kuleden belirgin dışarıda
     add(st, new THREE.ConeGeometry(0.045, 0.07, 4).rotateY(Math.PI / 4), M.red, x, 0.265, 0.45);
     rod(st, [x, 0.3, 0.45], [x, 0.36, 0.45], 0.002, M.iron, 4);
     box(st, 0.03, 0.018, 0.002, PAINT[sx > 0 ? 1 : 2], x + 0.015, 0.34, 0.45);
@@ -158,7 +159,7 @@ export function funfair() {
   // Bilet gişesi
   const tb = item(st, -0.2, 0.44, 0, s);
   box(tb, 0.14, 0.11, 0.1, M.white, 0, 0, 0);
-  box(tb, 0.1, 0.045, 0.004, windowMat, 0, 0.045, 0.05);
+  box(tb, 0.1, 0.045, 0.004, windowMat, 0, 0.045, 0.054);
   box(tb, 0.15, 0.032, 0.006, signMat('BİLET', '#c62828'), 0, 0.11, 0.05);
   add(tb, new THREE.ConeGeometry(0.11, 0.07, 4).rotateY(Math.PI / 4), M.red, 0, 0.18, 0);
 
@@ -168,8 +169,9 @@ export function funfair() {
   const carousel = new THREE.Group();
   carousel.position.set(cx, 0.05, cz);
   const ci = new THREE.Group();
+  // Ahşap döşeme ve kenarında altın şerit: şerit sadece yan yüz (eskiden döşemeyle aynı boyda dolu bir diskti, zemin titreşiyordu)
   cyl(ci, 0.165, 0.165, 0.012, M.wood, 0, 0, 0, 32);
-  cyl(ci, 0.168, 0.168, 0.006, M.gold, 0, 0.006, 0, 32);
+  add(ci, new THREE.CylinderGeometry(0.168, 0.168, 0.006, 32, 1, true), M.gold, 0, 0.009, 0);
   for (let k = 0; k < 3; k++) cyl(ci, 0.036, 0.036, 0.045, k % 2 ? M.gold : windowMat, 0, 0.012 + k * 0.045, 0, 12);
   const horseCols = [M.white, pm('#f3e0c0'), pm('#9aa9b8'), pm('#3b3b3b')];
   for (let k = 0; k < 12; k++) {

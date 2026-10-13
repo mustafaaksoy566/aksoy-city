@@ -6,7 +6,7 @@ import { makeModel } from './assets';
 import { KIT } from './towers';
 import { signMat } from './signs';
 import { palm } from './places';
-import { pm, M, BULB, BULB_GEO, WATER, SPRAY, PYRAMID, FLOWERS, FLOWER_GEO, PAINT, type V3, UP, add, box, cyl, rod, item, bench, lamp, flowerBed } from './parts';
+import { pm, M, BULB, BULB_GEO, WATER, SPRAY, PYRAMID, FLOWERS, FLOWER_GEO, PAINT, type V3, UP, add, box, cyl, rod, item, bench, lamp, flowerBed, frame, basin } from './parts';
 
 // Manzara, sahil ve eğlence yapıları gökdelenler gibi ayrıntılı çizilir: göl ve adalı büyük göl, seyir tepesi,
 // plaj voleybolu sahası ve kumarhane kulesi. Yerel ölçü 1x1 kare, ön yüz +z (yola bakar). n karelik yapılar n*0.96 kat
@@ -52,11 +52,12 @@ function upward(pos: number[], colors: number[], idx: number[]) {
   }
   return geo;
 }
-// Kenarlarda ince yan duvar (komşu karelere bitişik)
+// Kenarlarda yan duvar (komşu karelere bitişik): dışa bakan düz yüzler, üstleri yok. Eskiden ince kutulardı; kutuların
+// üstü arazinin hemen altında kalıp titreşiyordu.
 function walls(g: THREE.Object3D, side: THREE.Material) {
-  for (const sd of [-1, 1]) {
-    box(g, 0.98, 0.03, 0.004, side, 0, 0, sd * 0.488);
-    box(g, 0.004, 0.03, 0.98, side, sd * 0.488, 0, 0);
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2;
+    add(g, new THREE.PlaneGeometry(0.98, G).rotateY(a), side, Math.sin(a) * 0.49, G / 2, Math.cos(a) * 0.49);
   }
 }
 // Halka ızgara: (cx, cz) çevresinde açılar x halkalar; halka yarıçapları açıya bağlı (içten dışa sıralı).
@@ -104,7 +105,7 @@ function terrain(g: THREE.Object3D, n: number, height: (x: number, z: number) =>
 }
 
 // Yol şeridi: noktalar boyunca arazinin üstüne yatırılır (her köşe arazinin yüksekliğini alır), kenarları biraz koyu
-function ribbon(g: THREE.Object3D, pts: THREE.Vector3[], w: number, yAt: (x: number, z: number) => number, color: THREE.Color, closed = false, lift = 0.002) {
+function ribbon(g: THREE.Object3D, pts: THREE.Vector3[], w: number, yAt: (x: number, z: number) => number, color: THREE.Color, closed = false, lift = 0.0035) {
   const pos: number[] = [], colors: number[] = [], idx: number[] = [];
   const n = pts.length;
   const c = new THREE.Color();
@@ -166,7 +167,7 @@ const BODY_GEO = new THREE.CylinderGeometry(0.0155, 0.0125, 0.046, 7).scale(1, 1
 const HIP_GEO = new THREE.CylinderGeometry(0.0135, 0.0125, 0.02, 7, 1, true);
 const HEAD_GEO = new THREE.SphereGeometry(0.0105, 7, 5);
 const HAIR_GEO = new THREE.SphereGeometry(0.0113, 7, 3, 0, Math.PI * 2, 0, Math.PI * 0.5);
-const SHOE_GEO = new THREE.BoxGeometry(0.008, 0.005, 0.015);
+const SHOE_GEO = new THREE.BoxGeometry(0.008, 0.006, 0.015).translate(0, 0.0005, 0); // üstü zeminden belirgin yüksekte
 // İnce uzuv: uçları açık dört köşeli silindir (az üçgen)
 function limb(g: THREE.Object3D, a: V3, b: V3, r: number, m: THREE.Material) {
   const A = new THREE.Vector3(...a);
@@ -188,7 +189,7 @@ function person(g: THREE.Object3D, x: number, z: number, rot: number, s: number,
     if (pose === 1) {
       limb(p, [sx, hip, -0.006], [sx, hip, 0.03], 0.0062, legs);
       limb(p, [sx, hip, 0.03], [sx, hip - 0.036, 0.033], 0.0052, shin);
-      add(p, SHOE_GEO, M.iron, sx, hip - 0.0365, 0.036);
+      add(p, SHOE_GEO, M.iron, sx, hip - 0.0335, 0.036); // ayakkabı yere basar (üstü zeminden belirgin yüksekte)
     } else if (pose === 4) {
       limb(p, [sx, hip, -0.004], [sx, 0.006, 0.062], 0.0058, legs);
       add(p, SHOE_GEO, M.iron, sx, 0.007, 0.066).rotation.x = Math.PI / 2;
@@ -266,8 +267,8 @@ function rowboat(g: THREE.Object3D, x: number, z: number, rot: number, s: number
   add(b, HULL_GEO, paint, 0, 0.007, 0);
   add(b, GUNWALE_GEO, M.white, 0, 0.007, 0);
   add(b, BOAT_FLOOR_GEO, M.wood, 0, 0.003, 0);
-  for (const zz of [-0.022, 0.014]) box(b, 0.046, 0.003, 0.012, M.darkWood, 0, 0.004, zz);
-  for (const sd of [-1, 1]) rod(b, [sd * 0.013, 0.006, -0.034], [sd * 0.007, 0.008, 0.04], 0.0018, M.wood, 4);
+  for (const zz of [-0.022, 0.014]) box(b, 0.046, 0.003, 0.012, M.darkWood, 0, 0.006, zz); // oturaklar tabandan belirgin yüksekte
+  for (const sd of [-1, 1]) rod(b, [sd * 0.013, 0.0065, -0.034], [sd * 0.007, 0.0085, 0.04], 0.0018, M.wood, 4);
 }
 // Kuğu biçimli pedallı tekne: beyaz gövde, renkli oturak ve tente, önde kuğu boynu
 function swanBoat(g: THREE.Object3D, x: number, z: number, rot: number, s: number, y: number, k: number) {
@@ -340,11 +341,11 @@ function lilies(g: THREE.Object3D, x: number, z: number, s: number, seed: number
   for (let k = 0; k < n; k++) {
     const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 0.05 * s;
     const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
-    const pad = add(g, PAD_GEO, M.pad, px, WL + 0.0016, pz);
+    const pad = add(g, PAD_GEO, M.pad, px, WL + 0.0032, pz); // yapraklar sudan belirgin yüksekte (yoksa titreşir)
     pad.scale.setScalar((0.016 + r() * 0.012) * s);
     pad.rotation.y = r() * 6.28;
     if (k % 3 === 0) {
-      add(g, BLOOM_GEO, LILY[k % 2], px, WL + 0.0018, pz).scale.setScalar(s * 1.3);
+      add(g, BLOOM_GEO, LILY[k % 2], px, WL + 0.0034, pz).scale.setScalar(s * 1.3);
       add(g, FLOWER_GEO, LILY_HEART, px, WL + 0.004 * s, pz).scale.setScalar(s * 0.3);
     }
   }
@@ -355,18 +356,19 @@ function pier(g: THREE.Object3D, x: number, z: number, ang: number, len: number,
   const ux = Math.cos(ang), uz = Math.sin(ang);
   const p = item(g, x, z, Math.atan2(-ux, -uz), s, WL);
   const L = len / s;
-  const top = (G + 0.0015 - WL) / s; // tahtaların üstü (karadaki başı çimenle aynı boyda)
+  const top = (G + 0.007 - WL) / s; // tahtaların üstü (karadaki başı çimenden ve yoldan belirgin yüksekte; aynı boyda titreşir)
   const W = 0.12, W2 = 0.24, PL = 0.11;
   const walk = L - PL;
-  for (let k = 0; k * 0.016 < walk; k++) box(p, W, 0.004, 0.0135, k % 3 ? M.wood : PLANK2, 0, top - 0.004, -0.008 - k * 0.016);
+  // Yol tahtaları platformdan geriye doğru dizilir (platform tahtalarıyla üst üste binmesinler)
+  for (let k = 0; -walk + 0.008 + k * 0.016 < 0.00675; k++) box(p, W, 0.004, 0.0135, k % 3 ? M.wood : PLANK2, 0, top - 0.004, -walk + 0.008 + k * 0.016);
   for (let k = 0; k * 0.016 < PL - 0.004; k++) box(p, W2, 0.004, 0.0135, k % 3 ? M.wood : PLANK2, 0, top - 0.004, -walk - 0.008 - k * 0.016);
   // Kirişler ve kazıklar
   for (const sd of [-1, 1]) {
-    box(p, 0.008, 0.008, walk, M.darkWood, sd * (W / 2 - 0.012), top - 0.012, -walk / 2);
-    box(p, 0.008, 0.008, PL, M.darkWood, sd * (W2 / 2 - 0.012), top - 0.012, -walk - PL / 2);
-    for (let zz = 0.035; zz < walk; zz += 0.07) cyl(p, 0.0055, 0.0055, top + 0.03, M.darkWood, sd * (W / 2 - 0.004), -0.03, -zz, 6);
+    box(p, 0.008, 0.008, walk - 0.02, M.darkWood, sd * (W / 2 - 0.012), top - 0.014, -walk / 2 - 0.01); // kirişler tahtaların biraz altında, karadaki yola değmez
+    box(p, 0.008, 0.008, PL, M.darkWood, sd * (W2 / 2 - 0.012), top - 0.014, -walk - PL / 2);
+    for (let zz = 0.035; zz < walk; zz += 0.07) cyl(p, 0.0055, 0.0055, top + 0.026, M.darkWood, sd * (W / 2 - 0.004), -0.03, -zz, 6);
     // Platform köşe dikmeleri ve yan korkuluk
-    const x2 = sd * (W2 / 2 - 0.005);
+    const x2 = sd * (W2 / 2 - 0.02); // dikmeler tahtaların kenarından ve kirişlerden içeride (yan yüzleri çakışmasın)
     for (const zz of [walk + 0.005, walk + PL / 2, L - 0.005]) cyl(p, 0.0055, 0.0055, top + 0.085, M.darkWood, x2, -0.03, -zz, 6);
     for (const h of [0.03, 0.054]) rod(p, [x2, top + h, -walk - 0.005], [x2, top + h, -L + 0.005], 0.0028, M.wood, 4);
   }
@@ -378,13 +380,13 @@ function pier(g: THREE.Object3D, x: number, z: number, ang: number, len: number,
   for (const xx of [0.07, 0.1]) rod(p, [xx, top, -L], [xx, -0.012, -L - 0.004], 0.0022, M.steel, 4);
   for (let k = 0; k < 3; k++) rod(p, [0.07, top - 0.012 - k * 0.012, -L - 0.001], [0.1, top - 0.012 - k * 0.012, -L - 0.001], 0.0018, M.steel, 4);
   // Bağlı kayık ve halatı
-  rowboat(p, W / 2 + 0.04, -walk * 0.6, 0.08, 1, 0, PAINT[1]);
+  rowboat(p, W / 2 + 0.04, -walk * 0.6, 0.08, 1, 0.0045, PAINT[1]); // taban su yüzünden belirgin yüksekte
   rod(p, [W / 2 + 0.035, 0.012, -walk * 0.6 + 0.058], [W / 2 - 0.004, top, -walk * 0.6 + 0.07], 0.0012, M.wood, 3);
   if (fisher) {
-    cyl(p, 0.011, 0.012, 0.028, M.darkWood, -0.03, top, -L + 0.03, 8);
-    const f = person(p, -0.03, -L + 0.03, Math.PI, 1, 4, 1, top + 0.028);
+    cyl(p, 0.011, 0.012, 0.036, M.darkWood, -0.03, top, -L + 0.03, 8); // ayakları tahtaların üstüne basacak boyda
+    const f = person(p, -0.03, -L + 0.03, Math.PI, 1, 4, 1, top + 0.036);
     rod(f, [0.012, 0.012, 0.03], [0.04, 0.11, 0.17], 0.0014, M.iron, 4);
-    rod(f, [0.04, 0.11, 0.17], [0.045, -top - 0.03, 0.19], 0.0005, M.white, 3);
+    rod(f, [0.04, 0.11, 0.17], [0.045, -top - 0.038, 0.19], 0.0005, M.white, 3);
     cyl(p, 0.009, 0.007, 0.016, M.blue, 0.01, top, -L + 0.04, 8);
   }
 }
@@ -396,7 +398,8 @@ function archBridge(g: THREE.Object3D, x0: number, z0: number, y0: number, x1: n
   const yAt = (t: number) => y0 + (y1 - y0) * t + rise * Math.sin(Math.PI * t);
   for (let k = 0; k < N; k++) {
     const t0 = k / N, t1 = (k + 1) / N, ya = yAt(t0), yb = yAt(t1);
-    const plank = add(b, new THREE.BoxGeometry(w, 0.006 * s, (L / N) * 1.05), k % 2 ? M.wood : PLANK2, 0, (ya + yb) / 2 - 0.003 * s, ((t0 + t1) / 2) * L);
+    // Tahtalar bir geniş bir dar: birbirine binen uçlarda yan yüzleri aynı düzlemde kalmasın
+    const plank = add(b, new THREE.BoxGeometry(k % 2 ? w : w - 0.012 * s, 0.006 * s, (L / N) * 1.05), k % 2 ? M.wood : PLANK2, 0, (ya + yb) / 2 - 0.003 * s, ((t0 + t1) / 2) * L);
     plank.rotation.x = -Math.atan2(yb - ya, L / N);
   }
   const rh = 0.075 * s;
@@ -411,13 +414,13 @@ function archBridge(g: THREE.Object3D, x0: number, z0: number, y0: number, x1: n
     for (let k = 0; k <= N; k += 2) rod(b, [xx, yAt(k / N) - 0.004 * s, (k / N) * L], [xx, yAt(k / N) + rh + 0.006 * s, (k / N) * L], 0.0055 * s, M.white, 4);
   }
   // Taş ayaklar (iki uçta)
-  for (const t of [0, 1]) box(b, w + 0.012 * s, 0.03 * s, 0.03 * s, M.rim, 0, yAt(t) - 0.032 * s, t * L);
+  for (const t of [0, 1]) box(b, w + 0.012 * s, 0.03 * s, 0.03 * s, M.rim, 0, yAt(t) - 0.04 * s, t * L); // üstü tahtaların altında, çimenden belirgin aşağıda
 }
 // Beyaz sekizgen çardak: taş taban, ahşap döşeme, sütunlar ve korkuluk, yeşil kubbemsi çatı, içinde bank
 function gazebo(g: THREE.Object3D, x: number, y: number, z: number, s: number, rot: number) {
   const p = item(g, x, z, rot, s, y);
   cyl(p, 0.135, 0.14, 0.02, M.rim, 0, -0.004, 0, 8);
-  cyl(p, 0.128, 0.128, 0.004, M.wood, 0, 0.016, 0, 8);
+  cyl(p, 0.128, 0.128, 0.007, M.wood, 0, 0.016, 0, 8); // döşeme taş kaideden belirgin yüksekte
   for (let k = 0; k < 8; k++) {
     const a = (k / 8) * Math.PI * 2, b = ((k + 1) / 8) * Math.PI * 2;
     const P: V3 = [Math.sin(a) * 0.115, 0.02, Math.cos(a) * 0.115];
@@ -497,7 +500,7 @@ export function lake(big: boolean) {
   if (ri) {
     const ia = Array.from({ length: 56 }, (_, k) => -Math.PI + (k / 56) * Math.PI * 2);
     const iRings: ((a: number) => number)[] = [() => 0, a => ri(a) * 0.5, ...[-0.03, -0.012, -0.004, 0, 0.006, 0.015, 0.03, 0.055].map(o => (a: number) => ri(a) + o)];
-    polarGround(st, ix, iz, ia, iRings, (x, z, k) => (k === iRings.length - 1 ? lakeY(lakeD(x, z)) - 0.002 : yAt(x, z)), paint);
+    polarGround(st, ix, iz, ia, iRings, (x, z, k) => (k === iRings.length - 1 ? lakeY(lakeD(x, z)) - 0.006 : yAt(x, z)), paint);
   }
   // Su yüzü (kıyının altına kadar uzanır, karanın altında görünmez)
   const shape = new THREE.Shape();
@@ -553,7 +556,7 @@ export function lake(big: boolean) {
   const ex = big ? ix : 0; // giriş yolu (büyük gölde köprüyle aynı hizada)
   const ea = Math.atan2(0.3, ex - cx); // çevre yolunun giriş hizasındaki açısı
   const frontZ = cz + Math.sin(ea) * (rw(ea) + po) + pw * 0.45;
-  ribbon(st, Array.from({ length: 8 }, (_, k) => new THREE.Vector3(ex, 0, frontZ + ((0.49 - frontZ) * k) / 7)), pw, yAt, pathC, false, 0.0024);
+  ribbon(st, Array.from({ length: 8 }, (_, k) => new THREE.Vector3(ex, 0, frontZ + ((0.49 - frontZ) * k) / 7)), pw, yAt, pathC, false, 0.007);
   for (const sd of [-1, 1]) {
     lamp(st, ex + sd * (pw / 2 + 0.016), 0.45, s);
     flowerBed(st, ex + sd * (pw / 2 + 0.07), 0.45, 0.08, 0.05, sd + 2);
@@ -598,7 +601,7 @@ export function lake(big: boolean) {
   // Banklar (yolun dışında, göle bakar), lambalar, çöp kutuları
   const inside = (p: THREE.Vector3, m = 0.465) => Math.abs(p.x) < m && Math.abs(p.z) < m;
   const nearPier = (p: THREE.Vector3) => segDist(p.x, p.z, p0.x, p0.z, p1x, p1z) < 0.06 || (Math.abs(p.x - ex) < 0.07 && p.z > 0);
-  const benchOff = 0.05 + pw + 0.01 + 0.02 * s;
+  const benchOff = 0.05 + pw + 0.018 + 0.02 * s; // oturanların ayakları yola basmasın
   const sitting: THREE.Vector3[] = [];
   for (const a of big ? [-2.6, -1.9, -1.2, -0.5, 0.1, 1.3, 2.05, 2.6, 3.4] : [-2.3, -1.5, -0.7, 0.3, 2.0, 2.7, 3.6]) {
     const p = ringPt(a, benchOff);
@@ -622,7 +625,7 @@ export function lake(big: boolean) {
   // Yolda yürüyenler
   for (const [a, k] of (big ? [[-0.9, 1], [-0.84, 3], [2.4, 5], [3.9, 7]] : [[-1.0, 1], [-0.94, 3], [2.3, 5]]) as [number, number][]) {
     const p = ringPt(a, po), q = ringPt(a + 0.05, po);
-    person(st, p.x, p.z, Math.atan2(q.x - p.x, q.z - p.z), s, k, 0, G + 0.002);
+    person(st, p.x, p.z, Math.atan2(q.x - p.x, q.z - p.z), s, k, 0, G + 0.0035); // yolun üstünde
   }
 
   // Ağaçlar ve çalılar (yolun dışında kalan köşelerde)
@@ -701,6 +704,17 @@ export function lake(big: boolean) {
   return g;
 }
 
+// Hilal: R yarıçaplı dairenin, merkezi x ekseninde ox kadar kaymış r yarıçaplı daire çıkarılmış hâli (tek parça yüz)
+function crescent(R: number, r: number, ox: number) {
+  const x = (R * R - r * r + ox * ox) / (2 * ox), y = Math.sqrt(R * R - x * x);
+  const cw = ox < 0;
+  const sh = new THREE.Shape();
+  sh.moveTo(x, y);
+  sh.absarc(0, 0, R, Math.atan2(y, x), Math.atan2(-y, x), cw);
+  sh.absarc(ox, 0, r, Math.atan2(-y, x - ox), Math.atan2(y, x - ox), !cw);
+  return sh;
+}
+
 // ======================= Seyir tepesi (2x2) =======================
 // Doğal yuvarlak çimenli tepe (aşağıda açık, yukarıda koyu çimen, dik yerlerde toprak), yamaçlarda kaya öbekleri,
 // çam ve yuvarlak ağaçlar, çalılar ve kır çiçekleri. Önden başlayıp dolanarak zirveye çıkan patika (dik yerlerde ahşap
@@ -750,14 +764,14 @@ export function hill() {
   ].map(([x, z]) => new THREE.Vector3(x, 0, z)));
   const pts = curve.getSpacedPoints(90);
   const pw = 0.045;
-  ribbon(st, pts, pw, hY, col('#cdb48a'), false, 0.0035);
+  ribbon(st, pts, pw, hY, col('#cdb48a'), false, 0.0045); // kıvrımlı yamaçta da çimenin belirgin üstünde
   const pathDist = (x: number, z: number) => Math.min(...pts.map(p => Math.hypot(p.x - x, p.z - z)));
   // Dik yerlerde ahşap basamaklar
   for (let k = 2; k < pts.length - 2; k += 2) {
     const a = pts[k], b = pts[k + 1];
     const dl = Math.hypot(b.x - a.x, b.z - a.z);
     if ((hY(b.x, b.z) - hY(a.x, a.z)) / dl < 0.3) continue;
-    const step = add(st, new THREE.BoxGeometry(pw + 0.004, 0.004, 0.006), M.darkWood, a.x, hY(a.x, a.z) + 0.004, a.z);
+    const step = add(st, new THREE.BoxGeometry(pw + 0.004, 0.004, 0.006), M.darkWood, a.x, hY(a.x, a.z) + 0.005, a.z);
     step.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
   }
   // Yolun başında tabela ve lambalar
@@ -778,8 +792,9 @@ export function hill() {
   const deckY = maxY(x0, z0, x1, z1) + 0.012;
   for (let k = 0; k < 11; k++) box(st, DW, 0.003, 0.0105, k % 3 ? M.wood : PLANK2, DX, deckY - 0.003, z0 + 0.006 + k * 0.0118);
   for (const sd of [-1, 1]) box(st, 0.006, 0.006, DD, M.darkWood, DX + sd * (DW / 2 - 0.006), deckY - 0.009, DZ);
+  // Kazıklar tahtaların altında biter (üstleri tahtalarla aynı boyda olunca titreşiyordu)
   for (const px of [x0 + 0.005, DX, x1 - 0.005]) {
-    for (const pz of [z0 + 0.005, DZ, z1 - 0.005]) cyl(st, 0.004, 0.004, deckY - hY(px, pz) + 0.004, M.darkWood, px, hY(px, pz) - 0.004, pz, 6);
+    for (const pz of [z0 + 0.005, DZ, z1 - 0.005]) cyl(st, 0.004, 0.004, deckY - hY(px, pz) + 0.001, M.darkWood, px, hY(px, pz) - 0.004, pz, 6);
   }
   const RH = 0.042;
   const rail = (ax: number, az: number, bx: number, bz: number) => {
@@ -793,7 +808,7 @@ export function hill() {
   rail(x0 + 0.003, z1 - 0.003, x0 + 0.003, DZ + 0.03);
   rail(x0 + 0.003, z0 + 0.003, x0 + 0.003, DZ - 0.03);
   const end = pts[pts.length - 1];
-  const endY = hY(end.x, end.z) + 0.0035;
+  const endY = hY(end.x, end.z) + 0.0045;
   const nSteps = Math.max(1, Math.round((deckY - endY) / 0.009));
   for (let k = 0; k < nSteps; k++) {
     const t = (k + 1) / (nSteps + 1);
@@ -811,12 +826,13 @@ export function hill() {
   const fx = x1 - 0.01, fz = z0 + 0.01;
   rod(st, [fx, deckY, fz], [fx, deckY + 0.24, fz], 0.0025, M.steel, 6);
   add(st, new THREE.SphereGeometry(0.004, 6, 4), M.gold, fx, deckY + 0.243, fz);
+  // Bez direğin dışından başlar; ay ve yıldız bezin iki yüzünde, bezden belirgin uzakta tek kat (üst üste daireler titreşiyordu)
   const flag = item(st, fx, fz, 0, 1, deckY + 0.2);
-  box(flag, 0.002, 0.04, 0.062, M.red, 0, -0.02, 0.031);
+  box(flag, 0.002, 0.04, 0.062, M.red, 0, -0.02, 0.034);
   for (const sd of [-1, 1]) {
-    add(flag, new THREE.CircleGeometry(0.011, 14).rotateY((sd * Math.PI) / 2), M.white, sd * 0.0012, 0, 0.022);
-    add(flag, new THREE.CircleGeometry(0.009, 14).rotateY((sd * Math.PI) / 2), M.red, sd * 0.0016, 0, 0.025);
-    add(flag, new THREE.CircleGeometry(0.0045, 5).rotateY((sd * Math.PI) / 2), M.white, sd * 0.0016, 0, 0.037);
+    // Ayın içi bayrağın uç tarafına (+z) bakar; dönüşle şeklin x'i iki yüzde ters yöne gider
+    add(flag, new THREE.ShapeGeometry(crescent(0.011, 0.009, -sd * 0.003), 8).rotateY((sd * Math.PI) / 2), M.white, sd * 0.0042, 0, 0.025);
+    add(flag, new THREE.CircleGeometry(0.0045, 5).rotateY((sd * Math.PI) / 2), M.white, sd * 0.0042, 0, 0.04);
   }
 
   // Yamaçtaki piknik çardağı: taş kaide, dört direk, kiremit çatı, içinde masa ve banklar
@@ -865,21 +881,21 @@ export function hill() {
 
   // Piknik: kareli örtü, sepet, yere oturan aile
   const PX2 = -0.31, PZ2 = 0.36;
+  // Örtü yan yana kırmızı ve beyaz karelerden (üst üste serilince yüzler titreşiyordu); çimenden belirgin yüksekte
   const py = maxY(PX2 - 0.04, PZ2 - 0.03, PX2 + 0.04, PZ2 + 0.03) + 0.001;
-  box(st, 0.075, 0.002, 0.058, M.red, PX2, py, PZ2);
-  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2) box(st, 0.075 / 4, 0.0028, 0.058 / 3, M.white, PX2 - 0.075 / 2 + (i + 0.5) * (0.075 / 4), py, PZ2 - 0.029 + (j + 0.5) * (0.058 / 3));
-  box(st, 0.016, 0.01, 0.011, M.darkWood, PX2 + 0.012, py + 0.002, PZ2 - 0.006);
-  add(st, new THREE.TorusGeometry(0.006, 0.0012, 4, 10, Math.PI), M.darkWood, PX2 + 0.012, py + 0.012, PZ2 - 0.006);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) box(st, 0.075 / 4, 0.0025, 0.058 / 3, (i + j) % 2 ? M.white : M.red, PX2 - 0.075 / 2 + (i + 0.5) * (0.075 / 4), py, PZ2 - 0.029 + (j + 0.5) * (0.058 / 3));
+  box(st, 0.016, 0.01, 0.011, M.darkWood, PX2 + 0.012, py + 0.0025, PZ2 - 0.006);
+  add(st, new THREE.TorusGeometry(0.006, 0.0012, 4, 10, Math.PI), M.darkWood, PX2 + 0.012, py + 0.0125, PZ2 - 0.006);
   person(st, PX2 - 0.02, PZ2 - 0.022, 0.3, s, 1, 4, py);
   person(st, PX2 + 0.026, PZ2 + 0.018, Math.PI + 0.4, s, 2, 4, py);
   // Patikada yürüyüşçüler
   for (const [k, c] of [[30, 5], [34, 8], [70, 9]] as [number, number][]) {
     const p = pts[k], q = pts[k + 1];
-    person(st, p.x, p.z, Math.atan2(q.x - p.x, q.z - p.z), s, c, 0, hY(p.x, p.z) + 0.002);
+    person(st, p.x, p.z, Math.atan2(q.x - p.x, q.z - p.z), s, c, 0, hY(p.x, p.z) + 0.0045); // patikanın üstünde
   }
   // Uçurtma uçuran çocuk
   const kx = 0.3, kz = 0.42;
-  const kid = person(st, kx, kz, Math.PI - 0.3, s * 0.75, 6, 2, hY(kx, kz));
+  const kid = person(st, kx, kz, Math.PI - 0.3, s * 0.75, 6, 2, hY(kx, kz) + 0.002);
   kid.updateMatrix();
   const hand = new THREE.Vector3(0.013, 0.18, 0.012).applyMatrix4(kid.matrix);
   const kite: V3 = [0.2, 0.42, 0.18];
@@ -910,15 +926,17 @@ function parasol(g: THREE.Object3D, x: number, z: number, s: number, m: THREE.Ma
   for (let k = 0; k < 8; k++) add(u, PARASOL_GEOS[k], k % 2 ? M.white : m, 0, 0.141, 0);
   add(u, new THREE.SphereGeometry(0.005, 6, 4), M.white, 0, 0.158, 0);
 }
-// Şezlong: beyaz çerçeve, kalkık sırtlık, üstünde renkli havlu (başı -z)
+// Şezlong: beyaz çerçeve, kalkık sırtlık, renkli havlu (başı -z). Havlu çerçevenin ortasındaki boşluğa, çerçeveyle aynı
+// boyda tek yüz olarak oturur; çerçevenin dolu üstüne serilen ince havlu çerçeveyle neredeyse aynı boyda kalıp titreşiyordu.
 function lounger(g: THREE.Object3D, x: number, z: number, rot: number, s: number, towel: THREE.Material, y = G) {
   const l = item(g, x, z, rot, s, y);
-  box(l, 0.058, 0.006, 0.11, M.white, 0, 0.018, 0.02);
-  box(l, 0.05, 0.002, 0.1, towel, 0, 0.024, 0.022);
-  const back = add(l, new THREE.BoxGeometry(0.058, 0.006, 0.06), M.white, 0, 0.04, -0.06);
+  const towelTop = (w: number, d: number) => new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2);
+  frame(l, 0.058, 0.11, 0.006, 0.004, M.white, 0, 0.018, 0.02);
+  add(l, towelTop(0.05, 0.102), towel, 0, 0.024, 0.02);
+  const back = item(l, 0, -0.06, 0, 1, 0.037);
   back.rotation.x = 0.6;
-  const tb = add(l, new THREE.BoxGeometry(0.05, 0.002, 0.056), towel, 0, 0.0435, -0.058);
-  tb.rotation.x = 0.6;
+  frame(back, 0.058, 0.06, 0.006, 0.004, M.white, 0, 0, 0);
+  add(back, towelTop(0.05, 0.052), towel, 0, 0.006, 0);
   for (const sx of [-0.024, 0.024]) for (const zz of [-0.03, 0.07]) box(l, 0.005, 0.018, 0.005, M.white, sx, 0, zz);
 }
 export function volley() {
@@ -935,15 +953,15 @@ export function volley() {
   const top = G + 0.0025;
   // Çizgi şeritleri ve köşe işaretleri
   for (const sd of [-1, 1]) {
-    box(st, LX * 2 + 0.007, 0.0015, 0.007, LINE, 0, top - 0.0005, CZ + sd * LZ);
-    box(st, 0.007, 0.0015, LZ * 2, LINE, sd * LX, top - 0.0005, CZ);
-    for (const sz of [-1, 1]) box(st, 0.008, 0.004, 0.008, M.white, sd * (LX + 0.006), top - 0.001, CZ + sz * (LZ + 0.006));
+    box(st, LX * 2 + 0.007, 0.004, 0.007, LINE, 0, G + 0.0015, CZ + sd * LZ); // şeritler dalgalı kumdan belirgin yüksekte
+    box(st, 0.007, 0.004, LZ * 2, LINE, sd * LX, G + 0.0015, CZ);
+    for (const sz of [-1, 1]) box(st, 0.008, 0.006, 0.008, M.white, sd * (LX + 0.006), G + 0.0045, CZ + sz * (LZ + 0.006));
   }
   // Köşe bayrakları
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
     const fx = sx * (LX + 0.025), fz = CZ + sz * (LZ + 0.025);
     rod(st, [fx, G - 0.004, fz], [fx, G + 0.07, fz], 0.0015, M.white, 4);
-    box(st, 0.002, 0.016, 0.024, M.red, fx, G + 0.052, fz + 0.012);
+    box(st, 0.002, 0.016, 0.024, M.red, fx, G + 0.048, fz + 0.012); // üstü direğin tepesinden aşağıda
   }
   // File: dolgulu direkler, üst ve alt bant, ağ örgüsü, antenler, gergi halatları
   const NT = top + 0.11, NB = NT - 0.045, PZ = LZ + 0.035;
@@ -953,7 +971,7 @@ export function volley() {
     cyl(st, 0.0085, 0.0085, 0.07, LINE, 0, G - 0.002, z, 10);
     add(st, new THREE.SphereGeometry(0.0055, 8, 6), M.yellow, 0, NT + 0.011, z);
     rod(st, [0, NT + 0.006, z], [0, G, CZ + sd * (PZ + 0.09)], 0.0009, M.iron, 3);
-    box(st, 0.008, 0.003, 0.008, M.iron, 0, G - 0.001, CZ + sd * (PZ + 0.09));
+    box(st, 0.008, 0.007, 0.008, M.iron, 0, G - 0.001, CZ + sd * (PZ + 0.09));
     // Antenler (kırmızı-beyaz)
     for (let k = 0; k < 6; k++) cyl(st, 0.0012, 0.0012, 0.015, k % 2 ? M.red : M.white, 0, NB + k * 0.015, CZ + sd * LZ, 4);
   }
@@ -984,22 +1002,22 @@ export function volley() {
   add(ball, new THREE.TorusGeometry(0.0074, 0.0016, 4, 12).rotateY(Math.PI / 2), M.blue, 0, 0, 0);
   // Hakem kürsüsü (filenin önünde, sahaya bakar)
   const ref = item(st, 0, CZ + LZ + 0.07, Math.PI, s, G);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) rod(ref, [sx * 0.024, 0, sz * 0.024], [sx * 0.017, 0.12, sz * 0.017], 0.0028, M.steel, 5);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) rod(ref, [sx * 0.024, 0, sz * 0.024], [sx * 0.017, 0.116, sz * 0.017], 0.0028, M.steel, 5);
   for (const h of [0.04, 0.08]) {
     rod(ref, [-0.022, h, -0.022], [0.022, h, -0.022], 0.0022, M.steel, 4);
     rod(ref, [-0.022, h, 0.022], [0.022, h, 0.022], 0.0022, M.steel, 4);
   }
-  box(ref, 0.05, 0.006, 0.05, M.wood, 0, 0.12, 0);
-  box(ref, 0.032, 0.03, 0.028, M.white, 0, 0.126, -0.006);
+  box(ref, 0.05, 0.006, 0.05, M.wood, 0, 0.114, 0); // ayaklar bu tahtaya basar (üstü ayakkabıların altı)
+  box(ref, 0.032, 0.036, 0.028, M.white, 0, 0.12, -0.006);
   box(ref, 0.034, 0.03, 0.004, M.white, 0, 0.156, -0.02);
   for (let k = 0; k < 4; k++) rod(ref, [-0.012, 0.02 + k * 0.03, -0.04 - k * 0.004], [0.012, 0.02 + k * 0.03, -0.04 - k * 0.004], 0.002, M.steel, 4);
-  for (const sx of [-0.012, 0.012]) rod(ref, [sx, 0, -0.056], [sx, 0.12, -0.026], 0.0022, M.steel, 4);
+  for (const sx of [-0.012, 0.012]) rod(ref, [sx, 0, -0.056], [sx, 0.117, -0.026], 0.0022, M.steel, 4);
   person(ref, 0, -0.004, 0, 1, 9, 1, 0.156, false);
   // Arkada tribün: üç basamak alüminyum oturak, ayak basamakları, çerçeve, sırt korkuluğu, gölgelik
   for (let k = 0; k < 3; k++) {
     const y = G + 0.024 + 0.022 * k, z = -0.345 - 0.042 * k;
     box(st, 0.56, 0.004, 0.022, ALU, 0, y - 0.004, z);
-    box(st, 0.56, 0.003, 0.016, M.gray, 0, y - 0.017, z + 0.022);
+    box(st, 0.56, 0.003, 0.016, M.gray, 0, y - 0.0217, z + 0.022); // ayak basamağı: oturanların ayakkabısı üstüne basar
     for (let j = 0; j < 5; j++) rod(st, [-0.26 + j * 0.13, G, z - 0.006], [-0.26 + j * 0.13, y - 0.004, z - 0.006], 0.0022, M.gray, 4);
   }
   for (const sx of [-1, 1]) box(st, 0.004, 0.08, 0.14, M.gray, sx * 0.282, G, -0.39);
@@ -1020,12 +1038,12 @@ export function volley() {
   const sb = item(st, -0.43, CZ + 0.02, Math.PI / 4, s, G);
   for (const sx of [-0.05, 0.05]) rod(sb, [sx, 0, 0], [sx, 0.15, 0], 0.004, M.iron, 5);
   box(sb, 0.13, 0.06, 0.012, M.iron, 0, 0.1, 0);
-  box(sb, 0.12, 0.05, 0.002, signMat('18 : 15', '#0d2a4a', '#ffd54f'), 0, 0.105, 0.007);
-  box(sb, 0.12, 0.05, 0.002, signMat('18 : 15', '#0d2a4a', '#ffd54f'), 0, 0.105, -0.007);
+  box(sb, 0.12, 0.05, 0.002, signMat('18 : 15', '#0d2a4a', '#ffd54f'), 0, 0.105, 0.0115); // tabela panodan belirgin önde
+  box(sb, 0.12, 0.05, 0.002, signMat('18 : 15', '#0d2a4a', '#ffd54f'), 0, 0.105, -0.0115);
   // Ahşap yürüyüş yolu (önden sahaya)
   const bwx = 0.18;
-  for (let k = 0; k < 17; k++) box(st, 0.075, 0.004, 0.013, k % 3 ? M.wood : PLANK2, bwx, G - 0.001, 0.482 - k * 0.0155);
-  for (const sd of [-1, 1]) box(st, 0.004, 0.006, 0.27, M.darkWood, bwx + sd * 0.04, G - 0.002, 0.355);
+  for (let k = 0; k < 17; k++) box(st, 0.075, 0.004, 0.013, k % 3 ? M.wood : PLANK2, bwx, G + 0.0015, 0.479 - k * 0.0155); // kumdan ve kenar duvarından belirgin uzakta
+  for (const sd of [-1, 1]) box(st, 0.004, 0.0095, 0.26, M.darkWood, bwx + sd * 0.04, G - 0.002, 0.35);
   for (const z of [0.44, 0.3]) lamp(st, bwx - 0.055, z, s);
   // Şemsiyeler ve şezlonglar
   const towels = [PAINT[0], PAINT[2], PAINT[4], PAINT[6], PAINT[7], PAINT[1]];
@@ -1034,16 +1052,16 @@ export function volley() {
     lounger(st, x - 0.045, z + 0.02, 0.15, s * 0.95, towels[k * 2]);
     lounger(st, x + 0.045, z + 0.02, -0.15, s * 0.95, towels[k * 2 + 1]);
   });
-  person(st, -0.12, 0.27, 2.6, s, 11, 0, G);
+  person(st, -0.12, 0.27, 2.6, s, 11, 0, G + 0.0025);
   // Duş: ızgaralı taban, direk, kol ve başlık, akan su; duş alan kişi
-  const sh = item(st, 0.075, 0.33, 0, s, G);
-  box(sh, 0.07, 0.006, 0.07, M.gray, 0, 0, 0);
-  for (let k = 0; k < 6; k++) box(sh, 0.066, 0.002, 0.004, M.iron, 0, 0.006, -0.03 + k * 0.012);
-  rod(sh, [-0.03, 0, -0.03], [-0.03, 0.2, -0.03], 0.0045, M.steel, 6);
+  const sh = item(st, 0.075, 0.33, 0, s, G + 0.002); // taban dalgalı kumdan belirgin yüksekte
+  box(sh, 0.07, 0.01, 0.07, M.gray, 0, -0.004, 0);
+  for (let k = 0; k < 6; k++) box(sh, 0.056, 0.006, 0.004, M.iron, 0, 0.006, -0.03 + k * 0.012); // ızgara tabandan belirgin yüksek
+  rod(sh, [-0.03, 0.006, -0.03], [-0.03, 0.2, -0.03], 0.0045, M.steel, 6);
   rod(sh, [-0.03, 0.2, -0.03], [-0.005, 0.2, -0.005], 0.0035, M.steel, 5);
   cyl(sh, 0.01, 0.004, 0.008, M.steel, -0.005, 0.188, -0.005, 8);
   add(sh, new THREE.ConeGeometry(0.02, 0.1, 8, 1, true), SPRAY, -0.005, 0.135, -0.005);
-  person(sh, 0, 0.002, 0.4, 1, 12, 0, 0.006);
+  person(sh, 0, 0.002, 0.4, 1, 12, 0, 0.012);
   // Plaj barı: ahşap döşeme, kulübe, tezgâh, raf ve şişeler, sazdan çatı, tabela, tabureler, buzluk, sörf tahtaları
   const bar = item(st, 0.35, 0.37, 0, s, G - 0.002);
   box(bar, 0.34, 0.012, 0.22, M.darkWood, 0, 0, 0);
@@ -1062,8 +1080,8 @@ export function volley() {
     rod(bar, [x, 0.012, 0.09], [x, 0.048, 0.09], 0.003, M.steel, 4);
     cyl(bar, 0.011, 0.011, 0.005, PAINT[k + 1], x, 0.048, 0.09, 10);
   }
-  person(bar, -0.034, 0.088, Math.PI, 1, 13, 1, 0.053);
-  person(bar, 0.032, 0.088, Math.PI + 0.2, 1, 14, 1, 0.053);
+  person(bar, -0.034, 0.093, Math.PI, 1, 13, 1, 0.053);
+  person(bar, 0.032, 0.093, Math.PI + 0.2, 1, 14, 1, 0.053);
   box(bar, 0.045, 0.03, 0.028, M.blue, 0.13, 0.012, 0.09);
   box(bar, 0.047, 0.006, 0.03, M.white, 0.13, 0.042, 0.09);
   for (const [dx, k] of [[0, 0], [0.022, 5], [0.044, 2]] as [number, number][]) {
@@ -1197,10 +1215,10 @@ function die(g: THREE.Object3D, x: number, y: number, z: number, size: number, r
     [[0, 1, 0], [1, 0, 0], [0, 0, 1], 1], [[0, -1, 0], [1, 0, 0], [0, 0, 1], 6], [[0, 0, 1], [1, 0, 0], [0, 1, 0], 2],
     [[0, 0, -1], [1, 0, 0], [0, 1, 0], 5], [[1, 0, 0], [0, 0, 1], [0, 1, 0], 3], [[-1, 0, 0], [0, 0, 1], [0, 1, 0], 4],
   ];
-  // Noktalar: yüze yapışık yassı beyaz daireler
-  const h = size / 2 + 0.0008, q = size * 0.26;
+  // Noktalar: yüzden hafifçe kabaran yassı beyaz kubbeler (yüze yapışık düz daire telefonda titreşiyordu)
+  const h = size / 2, q = size * 0.26;
   for (const [nrm, u, v, count] of faces) {
-    const pip = new THREE.CircleGeometry(size * 0.085, 8);
+    const pip = new THREE.SphereGeometry(size * 0.085, 8, 4).scale(1, 1, 0.3);
     pip.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...nrm)));
     for (const [a, b] of P[count]) add(d, pip, M.white, nrm[0] * h + (u[0] * a + v[0] * b) * q, nrm[1] * h + (u[1] * a + v[1] * b) * q, nrm[2] * h + (u[2] * a + v[2] * b) * q);
   }
@@ -1209,9 +1227,9 @@ export function casino() {
   const st = new THREE.Group();
   const { pink, gold, glass } = casinoMats();
   const ps = 0.75; // insanlar ve eşyalar (yapının ölçüsüne göre)
-  // Meydan: traverten taşı, altın kakma çizgiler
+  // Meydan: traverten taşı, altın kakma çizgiler (taştan belirgin yüksekte, yoksa yüzleri titreşir)
   box(st, 0.98, 0.03, 0.98, TRAVERTINE, 0, 0, 0);
-  for (const sd of [-1, 1]) box(st, 0.004, 0.002, 0.34, M.gold, sd * 0.09, 0.03, 0.31);
+  for (const sd of [-1, 1]) box(st, 0.004, 0.006, 0.34, M.gold, sd * 0.09, 0.03, 0.31);
   // Kaide: taş cephe, altın korniş, çatı döşemesi
   const PY = 0.22, PZ0 = -0.46, PZ1 = 0.12;
   st.add(part(KIT.facadeBox(0.9, PY, PZ1 - PZ0, 0.03), KIT.STONE[0], 0, 0.03 + PY / 2, (PZ0 + PZ1) / 2));
@@ -1231,17 +1249,18 @@ export function casino() {
   // Beyaz taş dikey kanatlar (ön ve arka yüz), altın kuşaklar
   for (const sz of [-1, 1]) for (const x of [-0.1, -0.035, 0.035, 0.1]) box(st, 0.012, TH - 0.03, 0.016, M.stone, x, y0 + 0.03, TZ + sz * (R + 0.006));
   for (let k = 1; k <= 4; k++) stadium(R + 0.006, 0.012, M.gold, y0 + (k * TH) / 4.6);
-  // Neon şeritler: düz yüzle yuvarlak ucun birleştiği köşelerde pembe, en uçlarda altın
+  // Neon şeritler: düz yüzle yuvarlak ucun birleştiği köşelerde pembe, en uçlarda altın (altın kuşaklardan belirgin dışarıda)
   for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) box(st, 0.008, TH - 0.04, 0.008, pink, sx * A, y0 + 0.03, TZ + sz * (R + 0.003));
-    box(st, 0.008, TH - 0.04, 0.008, gold, sx * (A + R + 0.003), y0 + 0.03, TZ);
+    for (const sz of [-1, 1]) box(st, 0.008, TH - 0.04, 0.008, pink, sx * (A + 0.003), y0 + 0.03, TZ + sz * (R + 0.008));
+    box(st, 0.008, TH - 0.04, 0.008, gold, sx * (A + R + 0.008), y0 + 0.03, TZ);
   }
   // Taç: çatı plakası, "CASINO" yazılı koyu bant, altın kenarlar, ampullü sivri uçlar
   const TT = y0 + TH;
   stadium(R + 0.012, 0.02, M.gold, TT);
   const CB = TT + 0.02, CH = 0.16, CR = 0.12;
-  box(st, A * 2, CH, CR * 2, CROWN, 0, CB, TZ);
-  for (const sd of [-1, 1]) cyl(st, CR, CR, CH, CROWN, sd * A, CB, TZ, 16);
+  // Koyu gövde üstteki altın bandın içinde biter: çatıyı tek başına altın bant örter (iki çatı aynı boyda titreşiyordu)
+  box(st, A * 2, CH - 0.012, CR * 2, CROWN, 0, CB, TZ);
+  for (const sd of [-1, 1]) cyl(st, CR, CR, CH - 0.012, CROWN, sd * A, CB, TZ, 16);
   for (const sz of [-1, 1]) box(st, 0.29, 0.11, 0.004, neonSign('CASINO', '#ff3fa4', 0.29 / 0.11), 0, CB + 0.025, TZ + sz * (CR + 0.002));
   for (const yy of [CB, CB + CH - 0.012]) {
     box(st, A * 2, 0.012, CR * 2 + 0.012, M.gold, 0, yy, TZ);
@@ -1263,9 +1282,8 @@ export function casino() {
   cyl(st, 0.003, 0.018, 0.34, M.gold, 0, CB + CH, TZ, 10);
   add(st, new THREE.SphereGeometry(0.016, 8, 6), KIT.LIGHT, 0, CB + CH + 0.35, TZ);
 
-  // Kaide çatısında havuz terası: havuz, şezlonglar, şemsiyeler, kenarlarda bahçeler
-  box(st, 0.34, 0.008, 0.085, M.white, 0, RT, 0.01);
-  box(st, 0.31, 0.0085, 0.06, WATER, 0, RT, 0.01);
+  // Kaide çatısında havuz terası: beyaz kenarlı havuz (su kenardan biraz aşağıda), şezlonglar, şemsiyeler, kenarlarda bahçeler
+  basin(st, 0.34, 0.085, 0.012, 0.0125, M.white, WATER, 0, RT, 0.01);
   for (let k = 0; k < 6; k++) lounger(st, -0.15 + k * 0.06, 0.088, 0, 0.35, PAINT[k], RT);
   for (const sx of [-0.2, 0.2]) parasol(st, sx, 0.085, 0.42, PAINT[sx > 0 ? 0 : 1], RT);
   for (const sx of [-1, 1]) {
@@ -1273,14 +1291,15 @@ export function casino() {
     for (const z of [-0.36, -0.2, -0.04, 0.08]) treeAt(st, PROPS.treeSmall, sx * 0.385, z, RT + 0.016, 0.28, z * 7);
   }
 
-  // Giriş: camlı kapı cephesi, altın çerçeve, döner kapılar
-  box(st, 0.34, 0.12, 0.004, windowMat, 0, 0.03, PZ1 + 0.002);
+  // Giriş: camlı kapı cephesi (alttaki taş kuşağın üstünden başlar), altın çerçeve, döner kapılar (cam, altın halkaların arasında)
+  box(st, 0.34, 0.108, 0.004, windowMat, 0, 0.042, PZ1 + 0.002);
   for (const x of [-0.17, -0.12, 0.12, 0.17]) box(st, 0.012, 0.13, 0.01, M.gold, x, 0.03, PZ1 + 0.004);
   box(st, 0.36, 0.012, 0.01, M.gold, 0, 0.15, PZ1 + 0.004);
   for (const x of [-0.065, 0, 0.065]) {
-    cyl(st, 0.026, 0.026, 0.09, PYRAMID, x, 0.032, PZ1 + 0.03, 14);
-    for (const yy of [0.03, 0.12]) cyl(st, 0.028, 0.028, 0.008, M.gold, x, yy, PZ1 + 0.03, 14);
-    rod(st, [x - 0.024, 0.035, PZ1 + 0.03], [x + 0.024, 0.035, PZ1 + 0.03], 0.0015, M.gold, 3);
+    cyl(st, 0.026, 0.026, 0.076, PYRAMID, x, 0.044, PZ1 + 0.034, 14);
+    cyl(st, 0.028, 0.028, 0.014, M.gold, x, 0.03, PZ1 + 0.034, 14); // alt halka halıdan belirgin yüksek
+    cyl(st, 0.028, 0.028, 0.008, M.gold, x, 0.12, PZ1 + 0.034, 14);
+    rod(st, [x - 0.024, 0.05, PZ1 + 0.034], [x + 0.024, 0.05, PZ1 + 0.034], 0.0015, M.gold, 3);
   }
   // Giriş saçağı: altın sütunlar, beyaz tavan, altında ışık paneli ve ampul dizisi, önünde neon tabela
   const CZ0 = PZ1, CZ1 = 0.29, CY = 0.165, CW = 0.52;
@@ -1288,16 +1307,16 @@ export function casino() {
   box(st, CW - 0.04, 0.002, CZ1 - CZ0 - 0.04, BULB, 0, CY - 0.002, (CZ0 + CZ1) / 2);
   box(st, CW + 0.01, 0.04, 0.012, M.gold, 0, CY - 0.01, CZ1);
   for (const sd of [-1, 1]) box(st, 0.012, 0.03, CZ1 - CZ0, M.gold, sd * (CW / 2), CY - 0.005, (CZ0 + CZ1) / 2);
-  box(st, 0.44, 0.032, 0.004, neonSign('AKSOY CASINO', '#ffc94a', 0.44 / 0.032), 0, CY - 0.006, CZ1 + 0.007);
+  box(st, 0.44, 0.032, 0.004, neonSign('AKSOY CASINO', '#ffc94a', 0.44 / 0.032), 0, CY - 0.006, CZ1 + 0.01);
   for (let k = 0; k <= 16; k++) add(st, BULB_GEO, BULB, -CW / 2 + 0.01 + (k * (CW - 0.02)) / 16, CY - 0.014, CZ1 - 0.008);
   for (const sd of [-1, 1]) for (let k = 0; k <= 5; k++) add(st, BULB_GEO, BULB, sd * (CW / 2 - 0.012), CY - 0.014, CZ0 + 0.02 + (k * (CZ1 - CZ0 - 0.03)) / 5);
   for (const sd of [-1, 1]) {
     cyl(st, 0.018, 0.02, 0.012, M.stone, sd * 0.23, 0.03, CZ1 - 0.015, 12);
     cyl(st, 0.012, 0.013, CY - 0.042, M.gold, sd * 0.23, 0.042, CZ1 - 0.015, 12);
   }
-  // Kırmızı halı, altın dikmeler ve kırmızı kadife halatlar
-  box(st, 0.12, 0.003, 0.36, CARPET, 0, 0.03, 0.3);
-  for (const sd of [-1, 1]) box(st, 0.004, 0.0045, 0.36, M.gold, sd * 0.06, 0.03, 0.3);
+  // Kırmızı halı (iki yanında altın şerit, halının dışında), altın dikmeler ve kırmızı kadife halatlar
+  box(st, 0.12, 0.006, 0.36, CARPET, 0, 0.03, 0.3);
+  for (const sd of [-1, 1]) box(st, 0.004, 0.006, 0.36, M.gold, sd * 0.062, 0.03, 0.3);
   for (const sd of [-1, 1]) {
     const x = sd * 0.078;
     for (let k = 0; k < 5; k++) {
@@ -1309,36 +1328,35 @@ export function casino() {
   }
   // Kapıcılar ve misafirler
   for (const sd of [-1, 1]) person(st, sd * 0.11, 0.16, 0, ps, 2 + sd, 0, 0.03, true);
-  person(st, 0.02, 0.36, Math.PI, ps, 5, 0, 0.033);
-  person(st, -0.025, 0.4, Math.PI - 0.1, ps, 6, 0, 0.033);
-  person(st, 0.03, 0.235, Math.PI + 0.2, ps, 8, 0, 0.033);
-  // Fıskiyeli havuzlar (halının iki yanında): granit kenar, su, sıra sıra fıskiyeler, kenar ışıkları
+  person(st, 0.02, 0.36, Math.PI, ps, 5, 0, 0.036);
+  person(st, -0.025, 0.4, Math.PI - 0.1, ps, 6, 0, 0.036);
+  person(st, 0.03, 0.235, Math.PI + 0.2, ps, 8, 0, 0.036);
+  // Fıskiyeli havuzlar (halının iki yanında): granit kenar, kenardan aşağıda su, sıra sıra fıskiyeler, kenar ışıkları
   for (const sd of [-1, 1]) {
-    const x = sd * 0.235, z = 0.39;
-    box(st, 0.25, 0.022, 0.16, M.granite, x, 0.03, z);
-    box(st, 0.226, 0.0225, 0.136, WATER, x, 0.03, z);
+    const x = sd * 0.235, z = 0.39, wy = 0.046;
+    basin(st, 0.25, 0.16, 0.022, 0.012, M.granite, WATER, x, 0.03, z);
     for (let k = 0; k < 5; k++) {
       const jx = x - 0.08 + k * 0.04;
-      add(st, new THREE.ConeGeometry(0.006, 0.07 + (k % 2) * 0.03, 6), SPRAY, jx, 0.0525 + 0.035 + (k % 2) * 0.015, z);
-      add(st, new THREE.SphereGeometry(0.006, 6, 4), SPRAY, jx, 0.0525 + 0.07 + (k % 2) * 0.03, z);
+      add(st, new THREE.ConeGeometry(0.006, 0.07 + (k % 2) * 0.03, 6), SPRAY, jx, wy + 0.035 + (k % 2) * 0.015, z);
+      add(st, new THREE.SphereGeometry(0.006, 6, 4), SPRAY, jx, wy + 0.07 + (k % 2) * 0.03, z);
     }
     for (const dx of [-0.11, 0.11]) for (const dz of [-0.066, 0.066]) add(st, BULB_GEO, BULB, x + dx, 0.054, z + dz);
   }
-  // Köşelerde altın kenarlı saksılarda palmiyeler
+  // Köşelerde altın kenarlı saksılarda palmiyeler (altın kenar çerçeve, toprak içinde)
   for (const sd of [-1, 1]) {
     const x = sd * 0.42, z = 0.42;
     box(st, 0.07, 0.04, 0.07, M.stone, x, 0.03, z);
-    box(st, 0.074, 0.006, 0.074, M.gold, x, 0.068, z);
+    frame(st, 0.074, 0.074, 0.006, 0.007, M.gold, x, 0.07, z);
     box(st, 0.06, 0.004, 0.06, M.soil, x, 0.07, z);
     const p = palm(x, z, 0.32, sd * 0.1);
-    p.position.y = 0.072;
+    p.position.y = 0.074;
     st.add(p);
   }
   // Köşede dikey "CASINO" tabelası: altın çerçeve, ampul kenarlar
   const bx = -0.415, bz = PZ1 + 0.015, b0 = 0.06, bh = 0.32;
   box(st, 0.07, bh + 0.02, 0.03, M.gold, bx, b0 - 0.01, bz);
-  box(st, 0.06, bh, 0.002, neonSign('CASINO', '#ff3fa4', 0.06 / bh), bx, b0, bz + 0.0155);
-  for (const sd of [-1, 1]) for (let k = 0; k <= 10; k++) add(st, BULB_GEO, BULB, bx + sd * 0.038, b0 + (k * bh) / 10, bz + 0.016);
+  box(st, 0.06, bh, 0.002, neonSign('CASINO', '#ff3fa4', 0.06 / bh), bx, b0, bz + 0.0205);
+  for (const sd of [-1, 1]) for (let k = 0; k <= 10; k++) add(st, BULB_GEO, BULB, bx + sd * 0.038, b0 + (k * bh) / 10, bz + 0.018);
   add(st, new THREE.ConeGeometry(0.03, 0.04, 4).rotateY(Math.PI / 4), M.gold, bx, b0 + bh + 0.03, bz);
   add(st, new THREE.SphereGeometry(0.01, 8, 6), BULB, bx, b0 + bh + 0.055, bz);
   return mergeStatic([st]);
