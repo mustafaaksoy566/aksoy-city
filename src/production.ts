@@ -77,8 +77,9 @@ export class ProductionPanel {
       </div>
       <div class="ptg"></div>
       <div class="pbench">
-        <div class="pbhead"><span class="pbt">Üretim bandı</span><small class="pbc"></small><button class="pu"></button></div>
+        <div class="pbhead"><span class="pbi">⚙️</span><span class="pbtx"><span class="pbt">Üretim Bandı</span><small class="pbc"></small></span><button class="pu"></button></div>
         <div class="plines"></div>
+        <div class="phint">👆 Ürüne dokun ya da binanın üstüne sürükle</div>
         <div class="pshelf"></div>
       </div>
       <div class="ptip" hidden></div>`;
@@ -178,7 +179,7 @@ export class ProductionPanel {
     this.upBtn.hidden = false;
     this.upBtn.disabled = block !== null && block !== 'Yeterli para yok';
     this.upBtn.classList.toggle('poor', block === 'Yeterli para yok');
-    this.upBtn.innerHTML = block && block !== 'Yeterli para yok' ? `⭐ ${block}` : `⭐ Yükselt <b>💰${fmt(next.money)}</b><small>%${faster} hızlı</small>`;
+    this.upBtn.innerHTML = block && block !== 'Yeterli para yok' ? `⭐ ${block}` : `⭐ Yükselt <b>💰${fmt(next.money)}</b><small>+%${faster} hız</small>`;
   }
 
   // --- Ürün rafı ---
@@ -190,7 +191,7 @@ export class ProductionPanel {
     if (sig !== this.shelfSig) {
       this.shelfSig = sig;
       this.shelf.innerHTML = mats
-        .map(m => `<button class="pc" data-m="${m}"><span class="pcp">${productPic(m)}</span><b>${MATERIALS[m].name}</b><span class="pct"></span><span class="pcn"></span><em class="pcl"></em></button>`)
+        .map(m => `<button class="pc" data-m="${m}"><span class="pcp">${productPic(m)}</span><b>${MATERIALS[m].name}</b><span class="pct"></span><span class="pcn"></span><span class="pcgo"></span><em class="pcl"></em></button>`)
         .join('');
       this.shelf.querySelectorAll<HTMLButtonElement>('.pc').forEach(el => this.bindCard(el, el.dataset.m as MatId));
     }
@@ -203,6 +204,12 @@ export class ProductionPanel {
       el.classList.toggle('can', !locked && err === null);
       el.classList.toggle('miss', !locked && err !== null);
       el.querySelector('.pcl')!.textContent = locked ? `🔒 Seviye ${m.unlock}` : '';
+      // Kartın altındaki şerit: üretilebiliyorsa Üret, değilse kısaca nedeni
+      const go = locked ? `Seviye ${m.unlock}` : err === null ? 'Üret' : err.includes('malzeme') ? 'Malzeme eksik' : err.includes('dolu') ? 'Bant dolu' : err.includes('yol') ? 'Yol yok' : 'Üretilemez';
+      const pcgo = el.querySelector<HTMLElement>('.pcgo')!;
+      if (pcgo.textContent !== go) pcgo.textContent = go;
+      // Bant dolu ise uyarı rengi yok (beklemek yeter); malzeme eksikse kırmızı
+      el.classList.toggle('full', go === 'Bant dolu');
       el.querySelector('.pct')!.textContent = `⏱ ${clock(city.makerTime(i, mat))}`;
       const needs = Object.entries(m.needs ?? {}) as [MatId, number][];
       const html = needs.length
@@ -336,7 +343,7 @@ export class ProductionPanel {
     const cells: string[] = [];
     let shape = '';
     const live: { p: number; label: string }[] = [];
-    let running = 0;
+    let running = 0, waiting = 0;
     list.forEach((job, k) => {
       const start = city.jobStart(i, job);
       const ready = job.end <= now;
@@ -344,16 +351,18 @@ export class ProductionPanel {
       if (run) running++;
       const p = run ? Math.min(1, Math.max(0, (now - start) / Math.max(1, job.end - start))) : 0;
       const cls = ready ? 'ready' : run ? 'run' : 'wait';
-      const label = ready ? '✓ Topla' : run ? clock((job.end - now) / 1000) : 'Sırada';
+      const label = ready ? 'Topla' : run ? clock((job.end - now) / 1000) : 'Sırada';
       live.push({ p, label });
       shape += `${k}${cls}${job.mat};`;
-      cells.push(`<button class="cr ${cls}" data-k="${k}" style="--p:${p.toFixed(3)}"><span class="crp">${productPic(job.mat)}</span><i class="lid"></i><i class="box"></i><i class="bar"><b></b></i><small>${label}</small></button>`);
+      // Üretim yeri: ürün, çevresinde dolum halkası; hazırsa onay rozeti, sıradaysa sıra numarası
+      const badge = ready ? '<i class="ok">✓</i>' : cls === 'wait' ? `<i class="num">${++waiting}</i>` : '';
+      cells.push(`<button class="cr ${cls}" data-k="${k}" style="--p:${p.toFixed(3)}"><span class="ring"><span class="crp">${productPic(job.mat)}</span></span>${badge}<small>${label}</small></button>`);
     });
-    for (let n = list.length; n < slots; n++) cells.push(`<button class="cr empty" data-k="-1"><i class="box"></i><small>Boş</small></button>`);
+    for (let n = list.length; n < slots; n++) cells.push(`<button class="cr empty" data-k="-1"><span class="ring"></span><small>Boş</small></button>`);
     const price = city.slotPrice(i);
-    if (price !== null) cells.push(`<button class="cr plus" data-k="-2"><b>+</b><small>💰${fmt(price)}</small></button>`);
+    if (price !== null) cells.push(`<button class="cr plus" data-k="-2"><span class="ring"></span><small>💰${fmt(price)}</small></button>`);
     shape += `${slots}|${price}|${PICS.size}`;
-    this.count.textContent = `${list.length}/${slots} ${factory ? 'aynı anda' : 'sırada'}`;
+    this.count.textContent = `${list.length}/${slots} dolu · ${factory ? 'aynı anda' : 'sırayla'}`;
     // Düzen aynıysa sadece süre ve dolum çubuğu güncellenir (dokunurken koli yerinden oynamasın)
     if (this.lines.dataset.shape === shape) {
       this.lines.querySelectorAll<HTMLElement>('.cr').forEach((b, n) => {
@@ -372,7 +381,7 @@ export class ProductionPanel {
     const per = Math.ceil(cells.length / rows);
     let html = '';
     for (let r = 0; r < rows; r++) {
-      html += `<div class="pline"><div class="pcrates">${cells.slice(r * per, (r + 1) * per).join('')}</div><div class="pbelt${running > 0 ? ' moving' : ''}"><i class="roll l"></i><i class="roll r"></i></div></div>`;
+      html += `<div class="pline"><div class="pcrates">${cells.slice(r * per, (r + 1) * per).join('')}</div><div class="pbelt${running > 0 ? ' moving' : ''}"><i class="mot l"><b>⚙</b><u></u></i><i class="mot r"><b>⚙</b><u></u></i></div></div>`;
     }
     this.lines.style.setProperty('--z', zoom.toFixed(3));
     this.lines.innerHTML = html;
@@ -381,8 +390,8 @@ export class ProductionPanel {
 
   // Kaç sıra bant ve koliler ne kadar küçülsün: tek bantta %70'in altına inecekse iki bant
   private fit(n: number) {
-    const CRATE = 66, GAP = 10;
-    const avail = Math.max(200, this.lines.clientWidth - 28); // bant ve koli kenar boşlukları
+    const CRATE = 70, GAP = 10;
+    const avail = Math.max(200, this.lines.clientWidth - 60); // makinenin iki ucundaki motorlar ve kenar boşlukları
     const zoomFor = (cols: number) => Math.min(1, (avail - (cols - 1) * GAP) / (cols * CRATE));
     const one = zoomFor(n);
     if (one >= 0.7 || n < 4) return { rows: 1, zoom: Math.max(0.5, one) };
