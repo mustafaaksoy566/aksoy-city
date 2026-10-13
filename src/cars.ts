@@ -8,6 +8,10 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 export type CarKind = 'sedan' | 'hatch' | 'suv' | 'taxi' | 'van' | 'pickup' | 'sport' | 'truck' | 'garbage' | 'police' | 'ambulance' | 'fire';
 export const CAR_KINDS: CarKind[] = ['sedan', 'hatch', 'suv', 'taxi', 'van', 'pickup', 'sport', 'truck', 'garbage', 'police', 'ambulance', 'fire'];
+// Çizim ölçüsü: araba caddenin şeridine (çizgiler arası 0.16) rahat sığsın, şerit çizgisine ve bordüre taşmasın.
+// Otobüs biraz daha büyük (uzun araç), o da dış şeride sığar.
+export const CAR_SCALE = 0.6;
+export const BUS_SCALE = 0.68;
 // Trafikte sıradan arabalar (sık görülenler listede birden fazla)
 export const NORMAL_CARS: CarKind[] = ['sedan', 'sedan', 'sedan', 'hatch', 'hatch', 'suv', 'suv', 'taxi', 'van', 'pickup', 'sport', 'truck', 'garbage'];
 const PAINTS = ['#c62828', '#1565c0', '#f5f5f5', '#202124', '#9ea4ab', '#2e7d32', '#f9a825', '#6a1b9a', '#00838f', '#e64a19', '#455a64', '#8d6e63', '#ad1457', '#0d47a1', '#cfd8dc'];
@@ -615,6 +619,6 @@ export function carModel(kind: CarKind, color?: string): THREE.Group {
     mesh.castShadow = true;
     g.add(mesh);
   }
-  g.scale.setScalar(0.78);
+  g.scale.setScalar(CAR_SCALE);
   return g;
 }

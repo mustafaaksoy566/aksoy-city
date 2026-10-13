@@ -24,6 +24,9 @@ export class CameraRig {
   // Kameranın yakınındaki en yüksek binanın tepesi: kamera ondan aşağı inmez
   // (yoksa yakınlaşınca kulenin çatısı kesilir ve içi boş/şeffaf görünür)
   clearance: ((x: number, z: number) => number) | null = null;
+  // Şehir dışındaki arazinin yüksekliği: kamera ile baktığı yer arasında tepe ya da dağ varsa kamera daha
+  // yukarıdan bakar (dağın içine girmez, yamaca da yapışmaz)
+  terrain: ((x: number, z: number) => number) | null = null;
   private lift = 0; // binaların üstünde kalmak için kameranın yumuşakça yükseldiği miktar
 
   private pointers = new Map<number, { x: number; y: number }>();
@@ -80,8 +83,26 @@ export class CameraRig {
     this.tilt = THREE.MathUtils.clamp(this.tilt + amount, TILT_MIN, TILT_MAX);
   }
 
+  // Bakış çizgisi (hedeften kameraya) arazinin içinden geçiyorsa açı yükselir
+  private viewPitch() {
+    let p = this.pitch;
+    const ground = this.terrain;
+    if (!ground) return p;
+    const step = Math.max(0.5, this.distance / 40);
+    const blocked = (q: number) => {
+      const c = Math.cos(q), sx = Math.sin(this.yaw) * c, sz = Math.cos(this.yaw) * c, sy = Math.sin(q);
+      // Hedefin yanında küçük, uzakta biraz daha büyük pay
+      for (let s = step; s <= this.distance + 1e-6; s += step) {
+        if (this.target.y + sy * s < ground(this.target.x + sx * s, this.target.z + sz * s) + Math.min(0.6, 0.05 + s * 0.1)) return true;
+      }
+      return false;
+    };
+    while (p < 1.45 && blocked(p)) p += 0.04;
+    return p;
+  }
+
   apply() {
-    const p = this.pitch;
+    const p = this.viewPitch();
     const h = Math.cos(p) * this.distance;
     this.camera.position.set(this.target.x + Math.sin(this.yaw) * h, this.target.y + Math.sin(p) * this.distance + this.lift, this.target.z + Math.cos(this.yaw) * h);
     this.camera.lookAt(this.target);
@@ -91,7 +112,7 @@ export class CameraRig {
   // Kamera bir kulenin tepesine çok yaklaştıysa yumuşakça yukarı çık; uzaklaşınca geri in
   private keepAbove(dt: number) {
     if (!this.clearance) return;
-    const p = this.pitch;
+    const p = this.viewPitch();
     const h = Math.cos(p) * this.distance;
     const x = this.target.x + Math.sin(this.yaw) * h, z = this.target.z + Math.cos(this.yaw) * h;
     const y = this.target.y + Math.sin(p) * this.distance;

@@ -1476,6 +1476,11 @@ export class City {
 
   // Kapı yola baksın; mümkünse kameraya dönük (güney) taraf seçilsin. n = binanın kenar uzunluğu
   private facingFor(i: number, n = 1, to: 'road' | 'rail' | 'water' = 'road') {
+    return this.openSides(i, n, to)[0] ?? 2;
+  }
+  // Binanın (sol üst karesi i, kenarı n) hangi yanlarında yol (istasyonda ray, limanda su) var: önü ancak bu
+  // yönlere döner (arkası yola dönmez). Sıra: güney, doğu, batı, kuzey.
+  private openSides(i: number, n = 1, to: 'road' | 'rail' | 'water' = 'road') {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     const side = (d: number) => {
       for (let k = 0; k < n; k++) {
@@ -1484,7 +1489,16 @@ export class City {
       }
       return false;
     };
-    return [2, 1, 3, 0].find(side) ?? 2;
+    return [2, 1, 3, 0].filter(side);
+  }
+  // Taşınan ya da döndürülen bina (sol üst karesi x, z olacak) önünü hangi yönlere çevirebilir? Yanında hiç
+  // yol yoksa (park, göl gibi yolsuz yapılar) her yöne döner.
+  facingsAt(from: number, x: number, z: number) {
+    const t = this.tiles[this.anchorOf(from)];
+    if (!t) return [0, 1, 2, 3];
+    const to = t.kind === 'station' ? 'rail' : NEEDS_WATER.includes(t.kind as BuildTool) ? 'water' : 'road';
+    const list = this.openSides(idx(x, z), t.fp ?? 1, to);
+    return list.length ? list : [0, 1, 2, 3];
   }
 
   // --- Binayı taşıma: basılı tut, sürükle, bırak ---

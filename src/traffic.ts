@@ -1,20 +1,21 @@
 import * as THREE from 'three';
-import { SIZE, ROAD_GRADES, ENTRANCE_Z, UNDERPASS } from './config';
-import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint, type CarKind } from './cars';
+import { SIZE, ROAD_GRADES, ENTRANCE_Z, UNDERPASS, INDUSTRY } from './config';
+import { CarSet, CAR_KINDS, CAR_SCALE, BUS_SCALE, carPaint, type CarKind } from './cars';
 import { City, DIRS, idx, inBounds } from './city';
-import { makeModel } from './assets';
-import { bakeTextured, bakeModel, vertexColorMat } from './batcher';
+import { bakeModel, vertexColorMat } from './batcher';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { makeBus } from './sky';
 import { tileCenter } from './view';
 import { isGreen } from './signals';
 
 const CAR_LANE = 0.16; // arabalar: şeridin yol ortasından uzaklığı (sağdan gidiş)
-const WIDE_LANES = [0.125, 0.3]; // caddede (çift şerit) iç ve dış şerit: çizgilerin ortası (geniş araç refüje binmesin)
+// Caddede (çift şerit) iç ve dış şeridin ortası: iç şerit bariyerin sarı çizgisi (0.036) ile kesik çizgi (0.194)
+// arasında, dış şerit kesik çizgi ile kenar çizgisi (0.384) arasında
+const WIDE_LANES = [0.115, 0.3];
 const CAR_Y = 0.066; // asfalt (0.036) + tekerleklerin altı
-const CAR_SCALE = 0.78;
 const WALK_LANE = 0.43; // yayalar: kaldırım
 const WIDE_WALK = 0.468; // caddede kaldırım
+const WALK_Y = 0.05;
 const MAX_CARS = 70; // yolda giden araba
 const MAX_INSTANCES = 240; // bir araba modelinden en fazla kaç tane (park edenler dahil)
 const MAX_WALKERS = 90;
@@ -25,6 +26,27 @@ const MANEUVER_SPEED = 0.42; // otoparka girip çıkarken (kare/saniye)
 // Otopark: arka sırada üç park yeri (otoparkın ortasından yana uzaklık), arabalar yola dönük durur
 const BAYS = [-0.3, 0, 0.3];
 const BAY_BACK = 0.2;
+
+// Arabaların türleri: evlerin arabaları (otoparkta durur), yük taşıyanlar
+const HOME_CARS: CarKind[] = ['sedan', 'sedan', 'sedan', 'hatch', 'hatch', 'suv', 'suv', 'sport', 'van', 'pickup'];
+const CARGO_CARS: CarKind[] = ['truck', 'truck', 'van', 'pickup'];
+const isCargo = (type: number) => type >= 0 && ['truck', 'van', 'pickup'].includes(CAR_KINDS[type]);
+const pickType = (list: CarKind[]) => CAR_KINDS.indexOf(list[Math.floor(Math.random() * list.length)]);
+const rnd = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+
+// --- Günün saatleri ---
+// Bir gün 2 dakika (daynight.ts; gece 0.68'den 0.95'e kadar): sabah evden işe, gündüz yük taşıma ve alışveriş,
+// akşam eve dönüş, gece sakin. Bir yolculuk yarım dakika kadar sürdüğü için eve dönüş hava kararmadan başlar.
+export type DayPhase = 'morning' | 'day' | 'evening' | 'night';
+export function dayPhase(tod: number): DayPhase {
+  if (tod >= 0.93 || tod < 0.15) return 'morning';
+  if (tod < 0.45) return 'day';
+  if (tod < 0.68) return 'evening';
+  return 'night';
+}
+// Yolda olması istenen araba ve yaya oranı (gece az)
+const CAR_SHARE: Record<DayPhase, number> = { morning: 1, day: 0.8, evening: 1, night: 0.3 };
+const WALK_SHARE: Record<DayPhase, number> = { morning: 0.8, day: 1, evening: 0.9, night: 0.3 };
 
 // Yolda giden bir şey (araba ya da yaya)
 interface Mover {
@@ -70,16 +92,6 @@ function pickExit(city: City, tile: number, dIn: number, busy = false) {
   return options[options.length - 1];
 }
 
-// Yaya kavşakta sola dönmez: sola dönüş kavşağın ortasından çapraz geçer, dönen arabaların önünü keser.
-// Düz gider (yaya geçidinden karşıya) ya da köşeden sağa döner; sola gitmek isteyen iki geçitten dolanır.
-function walkerExit(city: City, tile: number, dIn: number) {
-  const options = roadDirs(city, tile).filter(d => d !== (dIn + 2) % 4);
-  if (!options.length) return (dIn + 2) % 4;
-  const safe = options.length >= 2 ? options.filter(d => d !== (dIn + 3) % 4) : options;
-  const pick = safe.length ? safe : options;
-  return pick[Math.floor(Math.random() * pick.length)];
-}
-
 // İlerlet; yol yok olduysa false döner. limit: bu karede en fazla nereye kadar gidebilir (öndeki araç, kırmızı ışık).
 // choose: yeni kareye girince hangi yöne çıkılacağı (verilmezse rastgele)
 function advance(city: City, m: Mover, step: number, busy = false, limit = Infinity, choose?: (m: Mover) => number) {
@@ -119,8 +131,7 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
   if (dOut === (dIn + 2) % 4 && isDeadEnd(city, m.tile)) {
     // Dönüş meydanı: kenardan girip adacığın çevresinden yarım daire çizerek geri çık
     const f = fwd(dIn), r = right(dIn);
-    // Arabalar uçtaki adacığın çevresinden döner, yayalar bordürün yanından
-    const R = lane > 0.4 ? Math.min(0.46, lane) : 0.21;
+    const R = 0.21;
     const at = (u: number, v: THREE.Vector3) => {
       if (u < 0.3) {
         const k = THREE.MathUtils.smoothstep(u / 0.3, 0, 1);
@@ -133,14 +144,7 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
       const k = THREE.MathUtils.smoothstep((u - 0.7) / 0.3, 0, 1);
       return v.copy(mid).addScaledVector(f, -0.5 * k).addScaledVector(r, -(R + (lane - R) * k));
     };
-    at(t, out);
-    at(Math.min(1, t + 0.01), P);
-    if (t >= 0.99) {
-      at(0.99, P);
-      at(1, out);
-      return Math.atan2(out.x - P.x, out.z - P.z);
-    }
-    return Math.atan2(P.x - out.x, P.z - out.z);
+    return turnaround(at, t, out);
   }
   const side = (d: number, s: number) => {
     const nx = x + DIRS[d][0] * s, nz = z + DIRS[d][1] * s;
@@ -152,9 +156,23 @@ function lanePos(city: City, m: Mover, laneAt: (tile: number) => number, y: numb
   if (dIn === dOut) C.copy(mid).addScaledVector(right(dIn), lane);
   else if (dOut === (dIn + 2) % 4) C.copy(mid).addScaledVector(fwd(dIn), 0.35);
   else C.copy(mid).addScaledVector(right(dIn), laneIn).addScaledVector(right(dOut), laneOut);
+  return bezier2(t, out);
+}
+// Dönüş meydanının eğrisi boyunca konum ve gidiş yönü
+function turnaround(at: (u: number, v: THREE.Vector3) => THREE.Vector3, t: number, out: THREE.Vector3) {
+  at(t, out);
+  at(Math.min(1, t + 0.01), P);
+  if (t >= 0.99) {
+    at(0.99, P);
+    at(1, out);
+    return Math.atan2(out.x - P.x, out.z - P.z);
+  }
+  return Math.atan2(P.x - out.x, P.z - out.z);
+}
+// A, C, B noktalarıyla ikinci derece Bezier: konum ve gidiş yönü (eğrinin türevi)
+function bezier2(t: number, out: THREE.Vector3) {
   const u = 1 - t;
   out.set(0, 0, 0).addScaledVector(A, u * u).addScaledVector(C, 2 * u * t).addScaledVector(B, t * t);
-  // Gidiş yönü: eğrinin türevi
   const dx = 2 * u * (C.x - A.x) + 2 * t * (B.x - C.x);
   const dz = 2 * u * (C.z - A.z) + 2 * t * (B.z - C.z);
   return Math.atan2(dx, dz);
@@ -182,6 +200,50 @@ function lightLimit(city: City, m: Mover, stop: number) {
   const next = neighbor(m.tile, m.dOut);
   if (!isJunction(city, next) || isGreen(next, m.dOut)) return Infinity;
   return stop;
+}
+
+// --- Yol bulma ---
+// Her hedef yol karesi için bütün yol karelerinin hedefe kaç kare uzak olduğu (genişlik öncelikli arama).
+// Bir kez hesaplanır, yollar değişince silinir. Arabalar ve yayalar ortak kullanır.
+class Router {
+  private fields = new Map<number, Int16Array>();
+  private key = 0;
+  constructor(public city: City) {}
+  // Yollar değiştiyse eski uzaklıkları sil
+  sync() {
+    let key = 0;
+    this.city.tiles.forEach((t, i) => t?.kind === 'road' && (key = (key * 31 + i) | 0));
+    if (key !== this.key) {
+      this.key = key;
+      this.fields.clear();
+    }
+  }
+  reset(city: City) {
+    this.city = city;
+    this.fields.clear();
+    this.key = 0;
+  }
+  field(target: number) {
+    let f = this.fields.get(target);
+    if (f) return f;
+    if (this.fields.size > 600) this.fields.clear();
+    f = new Int16Array(this.city.tiles.length).fill(-1);
+    if (isRoadTile(this.city, target)) {
+      f[target] = 0;
+      const queue = [target];
+      for (let q = 0; q < queue.length; q++) {
+        const c = queue[q];
+        for (let d = 0; d < 4; d++) {
+          const n = neighbor(c, d);
+          if (n < 0 || f[n] >= 0 || !isRoadTile(this.city, n)) continue;
+          f[n] = f[c] + 1;
+          queue.push(n);
+        }
+      }
+    }
+    this.fields.set(target, f);
+    return f;
+  }
 }
 
 // --- Otoparka girip çıkarken izlenen eğriler (üçüncü derece Bezier) ---
@@ -212,7 +274,7 @@ function seg(p: THREE.Vector3[], back = false): Seg {
   return { p, back, len: Math.max(0.05, len) };
 }
 
-// Otopark ya da garaj (gökdelen, hastane, itfaiye, karakol): araçların girip çıktığı yer
+// Otopark ya da garaj (gökdelen, hastane, itfaiye, karakol) ya da arabanın girdiği bina: önündeki yol
 interface Spot {
   tile: number; // binanın yola bakan karesi
   road: number; // önündeki yol
@@ -228,17 +290,22 @@ interface Lot extends Spot {
   bays: (Parked | null)[];
   reserved: boolean[];
 }
+// Gidilecek yer: otopark, garaj, şehrin çıkışı, girilip bir süre kalınan bina (iş yeri, fabrika, dükkan...)
+// ya da "ev" (o an evine en yakın boş otopark yeri seçilir)
 interface Dest {
-  kind: 'lot' | 'garage' | 'exit';
+  kind: 'lot' | 'garage' | 'exit' | 'enter' | 'home';
   spot?: Spot;
   bay?: number;
   road: number;
+  stay?: number; // binada kaç saniye kalır (-1: işte, akşama kadar)
+  site?: number; // girilen binanın karesi ve türü (yıkıldıysa oraya gidilmez)
+  what?: string;
 }
 interface Maneuver {
   segs: Seg[];
   k: number;
   u: number;
-  end: 'road' | 'lot' | 'garage';
+  end: 'road' | 'lot' | 'garage' | 'enter';
   dir?: number; // yola çıkınca gidilen yön
   road?: number;
   lot?: Lot;
@@ -246,6 +313,33 @@ interface Maneuver {
   fadeIn?: boolean;
   fadeOut?: boolean;
   site?: number; // girip çıktığı otoparkın karesi (otoparkta aynı anda tek manevra)
+  dest?: Dest; // girdiği bina
+}
+// Şehirde bir yer (iş yeri, dükkan, fabrika, gezilecek yer...): önündeki yol ve ağırlık (çalışan sayısı gibi)
+export interface Place {
+  spot: Spot;
+  site: number;
+  what: string;
+  weight: number;
+}
+export interface Places {
+  work: Place[]; // iş yerleri
+  shops: Place[]; // dükkanlar
+  cargo: Place[]; // mal çıkan yerler (fabrika, depo, liman)
+  fun: Place[]; // gezilecek yerler (müze, stadyum, plaj, tarihi yapılar...)
+  parks: Place[]; // park, çeşme, heykel (yürüyüş)
+  transit: Place[]; // durak, metro, istasyon
+  depots: Place[]; // çöp kamyonlarının çıktığı depolar
+  homes: number[]; // evler
+}
+
+// Arabanın görevi
+type Job = 'work' | 'home' | 'cargo' | 'errand' | 'visit' | 'taxi' | 'garbage' | 'service' | 'bus' | 'roam';
+// Bir yolculuk: görev, sırayla gidilecek yerler ve evi (akşam döneceği otopark ya da garaj)
+interface Trip {
+  job: Job;
+  plan: Dest[];
+  base?: { lot?: Lot; garage?: Spot };
 }
 
 // İki dönük dikdörtgen (yukarıdan bakınca) üst üste biniyor mu? (ayırıcı eksen testi)
@@ -279,6 +373,8 @@ interface Vehicle extends Mover {
   id?: number;
   stuck?: number; // önü kapalı bekleme süresi
   ped?: boolean; // önündeki yayayı bekliyor
+  pedWait?: number; // yayayı ne kadar süredir bekliyor
+  pedPass?: number; // yayalara bakmadan geçtiği kalan süre (karşılıklı bekleme çözülür)
   wideNext?: number; // kavşağa girince geçeceği şerit (alt geçitli kavşakta caddeye dönen dış şeride geçer)
   next?: number; // bir sonraki karede çıkacağı yön (kavşağa girmeden önce seçilir)
   lastJ?: { tile: number; dIn: number; dOut: number }; // en son geçtiği kavşak (arkası hâlâ içindeyken yer tutar)
@@ -288,16 +384,35 @@ interface Vehicle extends Mover {
   type: number; // araba modeli (otobüste -1)
   paint?: THREE.Color; // boyası
   wide: number; // caddede hangi şerit (0 iç, 1 dış)
-  trip: number; // kaç kare daha gezecek; bitince hedefine gider
+  trip: number; // gezinti: kaç kare daha rastgele dolaşacak (görevli araba 0, doğrudan gider)
+  job: Job;
+  age?: number; // kaç saniyedir yolda
+  plan?: Dest[]; // şimdiki hedeften sonra sırayla gideceği yerler
+  base?: Trip['base'];
   dest?: Dest;
   man?: Maneuver;
   home?: Spot; // ambulans, itfaiye, polis: döneceği bina
 }
+// Bir binanın içinde bekleyen araba (işte akşama kadar, dükkanda ya da fabrikada yük indirip alırken birkaç saniye)
+interface Inside {
+  spot: Spot;
+  site: number;
+  what: string;
+  v: Vehicle;
+  until: number; // saat (saniye) bu olunca çıkar
+  evening: boolean; // işte: akşam çıkar
+  since: number;
+}
 
 // Arabalar ve otobüsler: ışıklarda durur, öndeki aracın arkasında sıraya girer.
-// Hiçbiri yolun ortasında belirmez: otoparktan (sahibi evinden yürüyüp biner), gökdelenin garajından,
-// hastane/itfaiye/karakoldan çıkar ya da şehir dışından otoyoldan gelir. Gezdikten sonra bir otoparka,
-// bir garaja girer ya da otoyoldan şehirden çıkar.
+// Hiçbiri yolun ortasında belirmez ve hepsinin bir görevi var (SimCity'deki gibi):
+// - Sabah: sahibi evinden çıkıp otoparktaki arabasına yürür, arabayla işine (fabrika, dükkan, hastane, okul...)
+//   gider ve binaya girer. Kulelerde oturanlar kulenin garajından çıkar. Kamyonetli olanlar önce fabrikadan mal alıp
+//   dükkana götürür.
+// - Gündüz: kamyonlar fabrikadan, depodan ya da limandan mal alıp dükkanlara ve başka fabrikalara taşır; insanlar
+//   arabayla alışverişe ve gezmeye gider; otobandan şehre gelenler gezilecek yerlere ve dükkanlara uğrayıp döner.
+// - Akşam: işten çıkanlar evlerinin yanındaki otoparka park edip evlerine yürür (kulede oturanlar garaja girer).
+// - Gece: yollar sakin, birkaç taksi ve devriye.
 // Her araba modeli için tek bir çoklu çizim (InstancedMesh) kullanılır: telefonda çok daha hızlı.
 export class Traffic {
   readonly root = new THREE.Group();
@@ -307,27 +422,33 @@ export class Traffic {
   private busMesh: THREE.InstancedMesh | null = null;
   private lengths: number[] = []; // her araba modelinin boyu (kare)
   private widths: number[] = [];
-  private busLength = 0.6;
-  private busWidth = 0.22;
+  private busLength = 0.42;
+  private busWidth = 0.17;
   boxes: Box[] = []; // araçların kapladığı yerler (yayalar da bakar)
   private recount = 0;
   private tmp = new THREE.Object3D();
   private lots = new Map<number, Lot>();
-  private garages: Spot[] = []; // gökdelenler
+  private garages: Spot[] = []; // gökdelenler ve katlı otoparklar
   private stations: (Spot & { kind: 'health' | 'fire' | 'police' })[] = [];
-  private fields = new Map<number, Int16Array>(); // her hedef için yollardaki uzaklık
-  private roadKey = '';
-  private waiting: { lot: Lot; bay: number }[] = []; // sahibi geldi, yola çıkmayı bekliyor
+  readonly router: Router;
+  places: Places = { work: [], shops: [], cargo: [], fun: [], parks: [], transit: [], depots: [], homes: [] };
+  private inside: Inside[] = []; // binaların içinde bekleyen arabalar
+  private clock = 0;
+  phase: DayPhase = 'day';
+  private waiting: { lot: Lot; bay: number; trip: Trip }[] = []; // sahibi geldi, yola çıkmayı bekliyor
   private pending = 0; // sahibi arabasına yürüyor
   private wanted = 0; // şehirde gezmesi gereken araba sayısı
   private walkers: Walkers | null = null;
   // Otoban: şehirden çıkan arabalar ona devredilir
   highway: { leaveCity(type: number, paint: THREE.Color, wide: number): void; canLeave(wide: number): boolean; busy(): boolean; sendBus(): void; busesComing(): number } | null = null;
 
-  constructor(private city: City) {}
+  constructor(private city: City) {
+    this.router = new Router(city);
+  }
 
   link(walkers: Walkers) {
     this.walkers = walkers;
+    walkers.attach(this.router, () => this.places, () => this.phase);
   }
 
   // Modeller yüklendikten sonra çağrılır
@@ -336,8 +457,9 @@ export class Traffic {
     if (busGeo) {
       busGeo.computeBoundingBox();
       const b = busGeo.boundingBox!;
-      this.busLength = Math.max(b.max.x - b.min.x, b.max.z - b.min.z);
-      this.busWidth = Math.min(b.max.x - b.min.x, b.max.z - b.min.z);
+      // Çarpışma kutusu çizildiği boyda
+      this.busLength = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * BUS_SCALE;
+      this.busWidth = Math.min(b.max.x - b.min.x, b.max.z - b.min.z) * BUS_SCALE;
       this.busMesh = new THREE.InstancedMesh(busGeo, vertexColorMat, 12);
       this.busMesh.count = 0;
       this.busMesh.frustumCulled = false;
@@ -351,17 +473,13 @@ export class Traffic {
 
   setCity(city: City) {
     this.city = city;
+    this.router.reset(city);
     this.cars = [];
     this.buses = [];
     this.lots.clear();
+    this.inside = [];
     this.waiting = [];
     this.pending = 0;
-    this.roadKey = '';
-  }
-
-  // Normal araba modeli (polis, ambulans ve itfaiye kendi binalarından çıkar)
-  private pickType() {
-    return CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
   }
 
   // Alt geçitten geçen araba ne kadar aşağıda: 0 yukarıda, 1 kavşağın altında (rampada arada)
@@ -387,10 +505,10 @@ export class Traffic {
   }
 
   private lengthOf(v: Vehicle) {
-    return v.type < 0 ? this.busLength : this.lengths[v.type] ?? 0.4;
+    return v.type < 0 ? this.busLength : this.lengths[v.type] ?? 0.3;
   }
   private widthOf(v: Vehicle) {
-    return v.type < 0 ? this.busWidth : this.widths[v.type] ?? 0.18;
+    return v.type < 0 ? this.busWidth : this.widths[v.type] ?? 0.14;
   }
 
   // Önünde (gideceği yerde) başka bir araç ya da yaya var mı? Kutular bir önceki karedeki yerler.
@@ -400,23 +518,28 @@ export class Traffic {
     if (!me) return null;
     const fx = Math.sin(me.h), fz = Math.cos(me.h);
     // Biraz ileriye kaydırılmış kendi kutusu, öndeki (dönük de olsa) kutuya değiyor mu? (ayırıcı eksen testi)
-    const hit = (o: Box, extra: number) => {
+    const ahead = (extra: number): Box => ({ ...me, x: me.x + fx * extra, z: me.z + fz * extra, wid: me.wid * 0.9 });
+    const car = ahead(0.06), walk = ahead(0.05);
+    // Uzaktakiler hiç denenmez (telefonda her karede yüzlerce kutu var)
+    const reach = me.len + me.wid + 0.07;
+    const hit = (o: Box, mine: Box) => {
       const rx = o.x - me.x, rz = o.z - me.z;
-      if (rx * fx + rz * fz <= 0.01) return false;
-      return boxesTouch({ ...me, x: me.x + fx * extra, z: me.z + fz * extra, wid: me.wid * 0.9 }, o);
+      const r = reach + o.len + o.wid;
+      if (rx * rx + rz * rz > r * r || rx * fx + rz * fz <= 0.01) return false;
+      return boxesTouch(mine, o);
     };
     const mu = me.u ?? 0;
     for (const o of this.boxes) {
       // Alt geçitteki araba ile yukarıdaki birbirine takılmaz
       if (Math.abs(mu - (o.u ?? 0)) > 0.5) continue;
-      if (o.id === me.id || !hit(o, 0.06)) continue;
+      if (o.id === me.id || !hit(o, car)) continue;
       // Karşılıklı bekleme: o da beni bekliyorsa küçük kimlikli geçer
       const ox = Math.sin(o.h), oz = Math.cos(o.h);
       const back = (me.x - o.x) * ox + (me.z - o.z) * oz > 0.01;
       if (back && me.id < o.id) continue;
       return Math.cos(o.h - me.h) > 0.8 ? 'queue' : 'cross';
     }
-    if (mu < 0.5) for (const p of people) if (hit(p, 0.05)) return 'ped';
+    if (mu < 0.5) for (const p of people) if (hit(p, walk)) return 'ped';
     return null;
   }
 
@@ -441,20 +564,32 @@ export class Traffic {
     return null;
   }
 
-  // Şehirdeki otoparkları ve garajları güncelle (yeni otoparka iki araba park etmiş olarak gelir)
+  // Şehirdeki otoparkları, garajları ve arabaların gideceği yerleri güncelle
+  // (yeni otoparka birkaç araba park etmiş olarak gelir)
   private scan() {
     const seen = new Set<number>();
     this.garages = [];
     this.stations = [];
+    const pl: Places = { work: [], shops: [], cargo: [], fun: [], parks: [], transit: [], depots: [], homes: [] };
     this.city.tiles.forEach((t, i) => {
-      if (!t) return;
-      if (t.kind === 'parking' && t.level > 0) {
-        // Katlı otopark: arabalar girişten girip kaybolur, sonra çıkıp yola katılır (kat arttıkça daha sık)
+      if (!t || t.kind === 'part' || t.kind === 'road' || t.kind === 'rail') return;
+      const k = t.kind as string;
+      if (k === 'res') {
+        if (t.level >= 1) pl.homes.push(i);
+        if (t.level >= 5) {
+          const spot = this.spotOf(i);
+          if (spot) this.garages.push(spot);
+        }
+        return;
+      }
+      if (k === 'parking') {
         const spot = this.spotOf(i);
-        if (spot) for (let k = 0; k <= t.level; k++) this.garages.push(spot);
-      } else if (t.kind === 'parking') {
+        if (t.level > 0) {
+          // Katlı otopark: arabalar girişten girip kaybolur, sonra çıkıp yola katılır (kat arttıkça daha sık)
+          if (spot) for (let n = 0; n <= t.level; n++) this.garages.push(spot);
+          return;
+        }
         seen.add(i);
-        const spot = this.spotOf(i);
         const old = this.lots.get(i);
         if (!spot) {
           this.lots.delete(i);
@@ -464,48 +599,32 @@ export class Traffic {
         else {
           const bays = BAYS.map(() => {
             if (Math.random() >= 0.67) return null;
-            const type = this.pickType();
+            const type = pickType(HOME_CARS);
             return { type, noseIn: false, paint: carPaint(CAR_KINDS[type]) };
           });
           this.lots.set(i, { ...spot, bays, reserved: BAYS.map(() => false) });
         }
-      } else if (t.kind === 'res' && t.level >= 5) {
-        const spot = this.spotOf(i);
-        if (spot) this.garages.push(spot);
-      } else if (t.kind === 'health' || t.kind === 'fire' || t.kind === 'police') {
-        const spot = this.spotOf(i);
-        if (spot) this.stations.push({ ...spot, kind: t.kind });
+        return;
       }
+      const spot = this.spotOf(i);
+      if (!spot) return;
+      const place = (weight: number): Place => ({ spot, site: i, what: k, weight });
+      if (k === 'health' || k === 'fire' || k === 'police') this.stations.push({ ...spot, kind: k });
+      if (WORK_KINDS.has(k)) pl.work.push(place((INDUSTRY as Record<string, { jobs: number }>)[k]?.jobs || 12));
+      if (SHOP_KINDS.has(k)) pl.shops.push(place(1));
+      if (CARGO_KINDS.has(k)) pl.cargo.push(place(k === 'port' ? 3 : k === 'factory' ? 2 : 1));
+      if (FUN_KINDS.has(k)) pl.fun.push(place(1));
+      if (PARK_KINDS.has(k)) pl.parks.push(place(1));
+      if (TRANSIT_KINDS.has(k)) pl.transit.push(place(1));
+      if (k === 'depot') pl.depots.push(place(1));
     });
+    this.places = pl;
     for (const i of [...this.lots.keys()]) if (!seen.has(i)) this.lots.delete(i);
     this.waiting = this.waiting.filter(w => this.lots.get(w.lot.tile) === w.lot);
+    // Yıkılan binanın içindeki arabalar da gider
+    this.inside = this.inside.filter(e => this.city.tiles[e.site]?.kind === e.what);
     // Yollar değiştiyse hedeflere uzaklıklar yeniden hesaplansın
-    let key = 0;
-    this.city.tiles.forEach((t, i) => t?.kind === 'road' && (key = (key * 31 + i) | 0));
-    if (`${key}` !== this.roadKey) {
-      this.roadKey = `${key}`;
-      this.fields.clear();
-    }
-  }
-
-  // Yollar boyunca bir hedef yol karesine uzaklık (her kare için)
-  private field(target: number) {
-    let f = this.fields.get(target);
-    if (f) return f;
-    f = new Int16Array(this.city.tiles.length).fill(-1);
-    f[target] = 0;
-    const queue = [target];
-    for (let q = 0; q < queue.length; q++) {
-      const c = queue[q];
-      for (let d = 0; d < 4; d++) {
-        const n = neighbor(c, d);
-        if (n < 0 || f[n] >= 0 || !isRoadTile(this.city, n)) continue;
-        f[n] = f[c] + 1;
-        queue.push(n);
-      }
-    }
-    this.fields.set(target, f);
-    return f;
+    this.router.sync();
   }
 
   // Yeni kareye girince: gezerken rastgele (kalabalık yolları severek), hedefi varsa en kısa yoldan
@@ -526,7 +645,7 @@ export class Traffic {
     // Şehrin girişindeki ilk karede batıya giden U dönüşü yapmaz, otobana çıkar (otobanda aynı şeritten devam eder)
     if (this.highway && v.tile === idx(0, ENTRANCE_Z) && v.dIn === 3) return 3;
     if (v.trip > 0) v.trip--;
-    if (v.trip <= 0 && !v.dest) v.dest = this.pickDest(v);
+    if (v.trip <= 0 && !v.dest) v.dest = this.nextDest(v);
     const dest = v.dest;
     if (!dest || v.trip > 0) return pickExit(this.city, v.tile, v.dIn, true);
     if (v.tile === dest.road) {
@@ -535,7 +654,7 @@ export class Traffic {
       const dirs = roadDirs(this.city, v.tile);
       return dirs.includes(v.dIn) ? v.dIn : pickExit(this.city, v.tile, v.dIn, true);
     }
-    const f = this.field(dest.road);
+    const f = this.router.field(dest.road);
     let best = -1, bestD = Infinity;
     for (const d of roadDirs(this.city, v.tile)) {
       const n = neighbor(v.tile, d);
@@ -547,19 +666,31 @@ export class Traffic {
     }
     if (best < 0 || bestD === Infinity) {
       // Hedefe yol yok: bir süre daha gezsin
-      this.release(v);
+      this.unreserve(v);
       v.trip = 6;
       return pickExit(this.city, v.tile, v.dIn, true);
     }
     return best;
   }
 
-  private release(v: Vehicle) {
+  private unreserve(v: Vehicle) {
     if (v.dest?.kind === 'lot' && v.dest.bay !== undefined) {
       const lot = v.dest.spot as Lot;
       lot.reserved[v.dest.bay] = false;
     }
     v.dest = undefined;
+  }
+
+  // Sıradaki hedef: planda ne varsa (yıkılmış binalar atlanır); plan bittiyse eski usul bir otopark, garaj ya da çıkış
+  private nextDest(v: Vehicle): Dest {
+    while (v.plan?.length) {
+      const d = v.plan.shift()!;
+      if (d.kind === 'home') return this.homeDest(v);
+      if (d.kind === 'enter' && this.city.tiles[d.site!]?.kind !== d.what) continue;
+      if (d.kind === 'garage' && d.site !== undefined && this.city.tiles[d.site]?.kind !== d.what) continue;
+      return d;
+    }
+    return this.pickDest(v);
   }
 
   // Gezinti bitince nereye: bir otoparka, bir gökdelenin garajına ya da otoyoldan şehir dışına
@@ -569,29 +700,73 @@ export class Traffic {
     if (v.home) return { kind: 'garage', spot: v.home, road: v.home.road };
     const r = Math.random();
     if (r < 0.55) {
-      // Yakındaki bir otoparkın boş yeri
-      const free = [...this.lots.values()].filter(l => l.bays.some((b, k) => !b && !l.reserved[k]));
-      let best: Lot | null = null, bestD = Infinity;
-      for (let k = 0; k < 4 && free.length; k++) {
-        const lot = free[Math.floor(Math.random() * free.length)];
-        const d = this.field(lot.road)[v.tile];
-        if (d >= 0 && d < bestD) {
-          bestD = d;
-          best = lot;
-        }
-      }
-      if (best) {
-        const bay = best.bays.findIndex((b, k) => !b && !best!.reserved[k]);
-        best.reserved[bay] = true;
-        return { kind: 'lot', spot: best, bay, road: best.road };
-      }
+      const lot = this.freeLot(v.tile, true);
+      if (lot) return this.reserve(lot);
     }
     // Otoban kalabalıksa şehirden çıkmak yerine şehirde bir garaja gitsin
     if ((r < 0.8 || this.highway?.busy()) && this.garages.length) {
-      const g = this.garages[Math.floor(Math.random() * this.garages.length)];
+      const g = rnd(this.garages);
       return { kind: 'garage', spot: g, road: g.road };
     }
     return exit;
+  }
+
+  // Boş yeri olan otopark: near karesine en yakını (spread: yakındakilerden rastgele biri)
+  private freeLot(near: number, spread = false): Lot | null {
+    const f = this.router.field(near);
+    const list: [Lot, number][] = [];
+    for (const lot of this.lots.values()) {
+      if (!lot.bays.some((b, k) => !b && !lot.reserved[k])) continue;
+      const d = f[lot.road];
+      if (d >= 0) list.push([lot, d]);
+    }
+    if (!list.length) return null;
+    list.sort((a, b) => a[1] - b[1]);
+    return spread ? list[Math.floor(Math.random() * Math.min(4, list.length))][0] : list[0][0];
+  }
+  private reserve(lot: Lot): Dest {
+    const bay = lot.bays.findIndex((b, k) => !b && !lot.reserved[k]);
+    lot.reserved[bay] = true;
+    return { kind: 'lot', spot: lot, bay, road: lot.road };
+  }
+
+  // Eve dönen arabanın park yeri: kendi otoparkı (boş yeri varsa) ya da ona en yakın boş yer; kulede oturan
+  // kendi garajına girer. Otopark yoksa bir garaj, o da yoksa şehirden çıkar.
+  private homeDest(v: Vehicle): Dest {
+    const base = v.base;
+    if (base?.garage && this.garages.includes(base.garage)) return { kind: 'garage', spot: base.garage, road: base.garage.road };
+    const near = base?.lot && this.lots.get(base.lot.tile) === base.lot ? base.lot.road : null;
+    const lot = near !== null ? this.freeLot(near) : this.freeLot(v.tile, true);
+    if (lot) return this.reserve(lot);
+    if (this.garages.length) {
+      const g = rnd(this.garages);
+      return { kind: 'garage', spot: g, road: g.road };
+    }
+    return { kind: 'exit', road: idx(0, ENTRANCE_Z) };
+  }
+
+  // Bir yer listesinden from karesinden yolla ulaşılabilen biri: yakındakiler çok daha sık seçilir (yolculuklar
+  // kısa sürsün, akşam herkes eve dönebilsin; şehrin bir ucundan öbür ucuna giden az olur)
+  private choosePlace(list: Place[], from: number, _tries = 3, not?: Place): Place | null {
+    if (!list.length) return null;
+    const f = this.router.field(from);
+    let total = 0;
+    const w = list.map(p => {
+      const d = p === not ? -1 : f[p.spot.road];
+      const s = d < 0 ? 0 : p.weight * Math.exp(-d / 9);
+      total += s;
+      return s;
+    });
+    if (total <= 0) return null;
+    let r = Math.random() * total;
+    for (let k = 0; k < list.length; k++) if ((r -= w[k]) <= 0 && w[k] > 0) return list[k];
+    return list.find((_, k) => w[k] > 0) ?? null;
+  }
+  private enter(p: Place, stay: number): Dest {
+    return { kind: 'enter', spot: p.spot, road: p.spot.road, stay, site: p.site, what: p.what };
+  }
+  private backTo(p: Place): Dest {
+    return { kind: 'garage', spot: p.spot, road: p.spot.road, site: p.site, what: p.what };
   }
 
   // Yolda bu noktanın yakınında araba var mı (otoparktan çıkarken bekle)
@@ -611,27 +786,46 @@ export class Traffic {
     return false;
   }
 
-  // Binadan ya da otoparktan yola çıkış yönü ve şeritteki nokta
-  private exitTo(spot: Spot, v: Vehicle) {
+  // Binadan ya da otoparktan yola çıkış yönü ve şeritteki nokta (gideceği yer verilirse o yöne doğru)
+  private exitTo(spot: Spot, v: Vehicle, target?: number) {
     const dirs = roadDirs(this.city, spot.road).filter(d => d !== (spot.face + 2) % 4);
     const side = dirs.filter(d => d % 2 !== spot.face % 2);
-    const list = side.length ? side : dirs.length ? dirs : [spot.face];
+    let list = side.length ? side : dirs.length ? dirs : [spot.face];
+    if (target !== undefined && list.length > 1) {
+      const f = this.router.field(target);
+      const dist = (d: number) => {
+        const n = neighbor(spot.road, d);
+        return n < 0 || f[n] < 0 ? Infinity : f[n];
+      };
+      const best = Math.min(...list.map(dist));
+      if (best < Infinity) list = list.filter(d => dist(d) === best);
+    }
     const dir = list[Math.floor(Math.random() * list.length)];
     const pt = new THREE.Vector3();
     lanePos(this.city, { tile: spot.road, dIn: dir, dOut: dir, t: 0.5, speed: 0, fade: 1 }, this.laneOf(v), CAR_Y, pt);
     return { dir, pt };
+  }
+  // Arabanın ilk gideceği yolun karesi (yola çıkarken o yöne dönsün)
+  private firstTarget(plan?: Dest[]) {
+    const d = plan?.[0];
+    return d && d.kind !== 'home' ? d.road : undefined;
   }
 
   private bayPos(lot: Lot, bay: number) {
     return center(lot.tile).setY(CAR_Y).addScaledVector(right(lot.face), BAYS[bay]).addScaledVector(fwd(lot.face), -BAY_BACK);
   }
 
+  // Caddede hangi şeritten başlasın (alt geçidin rampasında ve kapalı karede dış şerit)
+  private startLane(road: number) {
+    return Math.random() < 0.5 && !this.city.rampOf(road) && this.city.tiles[road]?.under === undefined ? 0 : 1;
+  }
+
   // Otoparktaki arabayı yola çıkar
-  private pullOut(lot: Lot, bay: number) {
+  private pullOut(lot: Lot, bay: number, trip: Trip) {
     const p = lot.bays[bay];
     if (!p) return;
-    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 && !this.city.rampOf(lot.road) && this.city.tiles[lot.road]?.under === undefined ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
-    const { dir, pt } = this.exitTo(lot, v);
+    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: this.startLane(lot.road), trip: 0, job: trip.job, plan: [...trip.plan], base: trip.base };
+    const { dir, pt } = this.exitTo(lot, v, this.firstTarget(v.plan));
     const f = fwd(lot.face), r = right(lot.face);
     const b = this.bayPos(lot, bay);
     const toward = fwd(dir);
@@ -650,15 +844,18 @@ export class Traffic {
     this.cars.push(v);
   }
 
-  // Binanın (garajın) içinden yola çık
-  private driveOut(spot: Spot, type: number, home?: Spot) {
-    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 && !this.city.rampOf(spot.road) && this.city.tiles[spot.road]?.under === undefined ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
-    const { dir, pt } = this.exitTo(spot, v);
+  // Binanın (garajın, iş yerinin, fabrikanın) içinden yola çık; yol doluysa false
+  private driveOut(spot: Spot, init: Partial<Vehicle> & { type: number; job: Job }) {
+    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, paint: carPaint(CAR_KINDS[init.type]), wide: this.startLane(spot.road), trip: 0, ...init };
+    const { dir, pt } = this.exitTo(spot, v, this.firstTarget(v.plan));
     const f = fwd(spot.face);
     // Binanın içinden tam boyda çıkar (küçükten büyümez)
     const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, -0.04);
     if (this.busyAt(pt)) return false;
     v.man = { segs: [seg([g, g.clone().addScaledVector(f, 0.45), pt.clone().addScaledVector(fwd(dir), -0.4), pt])], k: 0, u: 0, end: 'road', dir, road: spot.road, fadeIn: true };
+    v.fade = 0;
+    v.dest = undefined;
+    v.man.site = undefined;
     this.cars.push(v);
     return true;
   }
@@ -686,7 +883,7 @@ export class Traffic {
     return false;
   }
 
-  // Hedefin önüne gelen araba otoparka ya da garaja girer
+  // Hedefin önüne gelen araba otoparka, garaja ya da binaya girer
   private pullIn(v: Vehicle) {
     const dest = v.dest!;
     const pos = new THREE.Vector3();
@@ -699,42 +896,162 @@ export class Traffic {
       const b = this.bayPos(lot, dest.bay!);
       v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), b.clone().addScaledVector(f, 0.4), b])], k: 0, u: 0, end: 'lot', lot, bay: dest.bay, site: lot.tile };
     } else {
-      // Garaja girerken küçülmez: binanın içine kadar sürer, duvarların arkasında kaybolur
+      // Garaja ya da binaya girerken küçülmez: binanın içine kadar sürer, duvarların arkasında kaybolur
       const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, -0.04);
-      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.45), g])], k: 0, u: 0, end: 'garage', fadeOut: true };
+      v.man = { segs: [seg([pos, pos.clone().addScaledVector(dir, 0.35), g.clone().addScaledVector(f, 0.45), g])], k: 0, u: 0, end: dest.kind === 'enter' ? 'enter' : 'garage', fadeOut: true, dest };
     }
   }
 
-  // Yeni araba: otoparktan (önce sahibi yürüyerek gelir), gökdelen garajından ya da otoyoldan
-  private spawnCar() {
-    const r = Math.random();
-    if (r < 0.5) {
-      const lots = [...this.lots.values()].filter(l => l.bays.some(b => b && !b.leaving));
-      if (lots.length) {
-        const lot = lots[Math.floor(Math.random() * lots.length)];
-        const bay = lot.bays.findIndex(b => b && !b.leaving);
-        lot.bays[bay]!.leaving = true;
-        const path = this.walkPath(lot, bay);
-        if (path && this.walkers) {
-          this.pending++;
-          this.walkers.addTrip(path, true, false, () => {
-            this.pending--;
-            this.waiting.push({ lot, bay });
-          });
-        } else this.waiting.push({ lot, bay });
-        return;
+  // --- Yeni yolculuklar ---
+
+  // Otoparktaki arabasına evinden yürüyen biri: sabah işe, gündüz alışverişe, akşam ve gece gezmeye
+  private fromLot() {
+    const lots = [...this.lots.values()].filter(l => l.bays.some(b => b && !b.leaving));
+    if (!lots.length) return false;
+    const lot = rnd(lots);
+    const bay = lot.bays.findIndex(b => b && !b.leaving);
+    const car = lot.bays[bay]!;
+    const pl = this.places;
+    let plan: Dest[] | null = null;
+    let job: Job = 'errand';
+    if (this.phase === 'morning') {
+      if (isCargo(car.type)) {
+        // Kamyonetli: önce fabrikadan (depodan, limandan) mal alır, dükkana götürür
+        const from = this.choosePlace(pl.cargo, lot.road);
+        const to = from && this.choosePlace(pl.shops.length ? pl.shops : pl.cargo, from.spot.road, 3, from);
+        if (from && to) {
+          plan = [this.enter(from, 3 + Math.random() * 2), this.enter(to, 3 + Math.random() * 2), { kind: 'home', road: -1 }];
+          job = 'cargo';
+        }
       }
+      if (!plan) {
+        const w = this.choosePlace(pl.work, lot.road);
+        if (w) {
+          plan = [this.enter(w, -1), { kind: 'home', road: -1 }];
+          job = 'work';
+        }
+      }
+    } else {
+      // Alışveriş ya da gezme: gece eğlence yerleri, gündüz daha çok dükkan
+      const list = this.phase === 'night' || Math.random() < 0.35 ? (pl.fun.length ? pl.fun : pl.shops) : pl.shops.length ? pl.shops : pl.fun;
+      const p = this.choosePlace(list, lot.road);
+      if (p) plan = [this.enter(p, 5 + Math.random() * 7), { kind: 'home', road: -1 }];
     }
-    if (r < 0.75 && this.garages.length) {
-      const g = this.garages[Math.floor(Math.random() * this.garages.length)];
-      if (this.driveOut(g, this.pickType())) return;
+    if (!plan) return false;
+    car.leaving = true;
+    const trip: Trip = { job, plan, base: { lot } };
+    const path = this.walkPath(lot, bay);
+    if (path && this.walkers) {
+      this.pending++;
+      this.walkers.addTrip(path, true, false, () => {
+        this.pending--;
+        this.waiting.push({ lot, bay, trip });
+      });
+    } else this.waiting.push({ lot, bay, trip });
+    return true;
+  }
+
+  // Kulede oturan: kulenin garajından çıkıp işe ya da alışverişe gider, akşam garajına döner
+  private fromGarage() {
+    if (!this.garages.length) return false;
+    const g = rnd(this.garages);
+    const pl = this.places;
+    const p = this.phase === 'morning' ? this.choosePlace(pl.work, g.road) : this.choosePlace(Math.random() < 0.6 ? pl.shops : pl.fun, g.road);
+    if (!p) return false;
+    const plan = [this.enter(p, this.phase === 'morning' ? -1 : 5 + Math.random() * 7), { kind: 'home', road: -1 } as Dest];
+    return this.driveOut(g, { type: pickType(HOME_CARS), job: this.phase === 'morning' ? 'work' : 'errand', plan, base: { garage: g } });
+  }
+
+  // Kamyon: fabrikadan (depodan, limandan) mal alıp dükkana ya da başka bir fabrikaya götürür, sonra geri döner
+  private cargoRun() {
+    const pl = this.places;
+    // Yolda en fazla arabaların üçte biri kamyon olsun
+    if (!pl.cargo.length || this.cars.filter(c => c.job === 'cargo').length > this.wanted / 3) return false;
+    const from = rnd(pl.cargo);
+    const to = this.choosePlace(pl.shops.length && Math.random() < 0.75 ? pl.shops : pl.cargo, from.spot.road, 3, from);
+    if (!to) return false;
+    // Malı bırakınca en yakındaki fabrikaya ya da depoya döner
+    const back = this.choosePlace(pl.cargo, to.spot.road) ?? from;
+    return this.driveOut(from.spot, { type: pickType(CARGO_CARS), job: 'cargo', plan: [this.enter(to, 3 + Math.random() * 2.5), this.backTo(back)] });
+  }
+
+  // Çöp kamyonu: sabah depodan çıkar, mahalleleri dolaşır, depoya döner
+  private garbageRun() {
+    const pl = this.places;
+    if (!pl.depots.length || this.cars.some(c => c.job === 'garbage' && !c.out)) return false;
+    const d = rnd(pl.depots);
+    const type = CAR_KINDS.indexOf('garbage');
+    return this.driveOut(d.spot, { type, job: 'garbage', trip: 18 + Math.floor(Math.random() * 14), plan: [this.backTo(d)] });
+  }
+
+  // Taksi: bir garajdan çıkar, dolaşır, bir yerden müşteri alıp bırakır, garaja ya da şehir dışına gider
+  private taxiRun() {
+    if (!this.garages.length) return false;
+    const g = rnd(this.garages);
+    const pl = this.places;
+    const p = this.choosePlace(pl.fun.length ? pl.fun : pl.shops, g.road);
+    const plan: Dest[] = p ? [this.enter(p, 1.5)] : [];
+    return this.driveOut(g, { type: CAR_KINDS.indexOf('taxi'), job: 'taxi', trip: 6 + Math.floor(Math.random() * 10), plan });
+  }
+
+  // Akşam: işten çıkan eve döner (sabah işe gelen araba; yoksa iş yerinden biri)
+  private returnHome() {
+    const k = this.inside.findIndex(e => e.evening);
+    if (k >= 0) {
+      const e = this.inside[k];
+      if (!this.releaseInside(e)) return false;
+      this.inside.splice(k, 1);
+      return true;
     }
-    const entrance = idx(0, ENTRANCE_Z);
-    // Otoban bağlıysa şehre arabalar otobandan gelir (enterFromHighway)
-    if (!this.highway && isRoadTile(this.city, entrance)) {
-      const type = this.pickType();
-      this.cars.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 12 + Math.floor(Math.random() * 30) });
+    if (!this.places.work.length) return false;
+    const w = rnd(this.places.work);
+    return this.driveOut(w.spot, { type: pickType(HOME_CARS), job: 'home', plan: [{ kind: 'home', road: -1 }] });
+  }
+
+  // Binadaki araba yola çıkar ve planına devam eder (yol doluysa false)
+  private releaseInside(e: Inside) {
+    const v = e.v;
+    return this.driveOut(e.spot, { type: v.type, paint: v.paint, job: e.evening ? 'home' : v.job, plan: v.plan, base: v.base, home: v.home });
+  }
+
+  // Otobandan şehre gelen: sabah bir kısmı işe (akşam şehirden çıkar), kamyonlar fabrikaya mal getirir,
+  // diğerleri gezilecek yerlere ve dükkanlara uğrar, sonra şehirden çıkar
+  private visitorPlan(type: number): Trip {
+    const from = idx(0, ENTRANCE_Z);
+    const exit: Dest = { kind: 'exit', road: from };
+    const pl = this.places;
+    // Kamyon ve kamyonet fabrikaya mal getirir; çöp kamyonu depoya gider
+    if (isCargo(type) || CAR_KINDS[type] === 'garbage') {
+      const p = this.choosePlace(CAR_KINDS[type] === 'garbage' && pl.depots.length ? pl.depots : pl.cargo.length ? pl.cargo : pl.shops, from);
+      if (p) return { job: 'cargo', plan: [this.enter(p, 3 + Math.random() * 2), exit] };
     }
+    if (this.phase === 'morning' && Math.random() < 0.5) {
+      const w = this.choosePlace(pl.work, from);
+      if (w) return { job: 'work', plan: [this.enter(w, -1), exit] };
+    }
+    const list = Math.random() < 0.6 ? (pl.fun.length ? pl.fun : pl.shops) : pl.shops.length ? pl.shops : pl.fun;
+    const p = this.choosePlace(list, from);
+    if (p) return { job: 'visit', plan: [this.enter(p, 6 + Math.random() * 8), exit] };
+    return { job: 'roam', plan: [] };
+  }
+
+  // Saate göre yeni bir yolculuk başlat (ağırlığa göre biri seçilir, olmazsa diğerleri denenir)
+  private spawnCar() {
+    const P = this.phase;
+    const options: [number, () => boolean][] =
+      P === 'morning' ? [[0.5, () => this.fromLot()], [0.2, () => this.fromGarage()], [0.15, () => this.cargoRun()], [0.08, () => this.garbageRun()], [0.07, () => this.taxiRun()]]
+      : P === 'day' ? [[0.32, () => this.cargoRun()], [0.3, () => this.fromLot()], [0.15, () => this.fromGarage()], [0.13, () => this.taxiRun()], [0.1, () => this.returnHome()]]
+      : P === 'evening' ? [[0.8, () => this.returnHome()], [0.1, () => this.fromLot()], [0.1, () => this.taxiRun()]]
+      : [[0.5, () => this.taxiRun()], [0.4, () => this.returnHome()], [0.1, () => this.fromLot()]];
+    let r = Math.random() * options.reduce((s, o) => s + o[0], 0);
+    let first = options.length - 1;
+    for (let k = 0; k < options.length; k++) if ((r -= options[k][0]) <= 0) {
+      first = k;
+      break;
+    }
+    if (options[first][1]()) return;
+    for (let k = 0; k < options.length; k++) if (k !== first && options[k][1]()) return;
+    // Hiçbiri olmadıysa (yeni şehir: iş yeri, otopark yok) otobandan gelen arabalar şehri dolaşır
   }
 
   // Şehrin girişindeki şeritlerin yol ortasına uzaklığı (otobandaki şeritler bunlara hizalanır)
@@ -764,7 +1081,7 @@ export class Traffic {
     // Otobandan gelen otobüs şehirde durakları dolaşır
     if (type < 0) {
       if (!isRoadTile(this.city, entrance)) return false;
-      const b: Vehicle = { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.55, fade: 1, type: -1, wide: 1, trip: 1e9 };
+      const b: Vehicle = { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.55, fade: 1, type: -1, wide: 1, trip: 1e9, job: 'bus' };
       const p = new THREE.Vector3();
       lanePos(this.city, b, this.laneOf(b), CAR_Y, p);
       if (this.busyAt(p, new THREE.Vector3(1, 0, 0))) return false;
@@ -772,7 +1089,8 @@ export class Traffic {
       return true;
     }
     if (!isRoadTile(this.city, entrance) || this.cars.length >= MAX_CARS + 15) return false;
-    const v: Vehicle = { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 1, type, paint, wide, trip: 10 + Math.floor(Math.random() * 30) };
+    const trip = this.visitorPlan(type);
+    const v: Vehicle = { tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.8 + Math.random() * 0.5, fade: 1, type, paint, wide, trip: trip.plan.length ? 0 : 10 + Math.floor(Math.random() * 30), job: trip.job, plan: trip.plan };
     const p = new THREE.Vector3();
     lanePos(this.city, v, this.laneOf(v), CAR_Y, p);
     if (this.busyAt(p, new THREE.Vector3(1, 0, 0))) return false;
@@ -797,7 +1115,7 @@ export class Traffic {
         }
         const h = ok ? this.city.tiles[house] : null;
         if (!h || h.kind !== 'res' || h.level < 1) continue;
-        const y = 0.05;
+        const y = WALK_Y;
         const door = center(house).setY(y).addScaledVector(f, 0.34);
         const s1 = center(road).setY(y).addScaledVector(f, -walk(road));
         const s0 = center(lot.road).setY(y).addScaledVector(f, -walk(lot.road));
@@ -809,29 +1127,45 @@ export class Traffic {
     return null;
   }
 
-  update(dt: number) {
+  // tod: günün saati (0..1)
+  update(dt: number, tod = 0.3) {
+    this.clock += dt;
+    this.phase = dayPhase(tod);
     // Kaç araç olması gerektiğini saniyede bir hesapla
     this.recount -= dt;
     if (this.recount <= 0) {
       this.recount = 0.6;
       this.scan();
       const roads = this.city.tiles.filter(t => t?.kind === 'road').length;
-      const wanted = Math.min(MAX_CARS, Math.floor(roads / 2.5), 3 + Math.floor(this.city.population / 12));
-      this.wanted = wanted;
+      const base = Math.min(MAX_CARS, Math.floor(roads / 2.5), 3 + Math.floor(this.city.population / 12));
+      this.wanted = Math.round(base * CAR_SHARE[this.phase]);
       const moving = this.cars.filter(c => !c.out && !c.home);
-      if (moving.length + this.pending + this.waiting.length < wanted) this.spawnCar();
-      else if (moving.length > wanted) {
-        // Fazla araba varsa biri gezintiyi bitirip yerine dönsün
-        const v = moving.find(c => c.trip > 0 && !c.man);
+      if (moving.length + this.pending + this.waiting.length < this.wanted) this.spawnCar();
+      // Akşam işten çıkanlar yoldaki araba sayısına bakmadan sırayla eve döner (gündüzün kamyonları ve
+      // alışverişe gidenler yüzünden işte kalmasınlar)
+      else if ((this.phase === 'evening' || this.phase === 'night') && this.cars.length < MAX_CARS + 10) {
+        const k = this.inside.findIndex(e => e.evening);
+        if (k >= 0 && this.releaseInside(this.inside[k])) this.inside.splice(k, 1);
+      }
+      if (moving.length > base) {
+        // Çok fazla araba varsa gezinen biri gezintiyi bitirip yerine dönsün
+        const v = moving.find(c => c.trip > 1 && !c.man);
         if (v) v.trip = 1;
       }
+      // Binada işi biten (yük indiren, alışveriş yapan) araba çıkar; işteki gece yarısına kadar dönmediyse
+      // (çok kalabalık) evine gitmiş sayılır
+      for (const e of this.inside.filter(e => !e.evening && this.clock >= e.until)) {
+        if (this.releaseInside(e)) this.inside.splice(this.inside.indexOf(e), 1);
+      }
+      this.inside = this.inside.filter(e => !e.evening || this.clock - e.since < 150);
+      if (this.inside.length > 160) this.inside.splice(0, this.inside.length - 160);
       // Ambulans, itfaiye ve polis: kendi binasından çıkar, gezip geri döner
       const emergency = this.cars.filter(c => c.home).length;
       if (this.stations.length && emergency < Math.min(5, Math.ceil(this.stations.length / 3)) && Math.random() < 0.25) {
-        const s = this.stations[Math.floor(Math.random() * this.stations.length)];
+        const s = rnd(this.stations);
         const kind: CarKind = s.kind === 'health' ? 'ambulance' : s.kind === 'fire' ? 'fire' : 'police';
         const type = CAR_KINDS.indexOf(kind);
-        if (type >= 0) this.driveOut(s, type, s);
+        if (type >= 0) this.driveOut(s, { type, job: 'service', home: s, trip: 10 + Math.floor(Math.random() * 25) });
       }
       // Otobüsler: her durak için bir tane (en fazla 12), şehre otoyoldan girer
       const stops = this.city.tiles.filter(t => t?.kind === 'busstop').length;
@@ -844,16 +1178,16 @@ export class Traffic {
         // Otoban bağlıysa otobüs tünelden gelir, şehre girişte birden belirmez
         if (activeBuses.length + this.highway.busesComing() < busWanted && isRoadTile(this.city, entrance)) this.highway.sendBus();
       } else if (activeBuses.length < busWanted && isRoadTile(this.city, entrance) && !this.busyAt(busStart)) {
-        this.buses.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.55, fade: 0, type: -1, wide: 1, trip: 1e9 });
+        this.buses.push({ tile: entrance, dIn: 1, dOut: 1, t: 0, speed: 0.55, fade: 0, type: -1, wide: 1, trip: 1e9, job: 'bus' });
       } else if (activeBuses.length > busWanted) activeBuses[0].trip = 0;
     }
     // Sahibi gelen arabalar yol boşalınca çıkar
     this.waiting = this.waiting.filter(w => {
       const p = w.lot.bays[w.bay];
       if (!p) return false;
-      const { pt } = this.exitTo(w.lot, { tile: 0, dIn: 0, dOut: 0, t: 0, speed: 0, fade: 1, type: 0, wide: 0, trip: 0 });
+      const { pt } = this.exitTo(w.lot, { tile: 0, dIn: 0, dOut: 0, t: 0, speed: 0, fade: 1, type: 0, wide: 0, trip: 0, job: 'roam' });
       if (this.busyAt(pt) || this.lotBusy(w.lot.tile)) return true;
-      this.pullOut(w.lot, w.bay);
+      this.pullOut(w.lot, w.bay, w.trip);
       return false;
     });
 
@@ -901,6 +1235,7 @@ export class Traffic {
     };
     const move = (v: Vehicle) => {
       v.id ??= nextId++;
+      v.age = (v.age ?? 0) + dt;
       if (v.man) {
         // Otoparka girip çıkarken de önündekini bekle
         if (this.blocked(prev.get(v.id), [])) {
@@ -909,7 +1244,7 @@ export class Traffic {
           // Çok uzun kilitlendi: içinden geçmek yerine kaybolsun
           v.fade = Math.max(0, v.fade - dt * 2.2);
           if (v.fade > 0) return true;
-          this.release(v);
+          this.unreserve(v);
           return false;
         }
         v.stuck = 0;
@@ -917,7 +1252,7 @@ export class Traffic {
       }
       v.fade = Math.min(1, Math.max(0, v.fade + (v.out || v.vanish ? -dt : dt) * 2.2));
       if ((v.out || v.vanish) && v.fade <= 0) {
-        this.release(v);
+        this.unreserve(v);
         return false;
       }
       if (v.vanish) return true;
@@ -961,10 +1296,19 @@ export class Traffic {
           if (green) occupy(next, v, v.dOut, out);
         }
       } else if (v.jwait) v.jwait = 0;
-      // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et)
+      // Önünde araç ya da yaya varsa dur (uzun süre kilitlenirse yavaşça devam et).
+      // Yayayı 6 saniyeden uzun beklerse (yaya da onu bekliyorsa) bir buçuk saniye yayalara bakmadan geçer
       let go = step;
-      const bk = this.blocked(prev.get(v.id), people);
+      if (v.pedPass) v.pedPass = Math.max(0, v.pedPass - dt);
+      const bk = this.blocked(prev.get(v.id), v.pedPass ? [] : people);
       v.ped = bk === 'ped';
+      if (bk === 'ped') {
+        v.pedWait = (v.pedWait ?? 0) + dt;
+        if (v.pedWait > 6) {
+          v.pedPass = 1.5;
+          v.pedWait = 0;
+        }
+      } else if (!bk) v.pedWait = 0;
       if (bk) {
         go = 0;
         // Sırada beklemek normal (kırmızı ışık, kuyruk); sayaç sadece yolunu kesen araçla kilitlenince işler.
@@ -994,21 +1338,22 @@ export class Traffic {
       // Şehirden çıkan araba ve otobüs otobana geçer (aynı renk ve model, aynı şerit)
       if (v.out && !v.home && this.highway) {
         this.highway.leaveCity(v.type, v.paint ?? new THREE.Color('#ffffff'), v.wide);
-        this.release(v);
+        this.unreserve(v);
         return false;
       }
       if (!alive) {
-        this.release(v);
+        this.unreserve(v);
         return false;
       }
-      // Hedefinin önüne geldi: otoparka ya da garaja dön
+      // Hedefinin önüne geldi: otoparka, garaja ya da binaya dön
       const dest = v.dest;
       if (dest && v.trip <= 0 && dest.kind !== 'exit' && v.tile === dest.road && v.t >= 0.45 && v.t < 0.95 && this.underOf(v) < 0.05) {
         const t = this.city.tiles[dest.spot!.tile];
-        const gone = !t || (dest.kind === 'lot' ? t.kind !== 'parking' || this.lots.get(dest.spot!.tile) !== dest.spot : false);
+        const gone = !t || (dest.kind === 'lot' ? t.kind !== 'parking' || this.lots.get(dest.spot!.tile) !== dest.spot : dest.what !== undefined && t.kind !== dest.what && this.city.tiles[dest.site!]?.kind !== dest.what);
         if (gone) {
-          this.release(v);
-          v.trip = 4;
+          // Bina yok olmuş: sıradaki yere gitsin
+          this.unreserve(v);
+          v.trip = 0;
         } else if (!this.turnBusy(v) && !(dest.kind === 'lot' && this.lotBusy(dest.spot!.tile))) this.pullIn(v);
       }
       return true;
@@ -1053,7 +1398,7 @@ export class Traffic {
     }
   }
 
-  // Otoparka girip çıkarken eğri boyunca ilerle
+  // Otoparka ya da binaya girip çıkarken eğri boyunca ilerle
   private maneuver(v: Vehicle, dt: number) {
     const m = v.man!;
     const s = m.segs[m.k];
@@ -1081,6 +1426,13 @@ export class Traffic {
       v.t = 0.5;
       v.fade = 1;
       return isRoadTile(this.city, v.tile);
+    }
+    if (m.end === 'enter' && m.dest) {
+      // Binaya girdi: işte akşama kadar, yük indirip alırken ya da alışverişte birkaç saniye kalır
+      const d = m.dest;
+      v.dest = undefined;
+      this.inside.push({ spot: d.spot!, site: d.site!, what: d.what!, v, until: this.clock + (d.stay ?? 3), evening: d.stay === -1, since: this.clock });
+      return false;
     }
     if (m.end === 'lot' && m.lot && this.lots.get(m.lot.tile) === m.lot) {
       // Park etti: sürücü inip evine yürür
@@ -1113,15 +1465,25 @@ export class Traffic {
     }
     // Garaja girip çıkarken boyu değişmez (bina gizler); diğer belirip kaybolmalarda küçülüp büyür
     const garage = v.man && (v.man.fadeIn || v.man.fadeOut);
-    this.tmp.scale.setScalar(CAR_SCALE * (garage ? 1 : THREE.MathUtils.smoothstep(v.fade, 0, 1)));
+    const scale = v.type < 0 ? BUS_SCALE : CAR_SCALE;
+    this.tmp.scale.setScalar(scale * (garage ? 1 : THREE.MathUtils.smoothstep(v.fade, 0, 1)));
     this.tmp.updateMatrix();
     return this.tmp.matrix;
   }
 }
 
+// Binaların türleri: arabalar ve yayalar nereye gider
+const WORK_KINDS = new Set(['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro', 'depot', 'port', 'police', 'fire', 'health', 'school', 'hall', 'plant', 'pump', 'uni', 'airport', 'museum', 'casino', 'zoo', 'stadium', 'funfair', 'station']);
+const SHOP_KINDS = new Set(['store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro']);
+const CARGO_KINDS = new Set(['factory', 'depot', 'port']);
+const FUN_KINDS = new Set(['museum', 'zoo', 'stadium', 'funfair', 'casino', 'beach', 'marina', 'eiffel', 'liberty', 'colosseum', 'pisa', 'galata', 'pyramid', 'observatory', 'mosque', 'wheel', 'airport', 'volley', 'clocktower']);
+const PARK_KINDS = new Set(['park', 'fountain', 'statue', 'lake', 'biglake', 'hill']);
+const TRANSIT_KINDS = new Set(['busstop', 'metro', 'station']);
+
 // Kaldırımlarda yürüyen insanlar: bacakları ve kolları yürürken sallanır, herkesin kıyafeti ve saçı farklı.
-// Evlerin kapısından çıkıp kaldırımda dolaşır, sonra yine bir evin kapısından girer. Bazıları otoparktaki
-// arabasına yürür ya da arabasını park edip evine gider. Yağmurda renkli şemsiyeler açılır.
+// Hepsinin gideceği bir yer var: sabah evinden işine, okula ya da durağa; gündüz dükkana, parka ve geri evine;
+// akşam işten eve. Kaldırımın iki yanında da yürünür; kavşakta karşıya geçerken yaya geçidinden geçer (ışığa uyar).
+// Bazıları otoparktaki arabasına yürür ya da arabasını park edip evine gider. Yağmurda renkli şemsiyeler açılır.
 // Her parça için tek çoklu çizim (InstancedMesh) kullanılır.
 const SHIRTS = ['#e53935', '#1e88e5', '#43a047', '#fdd835', '#8e24aa', '#fb8c00', '#00acc1', '#f06292', '#ffffff', '#26a69a', '#5c6bc0', '#ff7043'];
 const PANTS = ['#2b3a55', '#1f2937', '#5b4636', '#3b5b8a', '#6b7280', '#8d6e4c', '#37474f', '#1e3a5f'];
@@ -1142,7 +1504,16 @@ interface Walk {
   fadeIn: boolean;
   fadeOut: boolean;
   done?: () => void;
-  then?: { tile: number; dir: number }; // bitince kaldırımda yürümeye devam et
+  then?: boolean; // bitince kaldırımda yürümeye devam et
+}
+
+// Yayanın gideceği bina: önündeki düz yol karesi, kapısı ve yoldan binaya doğru yön
+interface Door {
+  road: number;
+  door: THREE.Vector3;
+  toB: number;
+  site: number;
+  what: string;
 }
 
 interface Person extends Mover {
@@ -1151,6 +1522,57 @@ interface Person extends Mover {
   walk?: Walk;
   away?: number; // eve dönmek için kaç saniyedir yer arıyor
   wait?: number; // kendisine yol veren arabanın önünde kaç saniyedir bekliyor
+  side: number; // kaldırımın hangi yanında yürüyor: 1 gidiş yönünün sağı, -1 solu
+  sideIn: number; // kareye girerken hangi yandaydı (kavşakta karşıya geçince değişir)
+  goal?: Door; // gideceği bina
+  next?: { tile: number; d: number }; // kavşağa girince yapacağı hareket (ışığa bakmak için önceden seçilir)
+  age: number;
+}
+
+// Kavşakta dönünce kaldırımın hangi yanında kalır: sağa dönen sağ yanda, sola dönen sol yanda
+// (dönüş kendi köşesindeyse köşeden döner, değilse geldiği yolu yaya geçidinden geçer)
+const sideAfter = (dIn: number, d: number, side: number) => {
+  const turn = (d - dIn + 4) % 4;
+  return turn === 1 ? 1 : turn === 3 ? -1 : side;
+};
+
+// Yayanın kare içindeki yeri: lanePos gibi, ama kaldırımın iki yanında da yürünür ve kavşakta yan değişebilir
+function walkPos(city: City, p: Person, out: THREE.Vector3, t = p.t): number {
+  const [x, z] = xz(p.tile);
+  const mid = tileCenter(x, z).setY(WALK_Y);
+  const { dIn, dOut } = p;
+  const lane = (tile: number) => (city.tiles[tile]?.grade === 2 ? WIDE_WALK : WALK_LANE);
+  const L = lane(p.tile);
+  const sIn = p.sideIn, sOut = p.side;
+  if (dOut === (dIn + 2) % 4 && isDeadEnd(city, p.tile)) {
+    // Çıkmaz sokağın ucunda dönüş meydanının kenarından dolaşır
+    const f = fwd(dIn), r = right(dIn).multiplyScalar(sIn);
+    const R = Math.min(0.46, L);
+    const at = (u: number, v: THREE.Vector3) => {
+      if (u < 0.3) {
+        const k = THREE.MathUtils.smoothstep(u / 0.3, 0, 1);
+        return v.copy(mid).addScaledVector(f, -0.5 * (1 - k)).addScaledVector(r, L + (R - L) * k);
+      }
+      if (u < 0.7) {
+        const a = ((u - 0.3) / 0.4) * Math.PI;
+        return v.copy(mid).addScaledVector(r, R * Math.cos(a)).addScaledVector(f, R * Math.sin(a));
+      }
+      const k = THREE.MathUtils.smoothstep((u - 0.7) / 0.3, 0, 1);
+      return v.copy(mid).addScaledVector(f, -0.5 * k).addScaledVector(r, -(R + (L - R) * k));
+    };
+    return turnaround(at, t, out);
+  }
+  const edge = (d: number, s: number) => {
+    const nx = x + DIRS[d][0] * s, nz = z + DIRS[d][1] * s;
+    return city.isRoad(nx, nz) ? (lane(idx(nx, nz)) + L) / 2 : L;
+  };
+  const laneIn = edge(dIn, -1) * sIn, laneOut = edge(dOut, 1) * sOut;
+  A.copy(mid).addScaledVector(fwd(dIn), -0.5).addScaledVector(right(dIn), laneIn);
+  B.copy(mid).addScaledVector(fwd(dOut), 0.5).addScaledVector(right(dOut), laneOut);
+  if (dIn === dOut) C.copy(mid).addScaledVector(right(dIn), L * sIn);
+  else if (dOut === (dIn + 2) % 4) C.copy(A).add(B).multiplyScalar(0.5); // kavşakta geri dönüş: geldiği yolu karşıya geçer
+  else C.copy(mid).addScaledVector(right(dIn), laneIn).addScaledVector(right(dOut), laneOut);
+  return bezier2(t, out);
 }
 
 // Parçalar: [geometri, renk listesi seçici]
@@ -1204,6 +1626,10 @@ export class Walkers {
   private base = new THREE.Matrix4();
   private local = new THREE.Matrix4();
   private out = new THREE.Matrix4();
+  // Trafikten: yol bulma, şehirdeki yerler, günün saati
+  private router: Router | null = null;
+  private places: () => Places = () => ({ work: [], shops: [], cargo: [], fun: [], parks: [], transit: [], depots: [], homes: [] });
+  private phase: () => DayPhase = () => 'day';
 
   constructor(private city: City) {
     const g = personParts();
@@ -1223,6 +1649,12 @@ export class Walkers {
     };
   }
 
+  attach(router: Router, places: () => Places, phase: () => DayPhase) {
+    this.router = router;
+    this.places = places;
+    this.phase = phase;
+  }
+
   setCity(city: City) {
     this.city = city;
     this.people = [];
@@ -1237,40 +1669,188 @@ export class Walkers {
       done?.();
       return;
     }
-    this.people.push({ tile: 0, dIn: 0, dOut: 0, t: 0, speed: 0.3, fade: fadeIn ? 0 : 1, phase: Math.random() * 6, look: pickLook(), walk: { pts, k: 0, u: 0, fadeIn, fadeOut, done } });
+    this.people.push({ tile: 0, dIn: 0, dOut: 0, t: 0, speed: 0.3, fade: fadeIn ? 0 : 1, phase: Math.random() * 6, look: pickLook(), side: 1, sideIn: 1, age: 0, walk: { pts, k: 0, u: 0, fadeIn, fadeOut, done } });
     this.colorsDirty = true;
   }
 
-  // Bir evin kapısından çıkıp kaldırıma yürüyen biri
-  private fromDoor(): Person | null {
-    const homes: number[] = [];
-    this.city.tiles.forEach((t, i) => t?.kind === 'res' && t.level > 0 && homes.push(i));
-    if (!homes.length) return null;
-    const home = homes[Math.floor(Math.random() * homes.length)];
-    const dirs = [0, 1, 2, 3].filter(d => isRoadTile(this.city, neighbor(home, d)));
-    if (!dirs.length) return null;
-    const d = dirs[Math.floor(Math.random() * dirs.length)];
-    const road = neighbor(home, d);
-    const f = fwd(d);
-    // Kaldırımda evin tarafında yürümek için yön: sağ tarafı eve bakan yön
-    const dir = (d + 1) % 4;
-    const door = center(home).setY(0.05).addScaledVector(f, 0.34);
-    const side = center(road).setY(0.05).addScaledVector(f, -this.lane(road));
+  // Bir binanın yayaların girip çıktığı kapısı: önündeki düz yol karesi (kavşak, köşe ve çıkmaz sokak değil)
+  private doorOf(site: number): Door | null {
+    const t = this.city.tiles[site];
+    if (!t) return null;
+    const cells = this.city.cellsOf(site);
+    for (const d of [t.facing, 0, 1, 2, 3]) {
+      for (const c of cells) {
+        const r = neighbor(c, d);
+        if (!isRoadTile(this.city, r)) continue;
+        const dirs = roadDirs(this.city, r);
+        if (dirs.length !== 2 || (dirs[0] + 2) % 4 !== dirs[1] || dirs[0] % 2 === d % 2) continue;
+        return { road: r, door: center(c).setY(WALK_Y).addScaledVector(fwd(d), 0.34), toB: (d + 2) % 4, site, what: t.kind };
+      }
+    }
+    return null;
+  }
+
+  // Bir yerden yürüyerek gidilebilecek yakın bir bina (en fazla ~10 kare): listeden birkaç aday, en uygunu
+  private nearDoor(from: Door, list: number[], tries = 8): Door | null {
+    if (!list.length || !this.router) return null;
+    const f = this.router.field(from.road);
+    let best: Door | null = null, bestD = Infinity;
+    for (let k = 0; k < tries; k++) {
+      const site = list[Math.floor(Math.random() * list.length)];
+      if (site === from.site) continue;
+      const d = this.doorOf(site);
+      if (!d) continue;
+      const dist = f[d.road];
+      if (dist < 0 || dist > 12) continue;
+      // Çok yakınlar arasından rastgele (hep en yakını değil)
+      const score = dist + Math.random() * 4;
+      if (score < bestD) {
+        bestD = score;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  // Yeni yaya: günün saatine göre evinden bir yere ya da bir yerden evine yürür
+  private spawn(): Person | null {
+    const pl = this.places();
+    const P = this.phase();
+    const r = Math.random();
+    const ids = (list: Place[]) => list.map(p => p.site);
+    // [evden çıkıyor mu, gideceği / geldiği yer türleri]
+    const [out, kinds]: [boolean, Place[][]] =
+      P === 'morning' ? (r < 0.85 ? [true, [pl.work, pl.work, pl.transit, pl.shops]] : [false, [pl.shops, pl.parks]])
+      : P === 'day' ? (r < 0.5 ? [true, [pl.shops, pl.parks, pl.fun, pl.transit]] : [false, [pl.shops, pl.parks, pl.fun, pl.transit]])
+      : P === 'evening' ? (r < 0.7 ? [false, [pl.work, pl.work, pl.shops, pl.transit]] : [true, [pl.parks, pl.fun, pl.shops]])
+      : r < 0.8 ? [false, [pl.fun, pl.shops, pl.work]] : [true, [pl.fun, pl.parks]];
+    const lists = kinds.filter(l => l.length);
+    for (let attempt = 0; attempt < 4 && lists.length && pl.homes.length; attempt++) {
+      const list = lists[Math.floor(Math.random() * lists.length)];
+      if (out) {
+        const home = this.doorOf(pl.homes[Math.floor(Math.random() * pl.homes.length)]);
+        const to = home && this.nearDoor(home, ids(list));
+        if (home && to) return this.leaveDoor(home, to);
+      } else {
+        const place = this.doorOf(rnd(list).site);
+        const to = place && this.nearDoor(place, pl.homes);
+        if (place && to) return this.leaveDoor(place, to);
+      }
+    }
+    // Yakında gidilecek yer yoksa (yeni şehir: dükkan, park yok) evinden çıkıp biraz yürür, sonra bir eve girer
+    for (let attempt = 0; attempt < 3 && pl.homes.length; attempt++) {
+      const home = this.doorOf(pl.homes[Math.floor(Math.random() * pl.homes.length)]);
+      if (home) return this.leaveDoor(home, null);
+    }
+    return null;
+  }
+
+  // Kapıdan çıkıp kaldırıma yürüyen biri; kaldırımda gideceği yöne doğru döner (gideceği yer yoksa rastgele)
+  private leaveDoor(from: Door, goal: Door | null): Person {
+    const road = from.road;
+    const dirs = roadDirs(this.city, road);
+    let dir = rnd(dirs);
+    if (goal) {
+      const f = this.router!.field(goal.road);
+      const dist = (d: number) => {
+        const n = neighbor(road, d);
+        return n < 0 || f[n] < 0 ? Infinity : f[n];
+      };
+      dir = dist(dirs[0]) <= dist(dirs[1]) ? dirs[0] : dirs[1];
+    }
+    // Bina gidiş yönünün sağında mı solunda mı
+    const side = from.toB === (dir + 1) % 4 ? 1 : -1;
+    const walkway = center(road).setY(WALK_Y).addScaledVector(fwd(from.toB), this.lane(road));
     return {
-      tile: road, dIn: dir, dOut: dir, t: 0.5, speed: 0.18 + Math.random() * 0.14, fade: 0, phase: Math.random() * 6, look: pickLook(),
-      walk: { pts: [door, side], k: 0, u: 0, fadeIn: true, fadeOut: false, then: { tile: road, dir } },
+      tile: road, dIn: dir, dOut: dir, t: 0.5, speed: 0.2 + Math.random() * 0.14, fade: 0, phase: Math.random() * 6, look: pickLook(),
+      side, sideIn: side, goal: goal ?? undefined, age: goal ? 0 : 80 - Math.random() * 30,
+      walk: { pts: [from.door, walkway], k: 0, u: 0, fadeIn: true, fadeOut: false, then: true },
     };
   }
 
-  // Eve dönen biri: kaldırımda yanındaki evin kapısından girer
+  // Kavşağa ya da yeni kareye girince hangi yöne: gideceği yere en kısa yoldan (kavşakta geri dönmek de olur:
+  // geldiği yolu karşıya geçer); gideceği yer yoksa rastgele
+  private pickDir(p: Person, tile: number, dIn: number) {
+    const dirs = roadDirs(this.city, tile);
+    const back = (dIn + 2) % 4;
+    const junction = dirs.length >= 3;
+    const options = dirs.filter(d => d !== back || junction);
+    if (!options.length) return back;
+    if (!p.goal || !this.router) {
+      const fwdOnly = options.filter(d => d !== back);
+      return rnd(fwdOnly.length ? fwdOnly : options);
+    }
+    const f = this.router.field(p.goal.road);
+    let best = -1, bestD = Infinity;
+    for (const d of options) {
+      const n = neighbor(tile, d);
+      const dist = n < 0 || f[n] < 0 ? Infinity : f[n] + (d === back ? 0.6 : 0) + Math.random() * 0.3;
+      if (dist < bestD) {
+        bestD = dist;
+        best = d;
+      }
+    }
+    if (best < 0) {
+      // Gideceği yere yol kalmadı: dolaşıp evine döner
+      p.goal = undefined;
+      p.out = true;
+      p.away = 0;
+      return rnd(options);
+    }
+    return best;
+  }
+
+  // Kavşağa girmeden önce ışığa bak: karşıya geçecekse (düz giderken yan yolu, dönerken geldiği yolu) o yolun
+  // arabalarına kırmızı yanana kadar bekler; kendi köşesinden dönerken beklemez
+  private lightLimit(p: Person) {
+    if (p.t > 0.7) return Infinity;
+    const j = neighbor(p.tile, p.dOut);
+    if (!isJunction(this.city, j)) return Infinity;
+    if (p.next?.tile !== j) p.next = { tile: j, d: this.pickDir(p, j, p.dOut) };
+    const turn = (p.next.d - p.dOut + 4) % 4;
+    if ((turn === 1 && p.side > 0) || (turn === 3 && p.side < 0)) return Infinity; // köşeden döner
+    let dir: number;
+    if (turn === 0) {
+      // Düz: yanındaki yolu geçer (o yanda yol yoksa geçecek bir şey yok)
+      const across = neighbor(j, p.side > 0 ? (p.dOut + 1) % 4 : (p.dOut + 3) % 4);
+      if (!isRoadTile(this.city, across)) return Infinity;
+      dir = p.dOut;
+    } else dir = (p.dOut + 1) % 4; // geldiği yolu geçer: dik yön yeşilken
+    return isGreen(j, dir) ? Infinity : 0.7;
+  }
+
+  // Gideceği binanın önüne geldi: kapı bu yandaysa girer; karşı yandaysa sokağı geçer
+  // (bariyerli caddede geçemez, kavşağa kadar gidip geri döner)
+  private arrive(p: Person): boolean {
+    const g = p.goal!;
+    const mine = p.side > 0 ? (p.dIn + 1) % 4 : (p.dIn + 3) % 4;
+    const pos = new THREE.Vector3();
+    walkPos(this.city, p, pos);
+    if (mine === g.toB) {
+      p.walk = { pts: [pos, g.door], k: 0, u: 0, fadeIn: false, fadeOut: true };
+      return true;
+    }
+    const t = this.city.tiles[p.tile];
+    const nearJunction = roadDirs(this.city, p.tile).some(d => isJunction(this.city, neighbor(p.tile, d)));
+    if (t?.grade === 2 && !nearJunction) return false;
+    // Aynı hizada karşı kaldırıma geç, sonra kapıya
+    const mid = center(p.tile).setY(WALK_Y);
+    const a = pos.clone().sub(mid).dot(fwd(p.dIn));
+    const across = mid.clone().addScaledVector(fwd(p.dIn), a).addScaledVector(fwd(g.toB), this.lane(p.tile));
+    p.walk = { pts: [pos, across, g.door], k: 0, u: 0, fadeIn: false, fadeOut: true };
+    return true;
+  }
+
+  // Eve dönen (gidecek yeri kalmamış) biri: kaldırımda yanındaki evin ya da dükkanın kapısından girer
   private goHome(p: Person) {
     if (p.dIn !== p.dOut || p.t < 0.4 || p.t > 0.6) return false;
-    const home = neighbor(p.tile, (p.dIn + 1) % 4);
+    const toB = p.side > 0 ? (p.dIn + 1) % 4 : (p.dIn + 3) % 4;
+    const home = neighbor(p.tile, toB);
     const h = home >= 0 ? this.city.tiles[home] : null;
-    if (!h || (h.kind !== 'res' && h.kind !== 'store' && h.kind !== 'market' && h.kind !== 'bakery' && h.kind !== 'fashion' && h.kind !== 'furniture') || (h.kind === 'res' && h.level < 1)) return false;
+    if (!h || (h.kind !== 'res' && !SHOP_KINDS.has(h.kind)) || (h.kind === 'res' && h.level < 1)) return false;
     const pos = new THREE.Vector3();
-    lanePos(this.city, p, this.lane, 0.05, pos);
-    const door = center(home).setY(0.05).addScaledVector(fwd((p.dIn + 3) % 4), 0.34);
+    walkPos(this.city, p, pos);
+    const door = center(home).setY(WALK_Y).addScaledVector(fwd((toB + 2) % 4), 0.34);
     p.walk = { pts: [pos, door], k: 0, u: 0, fadeIn: false, fadeOut: true };
     return true;
   }
@@ -1329,30 +1909,24 @@ export class Walkers {
     this.time += dt;
     this.recount -= dt;
     if (this.recount <= 0) {
-      this.recount = 0.5;
+      this.recount = 0.4;
       const roads = this.city.tiles.filter(t => t?.kind === 'road').length;
-      const wanted = Math.min(MAX_WALKERS - 10, roads, Math.floor(this.city.population / 8));
-      const strolling = this.people.filter(p => !p.out && (!p.walk || p.walk.then));
-      if (strolling.length < wanted) {
-        const p = this.fromDoor();
+      const wanted = Math.round(Math.min(MAX_WALKERS - 10, roads, Math.floor(this.city.population / 8)) * WALK_SHARE[this.phase()]);
+      const onFoot = this.people.filter(p => !p.out && (!p.walk || p.walk.then)).length;
+      if (onFoot < wanted) {
+        const p = this.spawn();
         if (p) {
           this.people.push(p);
           this.colorsDirty = true;
         }
-      } else if (strolling.length > wanted) {
-        const leaving = strolling.find(p => !p.walk);
-        if (leaving) {
-          leaving.out = true;
-          leaving.away = 0;
-        }
       }
     }
     const before = this.people.length;
-    // Kaldırımda aynı yönde yürüyenler (önündekinin içinden geçmesin)
+    // Kaldırımda aynı yönde, aynı yanda yürüyenler (önündekinin içinden geçmesin)
     const lanes = new Map<string, number[]>();
     for (const p of this.people) {
       if (p.walk) continue;
-      const k = `${p.tile}|${p.dIn}`;
+      const k = `${p.tile}|${p.dIn}|${p.sideIn}`;
       (lanes.get(k) ?? lanes.set(k, []).get(k)!).push(p.t);
     }
     const cars = this.cars();
@@ -1365,6 +1939,7 @@ export class Walkers {
       let yielding = false;
       for (const c of cars) {
         const rx = c.x - x, rz = c.z - z;
+        if (rx * rx + rz * rz > 0.36) continue; // uzaktaki araba
         const ahead = rx * fx + rz * fz;
         if (ahead < -0.02) continue;
         const lat = Math.abs(rx * fz - rz * fx);
@@ -1377,20 +1952,42 @@ export class Walkers {
           if (ahead < along + 0.02 && lat < side) yielding = true;
         } else if (ahead < along + 0.06 && lat < side + 0.03) return true;
       }
-      if (yielding && (p.wait ?? 0) < 3) {
+      // 3 saniye bekledikten sonra yürür ve araba önünden çekilene kadar bir daha durmaz (eskiden sayaç sıfırlanıp
+      // yeniden 3 saniye bekliyordu: kavşakta dönen otobüs ile önündeki yayalar birbirini sonsuza kadar bekliyordu)
+      if (yielding) {
         p.wait = (p.wait ?? 0) + dt;
-        return true;
+        return p.wait < 3;
       }
       p.wait = 0;
       return false;
     };
+    // Yeni kareye girince yön ve kaldırımın yanı
+    const choose = (m: Mover) => {
+      const p = m as Person;
+      p.sideIn = p.side;
+      let d: number;
+      if (p.next?.tile === p.tile) d = p.next.d;
+      else d = this.pickDir(p, p.tile, p.dIn);
+      p.next = undefined;
+      if (isJunction(this.city, p.tile)) p.side = sideAfter(p.dIn, d, p.side);
+      return d;
+    };
     this.people = this.people.filter(p => {
+      p.age += dt;
       if (p.walk) {
         const w = p.walk;
         const a = w.pts[w.k], b = w.pts[w.k + 1];
         pos.lerpVectors(a, b, Math.min(1, w.u));
         if (carAhead(p, pos.x, pos.z, Math.atan2(b.x - a.x, b.z - a.z))) return true;
         return this.stepWalk(p, dt);
+      }
+      // Gideceği binanın önüne geldi
+      if (p.goal && p.tile === p.goal.road && p.dIn === p.dOut && p.t >= 0.42 && p.t <= 0.62 && this.arrive(p)) return true;
+      // Çok uzun yürüdü (yolu uzadı) ya da gidecek yeri yoktu (gezinti bitti): yanındaki bir eve girer ya da kaybolur
+      if (!p.out && p.age > 110) {
+        p.goal = undefined;
+        p.out = true;
+        p.away = 0;
       }
       if (p.out) {
         p.away = (p.away ?? 0) + dt;
@@ -1401,13 +1998,13 @@ export class Walkers {
           if (p.fade <= 0) return false;
         }
       }
-      let limit = lightLimit(this.city, p, 0.7);
-      for (const t of lanes.get(`${p.tile}|${p.dIn}`) ?? []) if (t > p.t + 1e-4) limit = Math.min(limit, t - 0.08);
-      const h = lanePos(this.city, p, this.lane, 0.05, pos);
+      let limit = this.lightLimit(p);
+      for (const t of lanes.get(`${p.tile}|${p.dIn}|${p.sideIn}`) ?? []) if (t > p.t + 1e-4) limit = Math.min(limit, t - 0.08);
+      const h = walkPos(this.city, p, pos);
       if (carAhead(p, pos.x, pos.z, h)) limit = p.t;
       // Kavşakta karşıdan karşıya geçerken biraz hızlanır (arabaları uzun bekletmesin)
       const hurry = isJunction(this.city, p.tile) ? 1.6 : 1;
-      return advance(this.city, p, dt * p.speed * hurry, false, Math.max(p.t, limit), m => walkerExit(this.city, m.tile, m.dIn));
+      return advance(this.city, p, dt * p.speed * hurry, false, Math.max(p.t, limit), choose);
     });
     if (this.people.length !== before) this.colorsDirty = true;
     if (this.colorsDirty) this.paint();
@@ -1425,7 +2022,7 @@ export class Walkers {
         this.tmp.position.lerpVectors(a, b, Math.min(1, w.u));
         this.tmp.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
       } else {
-        this.tmp.rotation.y = lanePos(this.city, person, this.lane, 0.05, this.tmp.position);
+        this.tmp.rotation.y = walkPos(this.city, person, this.tmp.position);
       }
       const step = Math.sin(this.time * 9 + person.phase);
       this.tmp.position.y += Math.abs(step) * 0.005; // adım atarken hafifçe yükselir

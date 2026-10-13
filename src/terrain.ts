@@ -81,7 +81,7 @@ export const HW = {
   south: 110,
   ring: { x: -30.5, z: ENTRANCE_Z - Z0 + 0.5, r: 2.05, outer: 2.75 }, // göbek kavşak (r: arabaların döndüğü çember)
   clover: { x: -30.5, z: ZS + 4.5, size: 7.5 }, // şehrin güneybatısındaki kelebek (yonca yaprağı) kavşak
-  west: -75, // kelebek kavşaktan batıya giden otobanın ucu
+  west: -118, // kelebek kavşaktan batıya giden otobanın ucu (doğudaki gibi ufka kadar)
 };
 // Kayak merkezine çıkan yol (kavşağın kuzeyinden dağın eteğine)
 export const SKI_ROAD: [number, number][] = [[HW.x, HW.z0 - HW.ring.outer], [HW.x, -6.5], [-34, -9.5], [-42.2, -12.2]];
@@ -179,6 +179,11 @@ export function heightAt(x: number, z: number) {
     y = lerp(r.y + 0.015, y, smooth(r.d, r.half + 0.5, r.half + 9)); // nehir vadisi
     y = lerp(r.y - 0.06, y, smooth(r.d, r.half + 0.05, r.half + 0.5)); // nehir yatağı (kıyı şeridinin altında kalır)
   }
+  // Yolun altı ve kenarı her yerde yol hizasında: dağlara doğru yükselen nehir vadisi ya da tepe yolun
+  // üstüne çıkmasın (yoksa otoban çimenin altına girip ilerde yeniden çıkıyor). Tünelde dağ yolu örter,
+  // köprünün altındaki nehir yatağı da olduğu gibi kalır.
+  const flat = (1 - smooth(rd, 1.25, 4)) * (1 - tunnel) * (r ? smooth(r.d, r.half + 0.6, r.half + 2.5) : 1);
+  if (flat > 0) y = lerp(y, shore(c), flat);
   return lerp(inner, y, smooth(d, 0, 2.5)); // şehrin kenarı şehirle aynı hizada
 }
 

@@ -527,8 +527,11 @@ function underRamp(dirToJunction: number) {
     return mesh;
   };
   ramp(W * 2, 0, roadDeco.asphalt, 0).castShadow = false;
-  for (const x of [-0.012, 0.012]) ramp(0.008, x, roadDeco.yellow, 0.0012);
+  // Caddedeki gibi: ortada beton bariyer, iki yanında sarı çizgi (caddeden kesintisiz devam edip tünele iner)
+  for (const s of [-1, 1]) ramp(0.012, s * 0.03, roadDeco.yellow, 0.0012);
   for (const s of [-1, 1]) ramp(0.008, s * (W - 0.02), roadDeco.paint, 0.0012);
+  const bar = add(new THREE.BoxGeometry(0.035, 0.03, len), roadDeco.curb, 0, (floorY(-0.5) + floorY(0.5)) / 2 + 0.014, 0);
+  bar.rotation.x = slope;
   // Kavşağın altına giren tünelin ağzı: üstte beton alın, içi karanlık, tavanında lambalar
   const mouthTop = top - 0.04;
   const mouthBottom = floorY(0.5);

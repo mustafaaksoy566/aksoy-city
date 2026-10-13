@@ -32,7 +32,7 @@ import { makePark } from './fun';
 import { MetroView } from './metro';
 import { tunnelThumb } from './places';
 import { makeModel } from './assets';
-import { buildSurroundings } from './terrain';
+import { buildSurroundings, heightAt } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
 import { setSignalTime, updateSignals } from './signals';
@@ -99,7 +99,8 @@ camera.position.set(start.x + 8, 11, start.z + 8);
 
 // Kamera: tek parmakla kaydır, iki parmakla yakınlaştır ve döndür (bkz. camera.ts)
 // Kamera şehrin batısındaki dağın eteğine (kayak merkezi, tünel, kavşak) kadar gidebilir
-const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2 - 22, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 + 6 });
+// Batıda göbek kavşağa ve tünel ağzına kadar gezilir (tünel ağzı x = -44'te; hedef dağın içine girmesin)
+const rig = new CameraRig(camera, renderer.domElement, { minX: -SIZE / 2 - 19, maxX: SIZE / 2, minZ: -Z0, maxZ: ROWS - Z0 + 6 });
 rig.target.copy(start);
 rig.distance = 15;
 rig.apply();
@@ -498,10 +499,10 @@ function renderCard() {
     : openCard === 'hall' ? describeHall(city, cardActions)
     : describeTile(city, openCard, cardActions);
   if (!card) openCard = null;
-  // Taşınabilen binanın kartında "Taşı" ve "Döndür"
+  // Taşınabilen binanın kartında "Taşı" (döndürmek de taşıma çubuğundaki ↻ ile)
   if (card && typeof openCard === 'number' && tool === 'pan' && city.tiles[openCard] && city.canMove(openCard)) {
     const i = openCard;
-    card.actions = [...(card.actions ?? []), { label: '✋ Taşı', enabled: true, run: () => startMove(i) }, { label: '↻ Döndür', enabled: true, run: () => rotateNow(i) }];
+    card.actions = [...(card.actions ?? []), { label: '✋ Taşı', enabled: true, run: () => startMove(i) }];
   }
   showInfo(card);
 }
@@ -901,6 +902,19 @@ let house: { level: number; model: number } | null = null;
 // İnşa modunda tek parmak çizer, gez modunda kaydırır
 rig.singlePan = () => tool === 'pan';
 rig.clearance = (x, z) => view.topNear(x, z);
+// Şehir dışındaki tepe ve dağlar: kamera dağın içine girmez (içinden bakınca tünel ve yollar beyaz boşlukta asılı
+// görünüyordu). Arazinin yüksekliği karelik ızgarada bir kez hesaplanıp saklanır (karenin en yüksek köşesi).
+const groundMemo = new Map<number, number>();
+rig.terrain = (x, z) => {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  const key = (ix + 1000) * 4000 + (iz + 1000);
+  let h = groundMemo.get(key);
+  if (h === undefined) {
+    h = Math.max(heightAt(ix, iz), heightAt(ix + 1, iz), heightAt(ix, iz + 1), heightAt(ix + 1, iz + 1));
+    groundMemo.set(key, h);
+  }
+  return h;
+};
 function applyControls() {
   rig.stop();
 }
@@ -1032,7 +1046,9 @@ function confirmMove() {
     endMoving();
     return;
   }
-  const facing = (city.tiles[m.from]!.facing + m.turns) % 4;
+  // Önü yola bakmalı (arkası yola dönmez)
+  const ok = city.facingsAt(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+  const facing = ok.includes(movingFacing(m)) ? movingFacing(m) : ok[0];
   const res = city.moveBuilding(m.from, m.to % SIZE, Math.floor(m.to / SIZE), facing);
   if (res.error) {
     toast(res.error, 'error');
@@ -1052,20 +1068,35 @@ function cancelMove() {
   endMoving();
   play('click', 0.3);
 }
+// Taşınan binanın şu anki yönü (kapısının baktığı yön)
+function movingFacing(m: NonNullable<typeof moving>) {
+  return (city.tiles[m.from]!.facing + m.turns) % 4;
+}
+function setMovingFacing(f: number) {
+  const m = moving!;
+  m.turns = (f - city.tiles[m.from]!.facing + 4) % 4;
+  view.turnLifted(m.turns);
+}
+// Bina önü ancak yola bakacak şekilde döner: ↻ bir sonraki yola bakan yöne çevirir
 function rotateMove() {
   if (!moving) return;
-  moving.turns = (moving.turns + 1) % 4;
-  view.turnLifted(moving.turns);
+  const m = moving;
+  const ok = city.facingsAt(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+  const f = movingFacing(m);
+  const next = [1, 2, 3].map(k => (f + k) % 4).find(d => ok.includes(d));
+  if (next === undefined) {
+    toast('Binanın önü yola bakmalı; burada başka yöne dönemez');
+    play('error', 0.2);
+    return;
+  }
+  setMovingFacing(next);
   play('click', 0.3);
 }
-// Kartta "↻ Döndür": taşımadan yerinde döndür
-function rotateNow(i: number) {
-  const a = city.anchorOf(i);
-  const res = city.moveBuilding(a, a % SIZE, Math.floor(a / SIZE), (city.tiles[a]!.facing + 1) % 4);
-  if (res.error || !res.cells.length) return;
-  view.refresh(res.cells, false);
-  play('click', 0.4);
-  afterChange();
+// Yeni yerinde önü yola bakmıyorsa yola bakan yöne kendiliğinden döner
+function faceRoad() {
+  const m = moving!;
+  const ok = city.facingsAt(m.from, m.to % SIZE, Math.floor(m.to / SIZE));
+  if (!ok.includes(movingFacing(m))) setMovingFacing(ok[0]);
 }
 const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
@@ -1094,6 +1125,7 @@ const input = new TileInput(renderer.domElement, camera, {
     const z = Math.max(0, Math.min(ROWS - moving.n, Math.floor(cell / SIZE) - off));
     moving.to = idx(x, z);
     view.moveLifted(x + (moving.n - 1) / 2, z + (moving.n - 1) / 2);
+    faceRoad();
     showMovePreview();
   },
   drop() {
@@ -1541,7 +1573,9 @@ function frame() {
   adaptQuality(dt);
   setSignalTime(clock.elapsedTime);
   updateSignals();
-  traffic.update(dt);
+  // Günün saati (0..1): arabalar ve yayalar sabah işe, akşam eve gider
+  const tod = ((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS;
+  traffic.update(dt, tod);
   walkers.update(dt, weather.amount);
   trains.update(dt);
   highway.update(dt);
@@ -1553,8 +1587,8 @@ function frame() {
   updateTrees(clock.elapsedTime);
   followShadow();
   dayNight.dome.position.copy(camera.position);
-  fireworks.update(dt, phase(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS).night, showSpots);
-  dayNight.update(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS, dt, weather.amount);
+  fireworks.update(dt, phase(tod).night, showSpots);
+  dayNight.update(tod, dt, weather.amount);
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
   if (shake > 0) {

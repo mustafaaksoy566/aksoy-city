@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ROAD_COLORS } from './assets';
 import { mergeStatic, bakeModel, vertexColorMat } from './batcher';
 import { makeBus } from './sky';
-import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint } from './cars';
+import { CarSet, CAR_KINDS, NORMAL_CARS, CAR_SCALE, BUS_SCALE, carPaint } from './cars';
 import { HW, SKI_ROAD, riverAt } from './terrain';
 import { part, mat } from './utilities';
 
@@ -12,7 +12,6 @@ import { part, mat } from './utilities';
 
 const Y = 0.036; // asfaltın üstü (şehirdeki yollarla aynı)
 const CAR_Y = 0.066;
-const CAR_SCALE = 0.78;
 const MW = 0.92; // otobanın yarı genişliği
 const LANES = [0.24, 0.6]; // otobanda şeritler (yol ortasından; sağdan gidiş)
 const SMALL = 0.45; // iki şeritli yolun yarı genişliği
@@ -673,7 +672,7 @@ export class HighwayTraffic {
   private exits: { type: number; paint: THREE.Color; wide: number }[] = [];
   private busMesh: THREE.InstancedMesh | null = null;
   // Şehrin girişindeki şeritlerin yol ortasına uzaklığı (caddede iç ve dış şerit): otobandaki şerit bunlarla aynı hizada
-  private cityLanes: [number, number] = [0.125, 0.3];
+  private cityLanes: [number, number] = [0.115, 0.3];
   private gates: { to: number[]; from: number[] } = { to: [], from: [] };
   private gateDef: ((kind: 'toCity' | 'fromCity', k: number) => { parts: { pts: V2[]; v: number; h?: number[] }[] }) | null = null;
   // Şehrin trafiği: girişe gelen arabayı alır (yol doluysa false, araba bekler)
@@ -835,7 +834,7 @@ export class HighwayTraffic {
 
   // Aracın boyu (çizildiği ölçekte)
   private lengthOf(c: Car) {
-    return (c.type < 0 ? 0.6 : this.set?.lengths[c.type] ?? 0.47) * CAR_SCALE;
+    return c.type < 0 ? 0.62 * BUS_SCALE : (this.set?.lengths[c.type] ?? 0.47) * CAR_SCALE;
   }
 
   // Yolun o noktasındaki hız sınırı
@@ -940,7 +939,7 @@ export class HighwayTraffic {
       const fadeOut = route.fadeOut ? THREE.MathUtils.smoothstep(route.lane.length - car.s, 0, 1.2) : 1;
       car.fade = Math.min(fadeIn, fadeOut);
       this.tmp.rotation.y = route.lane.at(car.s, this.tmp.position);
-      this.tmp.scale.setScalar(CAR_SCALE * car.fade);
+      this.tmp.scale.setScalar((car.type < 0 ? BUS_SCALE : CAR_SCALE) * car.fade);
       this.tmp.updateMatrix();
       if (car.type < 0) {
         if (this.busMesh && buses < 24) this.busMesh.setMatrixAt(buses++, this.tmp.matrix);
