@@ -67,6 +67,9 @@ export const METRO_LEVELS = [
 ];
 export const METRO_LINE = { radius: 3, happy: 0.08, transit: 0.55 };
 
+// Alt geçit: caddenin iç şeritleri kavşağın altından ışıksız geçer, dış şeritler yukarıda yan yol olarak kalır
+export const UNDERPASS = { cost: 3000, level: 8, depth: 0.26 };
+
 // Otopark yükseltilir: açık otopark → 2, 3, 4, 5 katlı otopark (arabalar girişten girer, çok daha fazlası sığar)
 export const PARKING_LEVELS = [
   { floors: 1, cost: 0, level: 0, cars: 3 },

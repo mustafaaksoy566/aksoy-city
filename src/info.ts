@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
   MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, type MatId, type BuildTool,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -39,6 +39,7 @@ export interface CardActions {
   openCatalog(group: string): void;
   ship(n: number): void;
   upgradeRoad(i: number): void;
+  underpass(i: number): void;
   renewOrders(): void;
 }
 
@@ -93,6 +94,23 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
   if (city.congestion(i) > 1) {
     card.lines!.push({ ok: false, text: 'Trafik sıkışık! Yolu yükselt ya da yakınına otobüs durağı, metro veya tren istasyonu kur.' });
   }
+  // Alt geçit: kavşakta caddenin iç şeritleri ışıksız alttan geçer, dış şeritler yukarıda yan yol olarak kalır
+  const x = i % SIZE, z = Math.floor(i / SIZE);
+  const junction = [1, 2, 4, 8].filter(b => city.roadMask(x, z) & b).length >= 3;
+  if (city.rampOf(i)) card.subtitle = 'Alt geçit rampası';
+  if (t.under !== undefined) {
+    card.subtitle = 'Alt geçitli kavşak';
+    card.lines!.push({ ok: true, text: 'Alt geçit var: caddenin iç şeritleri ışıkta beklemeden alttan geçer, dönmek isteyenler yukarıdaki yan yolu kullanır.' });
+  } else if (junction) {
+    const opt = city.underpassOption(i);
+    const lockUp = city.level < UNDERPASS.level;
+    if ('error' in opt) card.lines!.push({ ok: false, text: `Alt geçit: ${opt.error}` });
+    else {
+      card.lines!.push({ text: '🚇 Alt geçit yapılabilir: caddenin iç şeritleri kavşağın altından ışıksız geçer, dış şeritler yukarıda kalır.' });
+      if (lockUp) card.lines!.push({ ok: false, text: `Alt geçit şehir seviyesi ${UNDERPASS.level}'de açılır` });
+      card.actions = [{ label: `🚇 Alt geçit yap  💰${fmt(UNDERPASS.cost)}`, enabled: !lockUp && city.money >= UNDERPASS.cost, primary: true, run: () => act.underpass(i) }];
+    }
+  }
   if (grade >= 2) {
     card.lines!.push({ ok: true, text: 'Bu en güzel yol çeşidi.' });
     return card;
@@ -105,7 +123,7 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
   const blocked = t.level === 1 ? 'Tren yolunun geçtiği yol yükseltilemez' : locked ? `${next.label} şehir seviyesi ${lock}'te açılır` : null;
   card.lines!.push({ text: `${next.label}: ${Math.round(TRAFFIC.capacity * next.capacity)} araç taşır, +%${Math.round(next.happy * 100)} mutluluk. ${street.length} kare yükseltilir (kare başı 💰${fmt(COST[next.tool] - COST[info.tool])}).` });
   if (blocked) card.lines!.push({ ok: false, text: blocked });
-  card.actions = [{
+  card.actions = [...(card.actions ?? []), {
     label: `${next.label === 'Cadde' ? 'Caddeye' : 'Bulvara'} yükselt  💰${fmt(cost)}`,
     enabled: !blocked && city.money >= cost && street.length > 0,
     primary: true,

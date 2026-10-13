@@ -66,7 +66,8 @@ const writePref = (key: string, value: string) => {
 
 // --- Sahne, kamera, ışık ---
 const container = document.getElementById('app')!;
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+// stencil: alt geçit hendeklerinde zemini delmek için (bkz. view.ts underHole)
+const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
 // Çözünürlük: grafik ayarına göre ekranın kendi keskinliği; telefon zorlanırsa kendiliğinden biraz düşürülür,
 // ama bulanıklaşmasın diye bir alt sınırın altına inmez (bkz. adaptQuality)
 let quality: Quality = (readPref(QUALITY_KEY) as Quality) || 'high';
@@ -429,6 +430,21 @@ const cardActions: CardActions = {
       view.refresh(res.done, true);
       play('grow', 0.6);
       toast(`⬆️ Yol ${ROAD_GRADES[before + 1].label.toLocaleLowerCase('tr')} oldu! Kenarındaki evler daha mutlu.`);
+    }
+    afterChange();
+  },
+  underpass(i) {
+    const err = city.buildUnderpass(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      city.refresh();
+      const cells = [i];
+      for (const [dx, dz] of DIRS) cells.push(idx((i % SIZE) + dx, Math.floor(i / SIZE) + dz));
+      view.refresh(cells, false);
+      play('grow', 0.6);
+      toast('🚇 Alt geçit yapıldı! Caddenin iç şeritleri artık ışıkta beklemeden alttan geçiyor.');
     }
     afterChange();
   },

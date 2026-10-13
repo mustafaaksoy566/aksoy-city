@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, ROAD_GRADES, ENTRANCE_Z } from './config';
+import { SIZE, ROAD_GRADES, ENTRANCE_Z, UNDERPASS } from './config';
 import { CarSet, CAR_KINDS, NORMAL_CARS, carPaint, type CarKind } from './cars';
 import { City, DIRS, idx, inBounds } from './city';
 import { makeModel } from './assets';
@@ -271,6 +271,7 @@ export interface Box {
   wid: number; // yarı en
   id: number;
   ped?: boolean; // araba önündeki yayaya yol veriyor (yaya da onu beklerse ikisi kilitlenir)
+  u?: number; // alt geçitte ne kadar aşağıda (0 yukarıda, 1 kavşağın altında)
 }
 let nextId = 1;
 
@@ -278,6 +279,7 @@ interface Vehicle extends Mover {
   id?: number;
   stuck?: number; // önü kapalı bekleme süresi
   ped?: boolean; // önündeki yayayı bekliyor
+  wideNext?: number; // kavşağa girince geçeceği şerit (alt geçitli kavşakta caddeye dönen dış şeride geçer)
   next?: number; // bir sonraki karede çıkacağı yön (kavşağa girmeden önce seçilir)
   lastJ?: { tile: number; dIn: number; dOut: number }; // en son geçtiği kavşak (arkası hâlâ içindeyken yer tutar)
   vanish?: boolean; // çok uzun sıkıştı: başkasının içinden geçmek yerine yavaşça kaybolur
@@ -362,6 +364,24 @@ export class Traffic {
     return CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
   }
 
+  // Alt geçitten geçen araba ne kadar aşağıda: 0 yukarıda, 1 kavşağın altında (rampada arada)
+  private underOf(v: Vehicle): number {
+    if (v.man || v.wide !== 0 || v.type < 0) return 0;
+    const t = this.city.tiles[v.tile];
+    if (t?.kind !== 'road') return 0;
+    if (t.under !== undefined) return v.dIn === v.dOut && v.dIn % 2 === t.under ? 1 : 0;
+    const r = this.city.rampOf(v.tile);
+    if (!r) return 0;
+    if (v.dOut === r.dir) return v.t; // kavşağa doğru iniyor
+    if (v.dIn === (r.dir + 2) % 4) return 1 - v.t; // kavşaktan çıkıp yukarı çıkıyor
+    return 0;
+  }
+  // Bu kavşaktan bu hareket alt geçitten mi (iç şeritte, doğrultu boyunca düz)?
+  private underMove(tile: number, dIn: number, dOut: number, wide: number) {
+    const u = this.city.tiles[tile]?.under;
+    return u !== undefined && wide === 0 && dIn === dOut && dIn % 2 === u;
+  }
+
   private laneOf(v: Vehicle) {
     return (tile: number) => (this.city.tiles[tile]?.grade === 2 ? WIDE_LANES[v.wide] : CAR_LANE);
   }
@@ -385,7 +405,10 @@ export class Traffic {
       if (rx * fx + rz * fz <= 0.01) return false;
       return boxesTouch({ ...me, x: me.x + fx * extra, z: me.z + fz * extra, wid: me.wid * 0.9 }, o);
     };
+    const mu = me.u ?? 0;
     for (const o of this.boxes) {
+      // Alt geçitteki araba ile yukarıdaki birbirine takılmaz
+      if (Math.abs(mu - (o.u ?? 0)) > 0.5) continue;
       if (o.id === me.id || !hit(o, 0.06)) continue;
       // Karşılıklı bekleme: o da beni bekliyorsa küçük kimlikli geçer
       const ox = Math.sin(o.h), oz = Math.cos(o.h);
@@ -393,7 +416,7 @@ export class Traffic {
       if (back && me.id < o.id) continue;
       return Math.cos(o.h - me.h) > 0.8 ? 'queue' : 'cross';
     }
-    for (const p of people) if (hit(p, 0.05)) return 'ped';
+    if (mu < 0.5) for (const p of people) if (hit(p, 0.05)) return 'ped';
     return null;
   }
 
@@ -487,6 +510,19 @@ export class Traffic {
 
   // Yeni kareye girince: gezerken rastgele (kalabalık yolları severek), hedefi varsa en kısa yoldan
   private choose(v: Vehicle) {
+    const t = this.city.tiles[v.tile];
+    if (t?.under !== undefined && v.wide === 0) {
+      // Alt geçitli kavşak: caddenin iç şeridi alttan düz geçer (dönemez)
+      if (v.dIn % 2 === t.under && roadDirs(this.city, v.tile).includes(v.dIn)) return v.dIn;
+      // Yan yoldan gelip caddeye dönen iç şerit arabası dış şeride geçer (iç şerit hendekte)
+      const d = this.pick(v);
+      if (d % 2 === t.under) v.wideNext = 1;
+      return d;
+    }
+    return this.pick(v);
+  }
+
+  private pick(v: Vehicle) {
     // Şehrin girişindeki ilk karede batıya giden U dönüşü yapmaz, otobana çıkar (otobanda aynı şeritten devam eder)
     if (this.highway && v.tile === idx(0, ENTRANCE_Z) && v.dIn === 3) return 3;
     if (v.trip > 0) v.trip--;
@@ -593,7 +629,7 @@ export class Traffic {
   private pullOut(lot: Lot, bay: number) {
     const p = lot.bays[bay];
     if (!p) return;
-    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
+    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 && !this.city.rampOf(lot.road) ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
     const { dir, pt } = this.exitTo(lot, v);
     const f = fwd(lot.face), r = right(lot.face);
     const b = this.bayPos(lot, bay);
@@ -615,7 +651,7 @@ export class Traffic {
 
   // Binanın (garajın) içinden yola çık
   private driveOut(spot: Spot, type: number, home?: Spot) {
-    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
+    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 && !this.city.rampOf(spot.road) ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
     const { dir, pt } = this.exitTo(spot, v);
     const f = fwd(spot.face);
     const g = center(spot.tile).setY(CAR_Y).addScaledVector(f, 0.3);
@@ -832,14 +868,14 @@ export class Traffic {
     const inside = new Map<number, { v: Vehicle; dIn: number; dOut: number }[]>();
     const occupy = (tile: number, v: Vehicle, dIn: number, dOut: number) => (inside.get(tile) ?? inside.set(tile, []).get(tile)!).push({ v, dIn, dOut });
     for (const v of all) {
-      if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
+      if (isJunction(this.city, v.tile) && !this.underMove(v.tile, v.dIn, v.dOut, v.wide)) occupy(v.tile, v, v.dIn, v.dOut);
       // Kavşaktan yeni çıktı: arkası hâlâ kavşağın içindeyse yer tutar
       // (sadece kavşağın hemen yanındaki karede; birkaç kare uzaklaşınca, ör. durakta bekleyen otobüs, kavşağı tutmaz)
-      if (v.lastJ && v.lastJ.tile !== v.tile && neighbor(v.lastJ.tile, v.lastJ.dOut) === v.tile && v.t < this.lengthOf(v) / 2 + 0.02) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
+      if (v.lastJ && v.lastJ.tile !== v.tile && neighbor(v.lastJ.tile, v.lastJ.dOut) === v.tile && v.t < this.lengthOf(v) / 2 + 0.02 && !this.underMove(v.lastJ.tile, v.lastJ.dIn, v.lastJ.dOut, v.wide)) occupy(v.lastJ.tile, v, v.lastJ.dIn, v.lastJ.dOut);
       // Durma çizgisini geçmiş, kavşağa girmek üzere: kavşağı şimdiden tutar
       if (v.next !== undefined && v.t > STOP + 0.02) {
         const j = neighbor(v.tile, v.dOut);
-        if (j >= 0 && isJunction(this.city, j)) occupy(j, v, v.dOut, v.next);
+        if (j >= 0 && isJunction(this.city, j) && !this.underMove(j, v.dOut, v.next, v.wideNext ?? v.wide)) occupy(j, v, v.dOut, v.next);
       }
     }
     const laneIn = (tile: number, v: Vehicle) => (this.city.tiles[tile]?.grade === 2 ? v.wide : -1);
@@ -884,7 +920,10 @@ export class Traffic {
       if (v.vanish) return true;
       const jam = this.city.congestion(v.tile);
       const step = dt * v.speed * ROAD_GRADES[this.city.tiles[v.tile]?.grade ?? 0].speed * (jam > 1 ? Math.max(0.35, 1 / jam) : 1);
-      let limit = lightLimit(this.city, v, STOP);
+      // Alt geçitten geçecek araba ışıkta durmaz, kavşağın yol hakkına karışmaz
+      const nextJ = neighbor(v.tile, v.dOut);
+      const goesUnder = nextJ >= 0 && v.wide === 0 && this.city.tiles[nextJ]?.under === v.dOut % 2 && !v.man;
+      let limit = goesUnder ? Infinity : lightLimit(this.city, v, STOP);
       const len = this.lengthOf(v);
       // Öndeki araç (aynı karede): iki aracın boylarının yarısı ve aradaki boşluk kadar geride dur
       for (const [t, l] of lanes.get(this.key(v)) ?? []) if (t > v.t + 1e-4) limit = Math.min(limit, t - (len + l) / 2 - GAP);
@@ -895,7 +934,7 @@ export class Traffic {
       if (this.highway && v.tile === idx(0, ENTRANCE_Z) && v.dOut === 3 && !this.highway.canLeave(v.wide)) limit = Math.min(limit, Math.max(v.t, 0.9));
       // Yol hakkı: kavşağın içinde yolunu kesen araç varsa, çıkacağı yolda yer yoksa (kavşağı tıkamasın)
       // ya da yolunu kesen ve daha uzun süredir bekleyen biri varsa girmeden bekle
-      if (next >= 0 && isJunction(this.city, next) && v.t > 0.3 && v.t <= STOP + 0.02) {
+      if (next >= 0 && isJunction(this.city, next) && !goesUnder && v.t > 0.3 && v.t <= STOP + 0.02) {
         const out = peek(v, next);
         const w = laneIn(next, v);
         const cross = (o: { v: Vehicle; dIn: number; dOut: number }) => o.v !== v && conflicts(v.dOut, out, w, o.dIn, o.dOut, laneIn(next, o.v));
@@ -933,16 +972,21 @@ export class Traffic {
       const before = { tile: v.tile, dIn: v.dIn, dOut: v.dOut };
       const alive = advance(this.city, v, go, true, Math.max(v.t, limit), m => {
         const veh = m as Vehicle;
+        let d: number;
         if (veh.next !== undefined) {
-          const d = veh.next;
+          d = veh.next;
           veh.next = undefined;
-          return d;
+        } else d = this.choose(veh);
+        // Alt geçitli kavşakta caddeye dönen dış şeride geçer
+        if (veh.wideNext !== undefined) {
+          veh.wide = veh.wideNext;
+          veh.wideNext = undefined;
         }
-        return this.choose(veh);
+        return d;
       });
       if (v.tile !== before.tile) {
         if (isJunction(this.city, before.tile)) v.lastJ = before;
-        if (isJunction(this.city, v.tile)) occupy(v.tile, v, v.dIn, v.dOut);
+        if (isJunction(this.city, v.tile) && !this.underMove(v.tile, v.dIn, v.dOut, v.wide)) occupy(v.tile, v, v.dIn, v.dOut);
       }
       // Şehirden çıkan araba ve otobüs otobana geçer (aynı renk ve model, aynı şerit)
       if (v.out && !v.home && this.highway) {
@@ -956,7 +1000,7 @@ export class Traffic {
       }
       // Hedefinin önüne geldi: otoparka ya da garaja dön
       const dest = v.dest;
-      if (dest && v.trip <= 0 && dest.kind !== 'exit' && v.tile === dest.road && v.t >= 0.45 && v.t < 0.95) {
+      if (dest && v.trip <= 0 && dest.kind !== 'exit' && v.tile === dest.road && v.t >= 0.45 && v.t < 0.95 && this.underOf(v) < 0.05) {
         const t = this.city.tiles[dest.spot!.tile];
         const gone = !t || (dest.kind === 'lot' ? t.kind !== 'parking' || this.lots.get(dest.spot!.tile) !== dest.spot : false);
         if (gone) {
@@ -977,7 +1021,7 @@ export class Traffic {
     this.boxes = [];
     const remember = (v: Vehicle) => {
       if (v.fade < 0.3) return;
-      this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0, ped: v.ped });
+      this.boxes.push({ x: this.tmp.position.x, z: this.tmp.position.z, h: this.tmp.rotation.y, len: this.lengthOf(v) / 2, wid: this.widthOf(v) / 2, id: v.id ?? 0, ped: v.ped, u: this.underOf(v) });
     };
     for (const car of this.cars) {
       put(car.type, this.place(car, CAR_Y), car.paint);
@@ -1054,7 +1098,15 @@ export class Traffic {
       bez(s.p, u, this.tmp.position).setY(y);
       this.tmp.rotation.set(0, bezDir(s.p, u) + (s.back ? Math.PI : 0), 0);
     } else {
-      this.tmp.rotation.set(0, lanePos(this.city, v, this.laneOf(v), y, this.tmp.position), 0);
+      // Alt geçitte araba rampayla aşağı iner; rampada burnu eğik (inerken aşağı, çıkarken yukarı)
+      const u = this.underOf(v);
+      const yaw = lanePos(this.city, v, this.laneOf(v), y - UNDERPASS.depth * u, this.tmp.position);
+      let pitch = 0;
+      if (u > 0 && u < 1) {
+        const r = this.city.rampOf(v.tile);
+        if (r) pitch = (v.dOut === r.dir ? 1 : -1) * Math.atan(UNDERPASS.depth);
+      }
+      this.tmp.rotation.set(pitch, yaw, 0, 'YXZ');
     }
     this.tmp.scale.setScalar(CAR_SCALE * THREE.MathUtils.smoothstep(v.fade, 0, 1));
     this.tmp.updateMatrix();
@@ -1314,6 +1366,8 @@ export class Walkers {
         const dh = c.h - h;
         const along = Math.abs(Math.cos(dh)) * c.len + Math.abs(Math.sin(dh)) * c.wid;
         const side = Math.abs(Math.sin(dh)) * c.len + Math.abs(Math.cos(dh)) * c.wid;
+        // Alt geçitteki araba yukarıdaki yayanın yolunu kesmez
+        if ((c.u ?? 0) > 0.5) continue;
         if (c.ped) {
           if (ahead < along + 0.02 && lat < side) yielding = true;
         } else if (ahead < along + 0.06 && lat < side + 0.03) return true;

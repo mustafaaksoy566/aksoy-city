@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -24,6 +24,7 @@ export interface Tile {
   fp?: number; // büyük binalarda kenar uzunluğu (2 = 2x2 kare)
   grade?: number; // yollarda: 1 = bulvar, 2 = cadde (çift şerit)
   slots?: number; // fabrika ve dükkanlarda parayla açılan ek üretim yeri
+  under?: number; // kavşakta alt geçit: 0 kuzey-güney, 1 doğu-batı doğrultusundaki cadde kavşağın altından geçer
 }
 
 // Ekranda gösterilecek olaylar (yangın, hırsızlık, deprem...)
@@ -113,8 +114,8 @@ export function block(x: number, z: number, n: number): number[] | null {
 const levelInfo = (t: Tile) => (t.kind === 'res' ? RES_LEVELS : COM_LEVELS)[t.level - 1];
 const emptyStorage = () => Object.fromEntries(MAT_IDS.map(m => [m, 0])) as Record<MatId, number>;
 
-// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?, ek üretim yeri?]
-type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?, number?];
+// [kare, tür, seviye, yön, çeşit, yangın günü?, hasarlı?, kenar?, yol çeşidi?, ek üretim yeri?, alt geçit (doğrultu+1)?]
+type TileRow = [number, Kind, number, number, number, number?, number?, number?, number?, number?, number?];
 // Yol aracının yaptığı yol çeşidi (bulvar 1, cadde 2); yol değilse -1
 export const gradeOf = (tool: BuildTool) => ROAD_TOOLS.indexOf(tool);
 export interface SaveData {
@@ -351,6 +352,83 @@ export class City {
     return m;
   }
 
+  // --- Alt geçit: caddenin iç şeritleri kavşağın altından geçer, dış şeritler yanda (yukarıda) kalır ---
+
+  // Bir doğrultuda komşu kare (axis 0: kuzey-güney, 1: doğu-batı; s: -1 ya da 1)
+  private axisNeighbor(i: number, axis: number, s: number) {
+    const x = (i % SIZE) + (axis === 1 ? s : 0), z = Math.floor(i / SIZE) + (axis === 0 ? s : 0);
+    return inBounds(x, z) ? idx(x, z) : -1;
+  }
+
+  // Bu kavşakta bu doğrultuda alt geçit olabilir mi? (null: olur, metin: neden olmadığı)
+  underpassBlocker(i: number, axis: number): string | null {
+    const t = this.tiles[i];
+    if (t?.kind !== 'road') return 'Burada yol yok';
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const mask = this.roadMask(x, z);
+    if ([1, 2, 4, 8].filter(b => mask & b).length < 3) return 'Alt geçit sadece kavşağa yapılır';
+    if (isWater(i)) return 'Suyun üstüne yapılamaz';
+    const along = axis === 0 ? 0b0101 : 0b1010;
+    if ((mask & along) !== along) return 'Bu yönde iki tarafta da yol olmalı';
+    for (const s of [-1, 1]) {
+      const n = this.axisNeighbor(i, axis, s);
+      const nt = n >= 0 ? this.tiles[n] : null;
+      if (nt?.kind !== 'road' || (nt.grade ?? 0) < 2) return 'Kavşağın iki yanındaki yol cadde olmalı (çift şerit)';
+      if (nt.locked || isWater(n)) return 'Rampa için yer yok';
+      if (this.roadMask(n % SIZE, Math.floor(n / SIZE)) !== along) return 'Kavşağın iki yanında rampa için düz yol olmalı';
+      // İki alt geçidin rampaları üst üste binmesin
+      const far = this.axisNeighbor(n, axis, s);
+      if (far >= 0 && this.tiles[far]?.under === axis) return 'Yanındaki kavşakta da alt geçit var, rampa sığmaz';
+    }
+    return null;
+  }
+
+  // Kavşağın hangi doğrultusunda alt geçit yapılabilir (önce doğu-batı); yapılamıyorsa ilk nedeni döner
+  underpassOption(i: number): { axis: number } | { error: string } {
+    const errs: string[] = [];
+    for (const axis of [1, 0]) {
+      const e = this.underpassBlocker(i, axis);
+      if (!e) return { axis };
+      errs.push(e);
+    }
+    return { error: errs.find(e => e.includes('cadde')) ?? errs[0] };
+  }
+
+  buildUnderpass(i: number): string | null {
+    const t = this.tiles[i];
+    if (t?.under !== undefined) return 'Burada zaten alt geçit var';
+    if (this.level < UNDERPASS.level) return `Şehir seviyesi ${UNDERPASS.level} lazım`;
+    const o = this.underpassOption(i);
+    if ('error' in o) return o.error;
+    if (this.money < UNDERPASS.cost) return 'Yeterli para yok';
+    this.money -= UNDERPASS.cost;
+    t!.under = o.axis;
+    this.addXp(XP.build * 4);
+    return null;
+  }
+
+  // Bu kare bir alt geçidin rampası mı? Öyleyse kavşağa doğru yön ve kavşak
+  rampOf(i: number): { j: number; dir: number } | null {
+    if (this.tiles[i]?.kind !== 'road') return null;
+    for (let d = 0; d < 4; d++) {
+      const [dx, dz] = DIRS[d];
+      const x = (i % SIZE) + dx, z = Math.floor(i / SIZE) + dz;
+      if (!inBounds(x, z)) continue;
+      const j = idx(x, z);
+      const u = this.tiles[j]?.under;
+      // Doğrultu 0 kuzey-güney (yön 0 ve 2), 1 doğu-batı (yön 1 ve 3)
+      if (u !== undefined && u === d % 2) return { j, dir: d };
+    }
+    return null;
+  }
+
+  // Yol değişince (yıkım, çeşit, kavşak bozulması) artık olmayan alt geçitler kalkar
+  private checkUnderpasses() {
+    this.tiles.forEach((t, i) => {
+      if (t?.under !== undefined && this.underpassBlocker(i, t.under)) delete t.under;
+    });
+  }
+
   // --- Şehir seviyesi ve XP ---
 
   get level() {
@@ -389,6 +467,7 @@ export class City {
   // Yollar ya da binalar değişince bağlantıyı ve elektrik/su dağıtımını yeniden hesapla
   refresh() {
     this.lines = null;
+    this.checkUnderpasses();
     this.updateReach();
     this.updateService();
     this.updateCoverage();
@@ -1550,9 +1629,11 @@ export class City {
     this.tiles.forEach((tile, i) => {
       if (!tile || (tile.locked && tile.kind === 'road' && !tile.grade)) return;
       const row: TileRow = [i, tile.kind, tile.level, tile.facing, tile.variant];
-      if (tile.fire || tile.damaged || tile.fp || tile.grade || tile.slots) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
-      if (tile.grade || tile.slots) row.push(tile.grade ?? 0);
-      if (tile.slots) row.push(tile.slots);
+      const under = tile.under !== undefined;
+      if (tile.fire || tile.damaged || tile.fp || tile.grade || tile.slots || under) row.push(tile.fire ?? 0, tile.damaged ? 1 : 0, tile.fp ?? 1);
+      if (tile.grade || tile.slots || under) row.push(tile.grade ?? 0);
+      if (tile.slots || under) row.push(tile.slots ?? 0);
+      if (under) row.push(tile.under! + 1);
       t.push(row);
     });
     const j: SaveData['j'] = [...this.jobs].map(([i, list]) => [i, list.map(job => (job.start ? [job.mat, job.end, job.start] : [job.mat, job.end]) as [MatId, number, number?])]);
@@ -1601,7 +1682,7 @@ export class City {
         if (i >= 0 && i < c.metro.length) c.metro[i] = 1;
       }
     }
-    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade, slots] of data.t as TileRow[]) {
+    for (const [oldI, rawKind, rawLevel, facing, rawVariant, fire, damaged, fp, rawGrade, slots, under] of data.t as TileRow[]) {
       const grade = rawGrade && !newGrades ? 1 : rawGrade;
       const i = move(oldI);
       // Büyük binanın parçaları ana karenin numarasını tutar; o da taşınmalı
@@ -1623,6 +1704,7 @@ export class City {
         if (damaged) c.tiles[i]!.damaged = true;
         if (fp && fp > 1) c.tiles[i]!.fp = fp;
         if (slots) c.tiles[i]!.slots = slots;
+        if (under) c.tiles[i]!.under = under - 1;
       }
     }
     if (data.v >= 3) {

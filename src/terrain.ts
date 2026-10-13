@@ -479,9 +479,26 @@ function buildRocks() {
   return rocks;
 }
 
+// Bu malzeme alt geçit deliklerinin (şablon tamponunda 1 olan yerlerin) içine çizilmez
+export function holeCut(m: THREE.Material) {
+  m.stencilWrite = true; // three.js şablon testini bununla açar (yazma maskesi değişmez, işlemler Keep)
+  m.stencilRef = 1;
+  m.stencilFunc = THREE.NotEqualStencilFunc;
+  m.stencilFail = THREE.KeepStencilOp;
+  m.stencilZFail = THREE.KeepStencilOp;
+  m.stencilZPass = THREE.KeepStencilOp;
+}
+
 export function buildSurroundings() {
   const group = new THREE.Group();
-  group.add(buildGround(), buildSea(), buildRiver(), buildTrees(), buildPalms(), buildRocks());
+  // Alt geçit hendeklerinin ağzında zemin ve altındaki su çizilmez (bkz. view.ts underHole): delik önce
+  // şablon tamponuna işaretlenir, zemin ve su işaretli yerleri atlar
+  const ground = buildGround();
+  ground.renderOrder = -2;
+  const sea = buildSea();
+  const river = buildRiver();
+  for (const o of [ground, sea, river]) o.traverse(m => (m as THREE.Mesh).isMesh && holeCut((m as THREE.Mesh).material as THREE.Material));
+  group.add(ground, sea, river, buildTrees(), buildPalms(), buildRocks());
   // Deniz feneri: şehrin doğusundaki kumsalın ucunda
   const lx = HALF + 9;
   let z = 0;

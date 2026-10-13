@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, type MatId } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
@@ -300,6 +300,96 @@ function junctionExtras(grade: number, mask: number) {
     }
   }
   return g;
+}
+
+// --- Alt geçit rampası: caddenin iç şeritleri beton duvarlı bir hendekle kavşağın altına iner,
+// dış şeritler iki yanda yukarıda kalır. Kare, kavşak +z yönündeymiş gibi çizilir (sonra döndürülür).
+const UNDER_DEPTH = UNDERPASS.depth;
+const UNDER = {
+  W: 0.19, // hendeğin iç yarı genişliği
+  top: 0.052, // yolun üst yüzü
+  concrete: new THREE.MeshStandardMaterial({ color: '#c9c6bf', roughness: 0.85 }),
+  dark: new THREE.MeshStandardMaterial({ color: '#10141b', roughness: 1 }),
+  rail: new THREE.MeshStandardMaterial({ color: '#8f9aa6', roughness: 0.4, metalness: 0.6 }),
+};
+const tunnelLamp = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffd27a', emissiveIntensity: 0.6 });
+tunnelLamp.name = 'lamp';
+// Hendeğin ağzı: şehrin zemini ve altındaki su burada çizilmez, böylece hendeğin içi görünür.
+// Delik her şeyden önce şablon tamponuna (stencil) işaretlenir; zemin ve su o yerleri atlar (terrain.ts holeCut).
+const HOLE_MAT = new THREE.MeshBasicMaterial({
+  colorWrite: false,
+  depthWrite: false,
+  depthTest: false,
+  stencilWrite: true,
+  stencilRef: 1,
+  stencilFunc: THREE.AlwaysStencilFunc,
+  stencilZPass: THREE.ReplaceStencilOp,
+});
+// Rampanın tabanı: kavşaktan uzak uçta yol hizasında, kavşağın kenarında derinde
+const floorY = (z: number) => UNDER.top - UNDER_DEPTH * (z + 0.5);
+function underRamp(dirToJunction: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+  const { W, top } = UNDER;
+  const T = 0.035; // duvar kalınlığı
+  const wallTop = top + 0.03;
+  // Yukarıda kalan dış şeritler (yan yol), kaldırım ve çizgiler
+  for (const s of [-1, 1]) {
+    add(new THREE.BoxGeometry(0.43 - (W + T), top + 0.03, 1), roadDeco.asphalt, s * ((W + T + 0.43) / 2), (top - 0.03) / 2, 0).castShadow = false;
+    add(roadDeco.geo.curbC, roadDeco.stone, s * 0.465, 0.053, 0);
+    add(roadDeco.geo.edge, roadDeco.paint, s * 0.39, 0.0525, 0);
+    add(roadDeco.geo.edge, roadDeco.paint, s * (W + T + 0.012), 0.0525, 0);
+  }
+  // Duvarlar: tabanı rampayla iner, üstü yolun biraz üstünde; üstünde metal korkuluk
+  const wallShape = new THREE.Shape([
+    new THREE.Vector2(-0.5, floorY(-0.5) - 0.02),
+    new THREE.Vector2(0.5, floorY(0.5) - 0.02),
+    new THREE.Vector2(0.5, wallTop),
+    new THREE.Vector2(-0.5, wallTop),
+  ]);
+  const wallGeo = new THREE.ExtrudeGeometry(wallShape, { depth: T, bevelEnabled: false }).rotateY(-Math.PI / 2);
+  for (const s of [-1, 1]) {
+    // Döndürülen şekil x'te 0..-T arasında; iç yüzü ±W'ye gelsin
+    add(wallGeo, UNDER.concrete, s > 0 ? W + T : -W, 0, 0);
+    add(new THREE.BoxGeometry(0.008, 0.008, 1), UNDER.rail, s * (W + T / 2), wallTop + 0.028, 0);
+    for (let k = 0; k < 4; k++) add(new THREE.BoxGeometry(0.006, 0.028, 0.006), UNDER.rail, s * (W + T / 2), wallTop + 0.014, -0.375 + k * 0.25);
+  }
+  // Rampanın asfaltı ve çizgileri (ortada sarı çift çizgi, kenarlarda beyaz)
+  const slope = Math.atan(UNDER_DEPTH);
+  const len = Math.hypot(1, UNDER_DEPTH);
+  const ramp = (w: number, x: number, m: THREE.Material, lift: number) => {
+    const mesh = add(new THREE.BoxGeometry(w, 0.02, len), m, x, (floorY(-0.5) + floorY(0.5)) / 2 - 0.01 + lift, 0);
+    mesh.rotation.x = slope;
+    return mesh;
+  };
+  ramp(W * 2, 0, roadDeco.asphalt, 0).castShadow = false;
+  for (const x of [-0.012, 0.012]) ramp(0.008, x, roadDeco.yellow, 0.0012);
+  for (const s of [-1, 1]) ramp(0.008, s * (W - 0.02), roadDeco.paint, 0.0012);
+  // Kavşağın altına giren tünelin ağzı: üstte beton alın, içi karanlık, tavanında lambalar
+  const mouthTop = top - 0.04;
+  const mouthBottom = floorY(0.5);
+  const dark = add(new THREE.PlaneGeometry(W * 2, mouthTop - mouthBottom), UNDER.dark, 0, (mouthTop + mouthBottom) / 2, 0.5 - 0.002);
+  dark.rotation.y = Math.PI;
+  dark.castShadow = false;
+  add(new THREE.BoxGeometry(W * 2 + T * 2, wallTop - mouthTop, 0.04), UNDER.concrete, 0, (wallTop + mouthTop) / 2, 0.48);
+  for (const x of [-0.12, 0, 0.12]) add(new THREE.BoxGeometry(0.04, 0.008, 0.012), tunnelLamp, x, mouthTop - 0.01, 0.47).castShadow = false;
+  g.rotation.y = Math.atan2(DIRS[dirToJunction][0], DIRS[dirToJunction][1]);
+  return g;
+}
+// Hendeğin ağzındaki "delik" (birleştirilmez, kendi çizim sırasıyla durur)
+function underHole(dirToJunction: number) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(UNDER.W * 2, 1).rotateX(-Math.PI / 2), HOLE_MAT);
+  mesh.position.y = UNDER.top + 0.0005;
+  mesh.rotation.y = Math.atan2(DIRS[dirToJunction][0], DIRS[dirToJunction][1]);
+  mesh.renderOrder = -3;
+  mesh.castShadow = mesh.receiveShadow = false;
+  return mesh;
 }
 
 // Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 bulvar, 2 cadde)
@@ -866,6 +956,8 @@ export class CityView {
   private objs = new Map<number, THREE.Object3D>();
   private tall = new Map<number, { x: number; z: number; half: number; top: number }>(); // binaların tepeleri (kamera için)
   private hidden = new Set<number>(); // üretim ekranında görüşü kapattığı için geçici gizlenen binalar
+  private holes = new Map<number, THREE.Mesh>(); // alt geçit rampalarında zemindeki delikler
+  private unders = new Set<number>(); // alt geçitli kavşaklar (değişince rampalar yeniden çizilir)
   private iconsOn = true; // binaların üstündeki simgeler görünsün mü (üretim ekranında gizlenir)
   private icons = new Map<string, THREE.Sprite>();
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
@@ -982,6 +1074,8 @@ export class CityView {
   rebuildAll() {
     this.updateLand();
     for (const i of [...this.objs.keys()]) this.remove(i);
+    this.unders = new Set();
+    this.city.tiles.forEach((t, i) => t?.under !== undefined && this.unders.add(i));
     for (let i = 0; i < SIZE * ROWS; i++) this.build(i, false);
     this.updateSpans();
     for (let c = 0; c < PLOTS * PLOT_ROWS; c++) this.dirty.add(c);
@@ -1029,7 +1123,13 @@ export class CityView {
   // Değişen kareleri ve yanlarındaki yolları yeniden çiz
   refresh(cells: number[], animate: boolean) {
     const all = new Set<number>();
-    for (const i of cells) {
+    // Alt geçidi yapılan ya da kalkan kavşakların rampaları da yeniden çizilsin
+    const unders = new Set<number>();
+    this.city.tiles.forEach((t, i) => t?.under !== undefined && unders.add(i));
+    const extra: number[] = [];
+    for (const j of new Set([...unders, ...this.unders])) if (unders.has(j) !== this.unders.has(j)) extra.push(j);
+    this.unders = unders;
+    for (const i of [...cells, ...extra]) {
       all.add(i);
       const x = i % SIZE, z = Math.floor(i / SIZE);
       for (const [dx, dz] of DIRS) if (inBounds(x + dx, z + dz)) all.add(idx(x + dx, z + dz));
@@ -1118,6 +1218,11 @@ export class CityView {
     this.objs.delete(i);
     this.tall.delete(i);
     this.hidden.delete(i);
+    const hole = this.holes.get(i);
+    if (hole) {
+      this.root.remove(hole);
+      this.holes.delete(i);
+    }
     this.dirty.add(this.chunkOf(i));
   }
 
@@ -1245,6 +1350,14 @@ export class CityView {
     }
     o.position.add(tileCenter(x + (n - 1) / 2, z + (n - 1) / 2));
     this.objs.set(i, o);
+    // Alt geçit rampası: zemindeki delik ayrı çizilir (birleştirilmez)
+    const ramp = t.kind === 'road' ? this.city.rampOf(i) : null;
+    if (ramp) {
+      const hole = underHole(ramp.dir);
+      hole.position.add(tileCenter(x, z));
+      this.root.add(hole);
+      this.holes.set(i, hole);
+    }
     // Yüksek binalar (gökdelenler, kuleler): kamera bunların tepesinin altına inmesin
     if (t.kind !== 'road' && t.kind !== 'rail' && t.kind !== 'park') {
       const top = new THREE.Box3().setFromObject(o).max.y;
@@ -1319,6 +1432,12 @@ export class CityView {
     });
     const deadEnd = [1, 2, 4, 8].includes(mask) && !(x === 0 && z === ENTRANCE_Z);
     const grade = this.city.get(x, z)?.grade ?? 0;
+    // Alt geçidin rampası: iç şeritler hendekle kavşağın altına iner
+    const ramp = this.city.rampOf(idx(x, z));
+    if (ramp) {
+      g.add(underRamp(ramp.dir));
+      return g;
+    }
     if (deadEnd) {
       // Çıkmaz sokak: yarım yol ve yuvarlak dönüş meydanı (lamba ve süs yok)
       g.add(culDeSac(mask, grade));
