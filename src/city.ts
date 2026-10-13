@@ -491,6 +491,94 @@ export class City {
     return null;
   }
 
+  // Alt geçit aracı: yol gibi düz çizilir, kavşak şart değil. Çizginin iki ucu rampa olur, aradaki kareler
+  // kapanır (caddenin ortadaki şeritleri yerin altından geçer). Boş kareye cadde yapılır, cadde olmayan yol
+  // caddeye çevrilir. Tek dokunuş: o kare kapanır, doğrultusundaki iki komşusu rampa olur.
+  underpassPlan(cells: number[]):
+    | { cells: number[]; axis: number; cover: number[]; ramps: [number, number]; widen: number[]; cost: number; tunnelCost: number }
+    | { error: string } {
+    if (!this.isUnlocked('underpass')) return { error: `Alt geçit şehir seviyesi ${this.unlockLevel('underpass')}'te açılır` };
+    const list = [...new Set(cells)];
+    if (list.length === 1) {
+      const i = list[0];
+      if (this.tiles[i]?.kind !== 'road') return { error: 'Alt geçidi yolun üstüne çiz' };
+      const mask = this.roadMask(i % SIZE, Math.floor(i / SIZE));
+      // Düz yolda yolun doğrultusu, kavşakta önce doğu-batı
+      const axes = mask === 0b0101 ? [0] : mask === 0b1010 ? [1] : [1, 0];
+      let first: string | null = null;
+      for (const axis of axes) {
+        const a = this.axisNeighbor(i, axis, -1), b = this.axisNeighbor(i, axis, 1);
+        if (a < 0 || b < 0) continue;
+        const p = this.underpassPlan([a, i, b]);
+        if (!('error' in p)) return p;
+        first ??= p.error;
+      }
+      return { error: first ?? 'Burada alt geçit için yer yok' };
+    }
+    if (list.length < 3) return { error: 'En az 3 kare çiz: iki uçta rampa, ortası yerin altında' };
+    const xs = list.map(i => i % SIZE), zs = list.map(i => Math.floor(i / SIZE));
+    const axis = zs.every(z => z === zs[0]) ? 1 : xs.every(x => x === xs[0]) ? 0 : -1;
+    if (axis < 0) return { error: 'Alt geçit düz çizilir (dönemeç olmaz)' };
+    // Aynı satırda ya da sütunda kare numarası sırası, yol boyunca sıradır
+    list.sort((p, q) => p - q);
+    for (let k = 1; k < list.length; k++) if (this.axisNeighbor(list[k - 1], axis, 1) !== list[k]) return { error: 'Alt geçit kesintisiz çizilmeli' };
+    const along = axis === 0 ? 0b0101 : 0b1010;
+    const widen: number[] = [];
+    for (const i of list) {
+      const t = this.tiles[i];
+      if (!this.isOwned(i)) return { error: 'Bu arazi henüz senin değil' };
+      if (isWater(i)) return { error: 'Suyun üstüne alt geçit yapılmaz' };
+      if (i % SIZE === 0) return { error: 'Şehrin giriş karesine yapılamaz' };
+      if (t && t.kind !== 'road') return { error: 'Alt geçit yolun ya da boş arazinin üstüne çizilir' };
+      if (t?.under !== undefined || (t && this.rampOf(i))) return { error: 'Burada zaten alt geçit var' };
+      if (t?.level === 1) return { error: 'Tren yolunun geçtiği yola alt geçit yapılmaz' };
+      if (!t) {
+        const e = this.check('avenue', i % SIZE, Math.floor(i / SIZE));
+        if (e) return { error: e };
+      }
+      if (!t || (t.grade ?? 0) < 2) widen.push(i);
+    }
+    // Çizildikten sonraki yol ağı: rampalar düz cadde olmalı ve dışarıdaki bir yola bağlanmalı
+    const inRun = new Set(list);
+    const roadAfter = (j: number) => inRun.has(j) || this.tiles[j]?.kind === 'road';
+    const maskAfter = (j: number) => {
+      const x = j % SIZE, z = Math.floor(j / SIZE);
+      let m = 0;
+      DIRS.forEach(([dx, dz], d) => {
+        if (inBounds(x + dx, z + dz) && roadAfter(idx(x + dx, z + dz))) m |= 1 << d;
+      });
+      return m;
+    };
+    const ramps: [number, number] = [list[0], list[list.length - 1]];
+    for (const [r, sgn] of [[ramps[0], -1], [ramps[1], 1]] as [number, number][]) {
+      const out = this.axisNeighbor(r, axis, sgn);
+      if (out < 0 || this.tiles[out]?.kind !== 'road') return { error: 'Alt geçidin iki ucu bir yola bağlanmalı' };
+      if (this.tiles[out]!.under !== undefined) return { error: 'Başka bir alt geçide çok yakın, rampa sığmaz' };
+      if (maskAfter(r) !== along) return { error: 'Uçlar (rampalar) kavşağa denk gelmesin, düz yolda bitir' };
+    }
+    const cover = list.slice(1, -1);
+    // Para: caddeye çevirme (yol aracıyla aynı fiyat) ve alt geçit (ilk kare 3.000, sonrakiler 1.500)
+    const widenCost = widen.reduce((sum, i) => sum + COST.avenue - (this.tiles[i] ? COST[ROAD_GRADES[this.tiles[i]!.grade ?? 0].tool] : 0), 0);
+    const tunnelCost = UNDERPASS.cost + UNDERPASS.extend * (cover.length - 1);
+    return { cells: list, axis, cover, ramps, widen, cost: widenCost + tunnelCost, tunnelCost };
+  }
+
+  drawUnderpass(cells: number[]): { done: number[]; error: string | null } {
+    const plan = this.underpassPlan(cells);
+    if ('error' in plan) return { done: [], error: plan.error };
+    if (this.money < plan.cost) return { done: [], error: 'Yeterli para yok' };
+    if (plan.widen.length) {
+      const r = this.apply('avenue', plan.widen);
+      if (r.done.length < plan.widen.length) return { done: r.done, error: r.error ?? 'Yol caddeye çevrilemedi' };
+    }
+    this.money -= plan.tunnelCost;
+    for (const i of plan.cover) this.tiles[i]!.under = plan.axis;
+    this.addXp(XP.build * (2 + plan.cover.length));
+    this.refresh();
+    const outer = [this.axisNeighbor(plan.ramps[0], plan.axis, -1), this.axisNeighbor(plan.ramps[1], plan.axis, 1)].filter(i => i >= 0);
+    return { done: [...plan.cells, ...outer], error: null };
+  }
+
   // Bu kare bir alt geçidin rampası mı? Öyleyse kapalı kısma doğru yön ve kapalı komşu kare
   rampOf(i: number): { j: number; dir: number } | null {
     if (this.tiles[i]?.kind !== 'road' || this.tiles[i]!.under !== undefined) return null;
@@ -1445,6 +1533,11 @@ export class City {
       return this.tiles[this.anchorOf(idx(x, z))]?.locked ? 'Şehir girişi yıkılamaz' : null;
     }
     if (!this.isUnlocked(tool)) return `Şehir seviyesi ${this.unlockLevel(tool)}'te açılır`;
+    if (tool === 'underpass') {
+      if (!inBounds(x, z)) return 'Harita dışına taşıyor';
+      const p = this.underpassPlan([idx(x, z)]);
+      return 'error' in p ? p.error : null;
+    }
     if (tool === 'tunnel') {
       if (!inBounds(x, z)) return 'Harita dışına taşıyor';
       const i = idx(x, z);
@@ -1602,6 +1695,7 @@ export class City {
 
   // Seçilen karelere uygula. Yapılan kareleri ya da hata mesajını döndürür.
   apply(tool: BuildTool, cells: number[]): { done: number[]; error: string | null } {
+    if (tool === 'underpass') return this.drawUnderpass(cells);
     let firstError: string | null = null;
     // Yıkarken büyük binanın herhangi bir karesi bütün binayı yıkar
     const targets = tool === 'bulldoze' ? [...new Set(cells.map(i => (this.tiles[i] ? this.anchorOf(i) : i)))] : cells;

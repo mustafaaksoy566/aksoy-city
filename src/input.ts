@@ -58,7 +58,7 @@ export class TileInput {
     const tool = this.h.tool();
     // Hizmet ve altyapı binaları tek tek yerleşir
     if (isService(tool) || isUtility(tool) || isIndustry(tool) || isDecor(tool)) return [idx(ex, ez)];
-    if (ROAD_TOOLS.includes(tool as never) || tool === 'rail' || tool === 'tunnel') {
+    if (ROAD_TOOLS.includes(tool as never) || tool === 'rail' || tool === 'tunnel' || tool === 'underpass') {
       if (Math.abs(ex - sx) >= Math.abs(ez - sz)) {
         const step = ex >= sx ? 1 : -1;
         for (let x = sx; x !== ex + step; x += step) out.push(idx(x, sz));

@@ -15,7 +15,7 @@ import { updateWater } from './water';
 import { Fireworks } from './fireworks';
 import { questDone } from './quests';
 import { loadModels } from './assets';
-import { CityView, tileCenter, gradedRoadModel, entranceTile } from './view';
+import { CityView, tileCenter, gradedRoadModel, entranceTile, underpassThumb } from './view';
 import { mergeStatic } from './batcher';
 import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
@@ -1142,6 +1142,15 @@ const input = new TileInput(renderer.domElement, camera, {
   preview(cells) {
     if (tool === 'pan') return;
     const build = tool as Exclude<Tool, 'pan'>;
+    // Alt geçit: çizginin tamamı birlikte değerlendirilir (iki uç rampa, ortası kapanır)
+    if (build === 'underpass') {
+      const plan = city.underpassPlan(cells);
+      const ok = !('error' in plan);
+      view.showRoadPreview([], 0);
+      view.showPreview((ok ? plan.cells : cells).map(i => ({ i, ok })));
+      setChip(ok ? `Alt geçit · ${plan.cover.length} kare yerin altında · 💰${fmt(plan.cost)}` : plan.error);
+      return;
+    }
     let items = cells.map(i => ({ i, ok: city.check(build, i % SIZE, Math.floor(i / SIZE)) === null }));
     // Yeraltında yıkma: sadece tünel olan kareler silinir
     if (build === 'bulldoze' && metroView.visible) items = cells.map(i => ({ i, ok: city.metro[i] === 1 }));
@@ -1194,7 +1203,7 @@ const input = new TileInput(renderer.domElement, camera, {
     if (tool !== 'tunnel') view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
     afterChange();
-    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && tool !== 'tunnel' && !ON_SEA.includes(tool) && res.done.some(i => !city.isConnected(i))) {
+    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && tool !== 'tunnel' && tool !== 'underpass' && !ON_SEA.includes(tool) && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
   },
@@ -1691,6 +1700,7 @@ function makeMenuPictures() {
     ['com', makeModel(RES_LEVELS[4].models[0])],
     ['park', makePark(0, 0.3)],
     ['tunnel', tunnelThumb()],
+    ['underpass', underpassThumb()],
     ['hall', makeHall()],
   ];
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);

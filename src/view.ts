@@ -592,6 +592,17 @@ function underHole(dirToJunction: number) {
   return mesh;
 }
 
+// Menü resmi: alt geçit (doğu-batı doğrultusunda iki rampa ve aradaki kapalı kare)
+export function underpassThumb() {
+  const g = new THREE.Group();
+  const a = underRamp(1);
+  a.position.x = -1;
+  const b = underRamp(3);
+  b.position.x = 1;
+  g.add(a, underCover(1, 7), b);
+  return g;
+}
+
 // Menü resmi için: süslü düz yol parçası (grade: 0 yol, 1 bulvar, 2 cadde)
 // Şehrin girişinden göbek kavşağa giden yolun şehir dışındaki kareleri: şehirdeki düz yolun aynısı (x doğrultusunda)
 export function entranceTile(grade: number, along: number) {
