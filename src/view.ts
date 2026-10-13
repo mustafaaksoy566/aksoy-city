@@ -1182,7 +1182,9 @@ export class CityView {
   // Hizmet haritası: şehir beyazlaşır, hizmet alanı yeşil, binalar yeşil (hizmet var) ya da kırmızı (yok)
   private mapVeil: THREE.Mesh;
   private mapArea: THREE.InstancedMesh;
-  private mapBldg: THREE.InstancedMesh;
+  // Hizmet haritasında beyaz örtünün üstünde kalanlar: hizmeti veren binalar (kendi renkleriyle), renklenen evler, halkalar
+  private mapOverlay = new THREE.Group();
+  private overlayMats = new Map<string, THREE.Material>();
   private pops: { obj: THREE.Object3D; t: number; i: number }[] = [];
   // Yapılmakta olan binalar: iskele içinde yerden yükselir
   private sites: { obj: THREE.Object3D; site: THREE.Group; t: number; i: number; scale: THREE.Vector3 }[] = [];
@@ -1229,21 +1231,13 @@ export class CityView {
     this.mapVeil.visible = false;
     this.mapArea = new THREE.InstancedMesh(
       new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.42, depthWrite: false }),
-      SIZE * ROWS,
-    );
-    this.mapBldg = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0),
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.62, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.3, depthWrite: false }),
       SIZE * ROWS,
     );
     this.mapArea.renderOrder = 950;
-    this.mapBldg.renderOrder = 960;
-    for (const m of [this.mapArea, this.mapBldg]) {
-      m.count = 0;
-      m.frustumCulled = false;
-    }
-    this.root.add(this.mapVeil, this.mapArea, this.mapBldg);
+    this.mapArea.count = 0;
+    this.mapArea.frustumCulled = false;
+    this.root.add(this.mapVeil, this.mapArea, this.mapOverlay);
     this.root.add(this.land);
     this.root.add(river());
     this.root.add(this.spans);
@@ -1919,44 +1913,165 @@ export class CityView {
   }
 
   // Hizmet haritasını göster (null: kapat). area: hizmetin ulaştığı kareler; bldgs: renklendirilecek binalar
-  showServiceMap(map: { area: number[]; color: string; bldgs: { i: number; ok: boolean }[] } | null) {
+  // Hizmet haritası (SimCity gibi): şehir beyaza boyanır; hizmeti veren binalar (santral, pompa, itfaiye...) kendi
+  // renkleriyle örtünün üstünde kalır ve altlarında yanıp sönen halka olur (hizmet nereden geliyor belli olsun);
+  // evlerin kendisi renklenir (hizmet var açık yeşil, yok kırmızı); hizmetin ulaştığı yer yerde açık yeşil.
+  showServiceMap(map: { area: number[]; color: string; bldgs: { i: number; ok: boolean }[]; sources: number[] } | null) {
     this.mapVeil.visible = !!map;
     this.mapArea.count = 0;
-    this.mapBldg.count = 0;
+    this.mapJob = null;
+    for (const o of [...this.mapOverlay.children]) {
+      this.mapOverlay.remove(o);
+      if (o.userData.own) (o as THREE.Mesh).geometry?.dispose();
+    }
+    this.mapOverlay.userData.rings = [];
     if (!map) return;
     const c = new THREE.Color(map.color);
     map.area.forEach((i, n) => {
-      this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.05);
+      this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.045);
       this.tmp.updateMatrix();
       this.mapArea.setMatrixAt(n, this.tmp.matrix);
       this.mapArea.setColorAt(n, c);
     });
     this.mapArea.count = map.area.length;
-    const okColor = new THREE.Color('#3fcf4a');
-    const badColor = new THREE.Color('#ff3b30');
-    const box = new THREE.Box3();
-    const size = new THREE.Vector3();
-    let n = 0;
-    for (const { i, ok } of map.bldgs) {
+    this.mapArea.instanceMatrix.needsUpdate = true;
+    if (this.mapArea.instanceColor) this.mapArea.instanceColor.needsUpdate = true;
+    // Evler biçimleriyle renklenir: her karede birkaç tanesi hazırlanır (harita hemen açılsın, telefon takılmasın)
+    this.mapJob = { items: map.bldgs, k: 0 };
+    // Hizmeti veren binalar: kendi renkleriyle (aynı geometri, malzemeler örtünün üstünde çizilsin diye kopya)
+    for (const i of map.sources) {
       const o = this.objs.get(i);
       if (!o) continue;
       o.updateMatrixWorld(true);
-      box.setFromObject(o);
-      if (box.isEmpty()) continue;
-      box.getSize(size);
-      this.tmp.position.set((box.min.x + box.max.x) / 2, Math.max(0, box.min.y), (box.min.z + box.max.z) / 2);
-      this.tmp.scale.set(size.x * 1.03 + 0.02, Math.max(0.05, box.max.y) * 1.02 + 0.01, size.z * 1.03 + 0.02);
-      this.tmp.updateMatrix();
-      this.mapBldg.setMatrixAt(n, this.tmp.matrix);
-      this.mapBldg.setColorAt(n, ok ? okColor : badColor);
-      n++;
+      const copy = o.clone(true);
+      copy.matrixAutoUpdate = false;
+      copy.matrix.copy(o.matrixWorld);
+      copy.traverse(n => {
+        const m = n as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.material = Array.isArray(m.material) ? m.material.map(x => this.overMat(x)) : this.overMat(m.material);
+        m.renderOrder = 970;
+      });
+      this.mapOverlay.add(copy);
+      // Yanıp sönen halka
+      const box = new THREE.Box3().setFromObject(o);
+      const r = Math.max(0.35, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.62);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.86, r, 40).rotateX(-Math.PI / 2), this.ringMat(map.color));
+      ring.position.set((box.min.x + box.max.x) / 2, 0.06, (box.min.z + box.max.z) / 2);
+      ring.renderOrder = 975;
+      ring.userData.own = true;
+      this.mapOverlay.add(ring);
+      (this.mapOverlay.userData.rings as THREE.Mesh[]).push(ring);
     }
-    this.tmp.scale.set(1, 1, 1);
-    this.mapBldg.count = n;
-    for (const m of [this.mapArea, this.mapBldg]) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  }
+  private mapJob: { items: { i: number; ok: boolean }[]; k: number } | null = null;
+  private bakeCache = new WeakMap<THREE.Object3D, Float32Array>();
+  // Binanın üçgenleri dünya konumunda (sadece köşe konumları; gölgelendirme düz yüzlerden hesaplanır)
+  private bakePositions(o: THREE.Object3D) {
+    const hit = this.bakeCache.get(o);
+    if (hit) return hit;
+    o.updateMatrixWorld(true);
+    const parts: Float32Array[] = [];
+    let total = 0;
+    const v = new THREE.Vector3();
+    o.traverse(n => {
+      const m = n as THREE.Mesh;
+      if (!m.isMesh || !m.visible || (m as THREE.InstancedMesh).isInstancedMesh) return;
+      const p = m.geometry.attributes.position as THREE.BufferAttribute | undefined;
+      if (!p) return;
+      const idx = m.geometry.index;
+      const tr = new Float32Array(p.count * 3);
+      for (let k = 0; k < p.count; k++) {
+        v.fromBufferAttribute(p, k).applyMatrix4(m.matrixWorld);
+        tr[k * 3] = v.x;
+        tr[k * 3 + 1] = v.y;
+        tr[k * 3 + 2] = v.z;
+      }
+      if (!idx) {
+        parts.push(tr);
+        total += tr.length;
+        return;
+      }
+      const out = new Float32Array(idx.count * 3);
+      for (let k = 0; k < idx.count; k++) {
+        const j = idx.getX(k) * 3;
+        out[k * 3] = tr[j];
+        out[k * 3 + 1] = tr[j + 1];
+        out[k * 3 + 2] = tr[j + 2];
+      }
+      parts.push(out);
+      total += out.length;
+    });
+    const all = new Float32Array(total);
+    let off = 0;
+    for (const a of parts) {
+      all.set(a, off);
+      off += a.length;
     }
+    this.bakeCache.set(o, all);
+    return all;
+  }
+  // Sıradaki evleri renkli parçalara ekle (karede ~6 ms)
+  private stepMapJob() {
+    const J = this.mapJob;
+    if (!J) return;
+    const t0 = performance.now();
+    const acc: Record<'ok' | 'bad', Float32Array[]> = { ok: [], bad: [] };
+    while (J.k < J.items.length && performance.now() - t0 < 6) {
+      const { i, ok } = J.items[J.k++];
+      const o = this.objs.get(i);
+      if (o) acc[ok ? 'ok' : 'bad'].push(this.bakePositions(o));
+    }
+    for (const key of ['ok', 'bad'] as const) {
+      const list = acc[key];
+      if (!list.length) continue;
+      const all = new Float32Array(list.reduce((s, a) => s + a.length, 0));
+      let off = 0;
+      for (const a of list) {
+        all.set(a, off);
+        off += a.length;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(all, 3));
+      const mesh = new THREE.Mesh(geo, this.tintMat(key === 'ok' ? '#6fe07a' : '#ff5a4f'));
+      mesh.renderOrder = 960;
+      mesh.frustumCulled = false;
+      mesh.userData.own = true;
+      this.mapOverlay.add(mesh);
+    }
+    if (J.k >= J.items.length) this.mapJob = null;
+  }
+  // Örtünün üstünde çizilen malzeme kopyası (aynı yüzeyde titreşmesin diye biraz öne itilir)
+  private overMat(m: THREE.Material) {
+    let o = this.overlayMats.get(m.uuid);
+    if (!o) {
+      o = m.clone();
+      o.transparent = true;
+      o.depthWrite = false;
+      o.polygonOffset = true;
+      o.polygonOffsetFactor = -1;
+      o.polygonOffsetUnits = -4;
+      this.overlayMats.set(m.uuid, o);
+    }
+    return o;
+  }
+  private tintMat(color: string) {
+    const key = 'tint' + color;
+    let m = this.overlayMats.get(key);
+    if (!m) {
+      m = new THREE.MeshLambertMaterial({ color, flatShading: true, transparent: true, opacity: 0.82, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 });
+      this.overlayMats.set(key, m);
+    }
+    return m;
+  }
+  private ringMat(color: string) {
+    const key = 'ring' + color;
+    let m = this.overlayMats.get(key);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false });
+      this.overlayMats.set(key, m);
+    }
+    return m;
   }
 
   showCoverage(cells: number[], color: string) {
@@ -1974,6 +2089,13 @@ export class CityView {
 
   update(dt: number) {
     this.time += dt;
+    this.stepMapJob();
+    // Hizmet haritasında kaynak binaların halkası yanıp söner
+    for (const ring of (this.mapOverlay.userData.rings as THREE.Mesh[] | undefined) ?? []) {
+      const p = (this.time * 0.8) % 1;
+      ring.scale.setScalar(0.85 + p * 0.35);
+      ((ring.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - p));
+    }
     // İnşaat: iskele kurulur, bina yükselir, iskele sökülür (toz kalkar, vinç döner)
     if (this.sites.length) this.shadowDirty = true;
     this.sites = this.sites.filter(s => {

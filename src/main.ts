@@ -735,15 +735,13 @@ function renderServiceMap() {
     if (good) ok++;
     else bad++;
   });
-  // Hizmeti veren binalar da yeşil
-  let sources = 0;
+  // Hizmeti veren binalar kendi renkleriyle görünür (hizmet nereden geliyor belli olsun)
+  const srcs: number[] = [];
   city.tiles.forEach((t, i) => {
-    if (t && t.kind !== 'part' && mapKindOf(i) === k) {
-      bldgs.push({ i, ok: true });
-      sources++;
-    }
+    if (t && t.kind !== 'part' && mapKindOf(i) === k) srcs.push(i);
   });
-  view.showServiceMap({ area: fk ? [] : city.coverageOf(k as ServiceKind), color: '#3fcf4a', bldgs });
+  const sources = srcs.length;
+  view.showServiceMap({ area: fk ? [] : city.coverageOf(k as ServiceKind), color: '#3fcf4a', bldgs, sources: srcs });
   const s = fk ? city.service[fk] : null;
   setServiceBar(
     {
