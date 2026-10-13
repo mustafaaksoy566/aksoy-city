@@ -14,6 +14,7 @@ import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
 const needsLive = (o: THREE.Object3D) =>
   !!(o.userData.spin || o.userData.smoke || o.userData.blink || o.userData.wheel || o.userData.ship || o.userData.carousel || o.userData.drop || o.userData.swing || o.userData.spray || o.userData.beam || o.userData.bob || o.userData.animals || o.getObjectByName('flames'));
 import { makeModel, ROAD_COLORS } from './assets';
+import { arcBand, arcWall } from './roads';
 import { makeUtility, animateUtility } from './utilities';
 import { makeService, animateService, makeHall } from './services';
 import { makeIndustry, setWorking, animatePort } from './industry';
@@ -47,6 +48,51 @@ const STREET = {
   head: new THREE.BoxGeometry(0.07, 0.012, 0.03),
   lens: new THREE.BoxGeometry(0.056, 0.004, 0.022),
 };
+// Gece: lambanın etrafında parlak hale, altındaki yolda sıcak sarı ışık havuzu (DayNight 'glow' adlı malzemeleri
+// gece görünür yapar). Yukarıdan bakınca lambanın camı görünmediği için yandığı böyle anlaşılır.
+function radialTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d')!;
+  const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = gr;
+  x.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const GLOW_TEX = radialTexture();
+function glowMat(color: string, base: number) {
+  const m = new THREE.MeshBasicMaterial({ map: GLOW_TEX, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  m.name = 'glow';
+  m.userData.base = base;
+  m.visible = false;
+  return m;
+}
+const LAMP_POOL = glowMat('#ffc966', 0.85);
+const LAMP_HALO = glowMat('#fff0c0', 0.85);
+const POOL_GEO = new THREE.PlaneGeometry(0.44, 0.44).rotateX(-Math.PI / 2);
+const HALO_GEO = new THREE.PlaneGeometry(0.09, 0.09);
+// Hale her yönden görünsün diye çapraz iki düzlem + yatay bir düzlem
+function lampGlow(g: THREE.Object3D, x: number, y: number, z: number, groundY: number) {
+  const pool = new THREE.Mesh(POOL_GEO, LAMP_POOL);
+  pool.position.set(x, groundY, z);
+  g.add(pool);
+  for (const r of [0, Math.PI / 2]) {
+    const h = new THREE.Mesh(HALO_GEO, LAMP_HALO);
+    h.position.set(x, y, z);
+    h.rotation.y = r;
+    g.add(h);
+  }
+  const top = new THREE.Mesh(HALO_GEO, LAMP_HALO);
+  top.position.set(x, y, z);
+  top.rotation.x = -Math.PI / 2;
+  g.add(top);
+}
+
 export function streetLight(dx: number, dz: number, rot: number) {
   const g = new THREE.Group();
   g.position.set(dx, 0.03, dz);
@@ -65,6 +111,8 @@ export function streetLight(dx: number, dz: number, rot: number) {
   add(STREET.reach, POLE_MAT, -0.095, 0.48, 0);
   add(STREET.head, POLE_MAT, -0.15, 0.475, 0);
   add(STREET.lens, lampMat, -0.15, 0.468, 0);
+  // Işık havuzu yolun üstünde (yol 0.035, lamba kaldırımda 0.03'te duruyor)
+  lampGlow(g, -0.15, 0.462, 0, 0.041 - 0.03);
   return g;
 }
 
@@ -114,6 +162,7 @@ function roadExtras(grade: number, alongX: boolean, along: number, nearJunction:
       arm.scale.x = 1.7;
       add(STREET.head, POLE_MAT, s * 0.13, h + 0.055, 0);
       add(STREET.lens, lampMat, s * 0.13, h + 0.048, 0);
+      lampGlow(g, s * 0.13, h + 0.042, 0, grade === 2 ? 0.0545 : 0.041);
     }
   };
   if (grade === 1) {
@@ -259,8 +308,116 @@ function culDeSac(mask: number, grade: number) {
 }
 
 // Yükseltilmiş yolların kavşak ve dönemeçleri: caddede geniş asfalt ve yaya geçitleri, bulvarda tuğla köşeler ve çiçeklikler
+// Bulvar ve caddenin virajı: kesit (kaldırım, refüj ya da bariyer, şerit çizgileri) dönemeci takip eder.
+// (cx, cz) iç köşe; a0..a1 karenin içine bakan çeyrek. Virajın dış köşesi boş kalır (yandaki zemin görünür).
+const CURVE_COLORS = { brick: '#c98a6a', lawn: '#6cc35a', curb: '#d4cec1', stone: '#d9d4c8', paint: '#f4f4f0', yellow: '#f2c14e' };
+const curveVC = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+function gradedCurve(g: THREE.Group, grade: number, cx: number, cz: number) {
+  const a0 = Math.atan2(-cz, -cx) - Math.PI / 4, a1 = a0 + Math.PI / 2;
+  const put = (geo: THREE.BufferGeometry) => {
+    const m = new THREE.Mesh(geo, curveVC);
+    m.receiveShadow = true;
+    g.add(m);
+  };
+  // Kesitin bir bandı: üst yüz ve iki yan yüz
+  const band = (r0: number, r1: number, y0: number, y1: number, color: string, side = color, seg = 20) => {
+    put(arcBand(cx, cz, r0, r1, a0, a1, y1, color, seg));
+    if (r0 > 0.001) put(arcWall(cx, cz, r0, a0, a1, y0, y1, false, side, seg));
+    put(arcWall(cx, cz, r1, a0, a1, y0, y1, true, side, seg));
+  };
+  const C = CURVE_COLORS;
+  if (grade === 2) {
+    // Cadde: yükseltilmiş asfalt, iki yanda taş bordür, şerit çizgileri, ortada beton bariyer
+    put(arcBand(cx, cz, 0.07, 0.93, a0, a1, 0.052, ROAD_COLORS.asphalt, 24));
+    band(0.93, 1, 0, 0.06, C.stone, '#b9b2a3');
+    band(0, 0.07, 0.035, 0.06, C.stone, '#b9b2a3', 8);
+    for (const r of [0.11, 0.89]) put(arcBand(cx, cz, r - 0.006, r + 0.006, a0, a1, 0.0535, C.paint, 20));
+    for (const r of [0.47, 0.53]) put(arcBand(cx, cz, r - 0.006, r + 0.006, a0, a1, 0.0535, C.yellow, 16));
+    for (const r of [0.3, 0.7]) {
+      for (let k = 0; k < 3; k++) {
+        const t = a0 + ((a1 - a0) * (k + 0.5)) / 3, half = 0.08 / r;
+        put(arcBand(cx, cz, r - 0.006, r + 0.006, t - half, t + half, 0.0535, C.paint, 4));
+      }
+    }
+    band(0.4825, 0.5175, 0.052, 0.081, C.curb, '#bdb6a8');
+  } else {
+    // Bulvar: iki yanda tuğla kaldırım, ortada bordürlü çimen refüj ve çiçekler, dış kaldırımda ağaç
+    band(0.902, 1, 0, 0.054, C.brick, '#a8705a');
+    band(0, 0.1, 0.035, 0.054, C.brick, '#a8705a', 8);
+    band(0.43, 0.57, 0.035, 0.06, C.curb, '#bdb6a8');
+    band(0.44, 0.56, 0.06, 0.065, C.lawn, '#4f9a3e');
+    for (let k = 0; k < 7; k++) {
+      const t = a0 + ((a1 - a0) * (k + 0.5)) / 7, r = 0.5 + (k % 2 ? 0.03 : -0.03);
+      const f = new THREE.Mesh(roadDeco.geo.flower, roadDeco.flowers[k % roadDeco.flowers.length]);
+      f.position.set(cx + Math.cos(t) * r, 0.072, cz + Math.sin(t) * r);
+      g.add(f);
+    }
+    const tm = (a0 + a1) / 2;
+    g.add(prop(PROPS.treeStreet, cx + Math.cos(tm) * 0.95, cz + Math.sin(tm) * 0.95, Math.floor(tm * 100), 0.45));
+  }
+}
+// Sokak ayrıntıları (karede rastgele): rögar kapağı, bordür dibinde yağmur ızgarası, yama asfalt.
+// Asfalttan (0.035) ve çizgilerden (0.0365) belirgin yüksekte; yamalar çizgilere değmez.
+const DETAIL = {
+  rim: new THREE.MeshStandardMaterial({ color: '#5b6170', roughness: 0.6, metalness: 0.3 }),
+  lid: new THREE.MeshStandardMaterial({ color: '#2d313c', roughness: 0.7, metalness: 0.3 }),
+  grate: new THREE.MeshStandardMaterial({ color: '#1f2229', roughness: 0.8 }),
+  patch: new THREE.MeshStandardMaterial({ color: '#4a5064', roughness: 0.95 }),
+  rimGeo: new THREE.CylinderGeometry(0.032, 0.032, 0.0025, 18),
+  lidGeo: new THREE.CylinderGeometry(0.026, 0.026, 0.0045, 18),
+  grateGeo: new THREE.BoxGeometry(0.02, 0.0035, 0.05),
+  slotGeo: new THREE.BoxGeometry(0.014, 0.0045, 0.004),
+};
+function streetDetails(x: number, z: number, alongX: boolean) {
+  const g = new THREE.Group();
+  const put = (geo: THREE.BufferGeometry, m: THREE.Material, px: number, y: number, pz: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(px, y + (geo as THREE.BoxGeometry).parameters.height / 2, pz);
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  };
+  const h = hash(x, z, 11), side = hash(x, z, 12) < 0.5 ? -1 : 1;
+  const along = (hash(x, z, 13) - 0.5) * 0.7;
+  if (h < 0.35) {
+    // Rögar kapağı (şeridin ortasında)
+    put(DETAIL.rimGeo, DETAIL.rim, side * 0.15, 0.035, along);
+    put(DETAIL.lidGeo, DETAIL.lid, side * 0.15, 0.035, along);
+  } else if (h < 0.6) {
+    // Yağmur ızgarası (bordürün dibinde, oluğun üstünde)
+    const gx = side * (0.45 - 0.012);
+    put(DETAIL.grateGeo, DETAIL.grate, gx, 0.0365, along);
+    for (let k = 0; k < 4; k++) put(DETAIL.slotGeo, DETAIL.rim, gx, 0.0365, along - 0.018 + k * 0.012);
+  } else if (h < 0.75) {
+    // Yama asfalt (orta çizgi ile kenar çizgisi arasında)
+    const w = 0.08 + hash(x, z, 14) * 0.1, d = 0.1 + hash(x, z, 15) * 0.2;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.002, d), DETAIL.patch);
+    mesh.position.set(side * (0.03 + w / 2 + hash(x, z, 16) * (0.24 - w)), 0.036, along * 0.5);
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  }
+  if (alongX) g.rotation.y = Math.PI / 2;
+  return g;
+}
+
+// Köşe kaldırımı (T ve dörtlü kavşakta): karenin köşesinde çeyrek daire
+function cornerDisc(g: THREE.Group, cx: number, cz: number, r: number, y0: number, y1: number, color: string, side: string) {
+  const a0 = Math.atan2(-cz, -cx) - Math.PI / 4, a1 = a0 + Math.PI / 2;
+  for (const geo of [arcBand(cx, cz, 0, r, a0, a1, y1, color, 8), arcWall(cx, cz, r, a0, a1, y0, y1, true, side, 8)]) {
+    const m = new THREE.Mesh(geo, curveVC);
+    m.receiveShadow = true;
+    g.add(m);
+  }
+}
+
 function junctionExtras(grade: number, mask: number) {
   const g = new THREE.Group();
+  // İki komşu yönü bağlayan viraj: kesit dönemeci takip eder
+  const dirs = [0, 1, 2, 3].filter(d => mask & (1 << d));
+  if (dirs.length === 2 && (dirs[1] - dirs[0]) % 2 === 1) {
+    const [a, b] = dirs.map(d => DIRS[d]);
+    gradedCurve(g, grade, (a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5);
+    return g;
+  }
   const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rot = 0) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(x, y, z);
@@ -286,10 +443,10 @@ function junctionExtras(grade: number, mask: number) {
         add(new THREE.BoxGeometry(0.96, 0.014, 0.07), roadDeco.stone, dx * 0.465, 0.053, dz * 0.465, rot);
       }
     }
-    for (const [sx, sz] of corners) add(new THREE.BoxGeometry(0.07, 0.014, 0.07), roadDeco.stone, sx * 0.465, 0.053, sz * 0.465);
+    for (const [sx, sz] of corners) cornerDisc(g, sx * 0.5, sz * 0.5, 0.07, 0.035, 0.06, CURVE_COLORS.stone, '#b9b2a3');
   } else {
     for (const [sx, sz] of corners) {
-      add(new THREE.BoxGeometry(0.12, 0.004, 0.12), roadDeco.brick, sx * 0.44, 0.053, sz * 0.44);
+      cornerDisc(g, sx * 0.5, sz * 0.5, 0.12, 0.035, 0.054, CURVE_COLORS.brick, '#a8705a');
       // Köşede çiçeklik
       add(new THREE.CylinderGeometry(0.035, 0.03, 0.04, 10), roadDeco.brick, sx * 0.44, 0.075, sz * 0.44);
       for (let k = 0; k < 3; k++) add(roadDeco.geo.flower, roadDeco.flowers[k + (sx > 0 ? 1 : 0)], sx * 0.44 + (k - 1) * 0.018, 0.1, sz * 0.44 + ((k % 2) - 0.5) * 0.015);
@@ -383,6 +540,45 @@ function underRamp(dirToJunction: number) {
   g.rotation.y = Math.atan2(DIRS[dirToJunction][0], DIRS[dirToJunction][1]);
   return g;
 }
+// Alt geçidin kapalı karesi (uzatılmış alt geçitte düz cadde): iki yanda yukarıda kalan yan yollar, ortada
+// tünelin üstü bordürlü çim refüj, havalandırma kapakları ve çalılar. İç şeritteki arabalar altta, görünmez.
+// axis 0: yol kuzey-güney (z boyunca), 1: doğu-batı.
+const COVER = {
+  vent: new THREE.MeshStandardMaterial({ color: '#7d8590', roughness: 0.6, metalness: 0.4 }),
+  slot: new THREE.MeshStandardMaterial({ color: '#2a2f38', roughness: 0.9 }),
+};
+function underCover(axis: number, seed: number) {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = mesh.receiveShadow = true;
+    g.add(mesh);
+    return mesh;
+  };
+  const { W, top } = UNDER;
+  const T = 0.035, half = W + T;
+  // Yan yollar, kaldırım ve çizgiler (rampadakiyle aynı)
+  for (const s of [-1, 1]) {
+    add(new THREE.BoxGeometry(0.43 - half, top + 0.03, 1), roadDeco.asphalt, s * ((half + 0.43) / 2), (top - 0.03) / 2, 0).castShadow = false;
+    add(roadDeco.geo.curbC, roadDeco.stone, s * 0.465, 0.053, 0);
+    add(roadDeco.geo.edge, roadDeco.paint, s * 0.39, 0.0525, 0);
+    add(roadDeco.geo.edge, roadDeco.paint, s * (half + 0.012), 0.0525, 0);
+    // Refüjün beton kenarı
+    add(new THREE.BoxGeometry(0.02, top + 0.012, 1), UNDER.concrete, s * (half - 0.01), (top + 0.012) / 2, 0);
+  }
+  // Tünelin üstü: çim
+  add(new THREE.BoxGeometry(half * 2 - 0.04, top + 0.008, 1), roadDeco.lawn, 0, (top + 0.008) / 2, 0).castShadow = false;
+  // Havalandırma kapakları (ızgaralı) ve çalılar
+  for (const z of [-0.28, 0.22]) {
+    add(new THREE.BoxGeometry(0.12, 0.02, 0.09), COVER.vent, 0, top + 0.018, z);
+    for (let k = 0; k < 5; k++) add(new THREE.BoxGeometry(0.1, 0.0035, 0.008), COVER.slot, 0, top + 0.0285, z - 0.034 + k * 0.017);
+  }
+  for (const [x, z] of [[-0.12, -0.05], [0.12, 0.02], [-0.1, 0.42], [0.11, -0.42]] as [number, number][]) g.add(prop(PROPS.bush, x, z, seed + x * 10, 0.55));
+  if (axis === 1) g.rotation.y = Math.PI / 2;
+  return g;
+}
+
 // Hendeğin ağzındaki "delik" (birleştirilmez, kendi çizim sırasıyla durur)
 function underHole(dirToJunction: number) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(UNDER.W * 2, 1).rotateX(-Math.PI / 2), HOLE_MAT);
@@ -1455,6 +1651,12 @@ export class CityView {
       g.add(underRamp(ramp.dir));
       return g;
     }
+    // Uzatılmış alt geçidin kapalı düz karesi
+    const cover = this.city.get(x, z)?.under;
+    if (cover !== undefined && straight) {
+      g.add(underCover(cover, Math.floor(hash(x, z, 9) * 100)));
+      return g;
+    }
     if (deadEnd) {
       // Çıkmaz sokak: yarım yol ve yuvarlak dönüş meydanı (lamba ve süs yok)
       g.add(culDeSac(mask, grade));
@@ -1464,6 +1666,7 @@ export class CityView {
     r.rotation.y = (p.k * Math.PI) / 2;
     g.add(r);
     if (straight && grade) g.add(roadExtras(grade, alongX, alongX ? x : z, nearJunction, Math.floor(hash(x, z, 5) * 1000)));
+    if (straight && !grade && !nearJunction) g.add(streetDetails(x, z, alongX));
     if (straight) {
       const along = alongX ? x : z;
       const side = hash(x, z) < 0.5 ? 1 : -1;

@@ -40,6 +40,8 @@ export interface CardActions {
   ship(n: number): void;
   upgradeRoad(i: number): void;
   underpass(i: number): void;
+  underpassExtend(i: number): void;
+  underpassSwitch(i: number): void;
   renewOrders(): void;
 }
 
@@ -97,10 +99,23 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
   // Alt geçit: kavşakta caddenin iç şeritleri ışıksız alttan geçer, dış şeritler yukarıda yan yol olarak kalır
   const x = i % SIZE, z = Math.floor(i / SIZE);
   const junction = [1, 2, 4, 8].filter(b => city.roadMask(x, z) & b).length >= 3;
-  if (city.rampOf(i)) card.subtitle = 'Alt geçit rampası';
+  if (city.rampOf(i)) {
+    // Rampa: alt geçit buradan ileriye uzatılabilir (rampa kapanır, ötesindeki kavşakların da altından geçer)
+    card.subtitle = 'Alt geçit rampası';
+    const plan = city.extendPlan(i);
+    if ('error' in plan) card.lines!.push({ ok: false, text: `Uzatma: ${plan.error}` });
+    else {
+      card.lines!.push({ text: `➕ Alt geçidi buradan ${plan.cover.length} kare uzatabilirsin; yeni rampa ileride olur.` });
+      card.actions = [{ label: `➕ Alt geçidi uzat  💰${fmt(plan.cost)}`, enabled: city.money >= plan.cost, primary: true, run: () => act.underpassExtend(i) }];
+    }
+  }
   if (t.under !== undefined) {
-    card.subtitle = 'Alt geçitli kavşak';
-    card.lines!.push({ ok: true, text: 'Alt geçit var: caddenin iç şeritleri ışıkta beklemeden alttan geçer, dönmek isteyenler yukarıdaki yan yolu kullanır.' });
+    const run = city.underRun(i)!;
+    card.subtitle = junction ? 'Alt geçitli kavşak' : 'Alt geçit tüneli';
+    card.lines!.push({ ok: true, text: `Alt geçit var (${run.tiles.length} kare): caddenin iç şeritleri ışıkta beklemeden alttan geçer, dönmek isteyenler yukarıdaki yan yolu kullanır. Uzatmak için rampasına dokun.` });
+    if (city.otherAxisBlocker(i) === null) {
+      card.actions = [{ label: '↻ Alt geçidi öbür caddeye al', enabled: true, primary: false, run: () => act.underpassSwitch(i) }];
+    }
   } else if (junction) {
     const opt = city.underpassOption(i);
     const lockUp = city.level < UNDERPASS.level;

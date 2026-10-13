@@ -74,8 +74,9 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
         const own = mat.vertexColors && !!mesh.geometry.attributes.color;
         push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], own ? undefined : mat.color));
       } else if (kind === 'tex') {
-        // Aynı doku atlası tek malzeme olarak yüklenir (assets.ts), o yüzden malzemeye göre grupla
-        push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'uv']));
+        // Dokulu malzemeye göre grupla; köşe renkli dokulu modeller (yollar) renklerini korusun
+        const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
+        push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, keep));
       } else {
         // Köşe renkli ayrı malzemeler (ör. arabaların farları) renklerini korusun
         const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];

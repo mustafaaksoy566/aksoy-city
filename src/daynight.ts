@@ -50,6 +50,8 @@ export function phase(tod: number) {
 export class DayNight {
   private glowing = new Set<THREE.MeshStandardMaterial>();
   private lights = new Set<THREE.MeshStandardMaterial>();
+  // Gece görünen ışık haleleri ve yerdeki ışık havuzları (saydam, ışık ekleyen); userData.base: en parlak hâli
+  private halos = new Set<THREE.Material>();
   private scanTimer = 0;
   private lastNight = -1;
   readonly dome = makeDome();
@@ -64,6 +66,7 @@ export class DayNight {
   private scan() {
     this.scene.traverse(o => {
       const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m && (o as THREE.Mesh).isMesh && m.name === 'glow') this.halos.add(m);
       if (!m || !(o as THREE.Mesh).isMesh || !('emissive' in m)) return;
       if (m.name === 'window') this.glowing.add(m);
       else if (m.name === 'lamp') this.lights.add(m);
@@ -101,6 +104,10 @@ export class DayNight {
       for (const m of this.lights) {
         m.emissive.copy(LIGHT_GLOW);
         m.emissiveIntensity = night * 2;
+      }
+      for (const m of this.halos) {
+        m.opacity = night * ((m.userData.base as number | undefined) ?? 0.6);
+        m.visible = night > 0.03;
       }
     }
   }

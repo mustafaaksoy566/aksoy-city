@@ -303,7 +303,7 @@ function port() {
   g.add(mergeStatic([st]));
   // Yanaşmış kargo gemisi (suda, rıhtıma paralel)
   const ship = new THREE.Group();
-  const hull = makeBoat('container', 2.6 * k);
+  const hull = makeBoat('container', 2.6 * k, false);
   hull.rotation.y = Math.PI / 2;
   ship.add(hull);
   ship.position.set(0, -0.045, 0.5 + k);

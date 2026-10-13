@@ -451,6 +451,35 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  underpassExtend(i) {
+    const plan = city.extendPlan(i);
+    const err = city.extendUnderpass(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      city.refresh();
+      view.refresh('error' in plan ? [i] : [...plan.cover, plan.ramp], false);
+      play('grow', 0.6);
+      toast('🚇 Alt geçit uzatıldı! Yeni rampa ileride.');
+      openTile(i);
+    }
+    afterChange();
+  },
+  underpassSwitch(i) {
+    const err = city.switchUnderpass(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      city.refresh();
+      view.refresh([i], false);
+      play('click', 0.5);
+      toast('🚇 Alt geçit öbür caddeye alındı.');
+      openTile(i);
+    }
+    afterChange();
+  },
   openCatalog(group) {
     openTile(null);
     catalog.open(group);

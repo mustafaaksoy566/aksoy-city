@@ -629,7 +629,7 @@ export class Traffic {
   private pullOut(lot: Lot, bay: number) {
     const p = lot.bays[bay];
     if (!p) return;
-    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 && !this.city.rampOf(lot.road) ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
+    const v: Vehicle = { tile: lot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 1, type: p.type, paint: p.paint, wide: Math.random() < 0.5 && !this.city.rampOf(lot.road) && this.city.tiles[lot.road]?.under === undefined ? 0 : 1, trip: 8 + Math.floor(Math.random() * 25) };
     const { dir, pt } = this.exitTo(lot, v);
     const f = fwd(lot.face), r = right(lot.face);
     const b = this.bayPos(lot, bay);
@@ -651,7 +651,7 @@ export class Traffic {
 
   // Binanın (garajın) içinden yola çık
   private driveOut(spot: Spot, type: number, home?: Spot) {
-    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 && !this.city.rampOf(spot.road) ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
+    const v: Vehicle = { tile: spot.road, dIn: 0, dOut: 0, t: 0.5, speed: 0.8 + Math.random() * 0.5, fade: 0, type, paint: carPaint(CAR_KINDS[type]), wide: Math.random() < 0.5 && !this.city.rampOf(spot.road) && this.city.tiles[spot.road]?.under === undefined ? 0 : 1, trip: 10 + Math.floor(Math.random() * 25), home };
     const { dir, pt } = this.exitTo(spot, v);
     const f = fwd(spot.face);
     // Binanın içinden tam boyda çıkar (küçükten büyümez)

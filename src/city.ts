@@ -374,7 +374,7 @@ export class City {
       const n = this.axisNeighbor(i, axis, s);
       const nt = n >= 0 ? this.tiles[n] : null;
       if (nt?.kind !== 'road' || (nt.grade ?? 0) < 2) return 'Kavşağın iki yanındaki yol cadde olmalı (çift şerit)';
-      if (nt.locked || isWater(n)) return 'Rampa için yer yok';
+      if (nt.locked || isWater(n) || nt.under !== undefined) return 'Rampa için yer yok';
       if (this.roadMask(n % SIZE, Math.floor(n / SIZE)) !== along) return 'Kavşağın iki yanında rampa için düz yol olmalı';
       // İki alt geçidin rampaları üst üste binmesin
       const far = this.axisNeighbor(n, axis, s);
@@ -407,9 +407,91 @@ export class City {
     return null;
   }
 
-  // Bu kare bir alt geçidin rampası mı? Öyleyse kavşağa doğru yön ve kavşak
+  // Alt geçidin kapalı karesi olabilir mi: yol, doğrultu boyunca iki yanda yol; düz kareyse cadde
+  private underTileOk(i: number, axis: number) {
+    const t = this.tiles[i];
+    if (t?.kind !== 'road' || isWater(i) || t.locked) return false;
+    const along = axis === 0 ? 0b0101 : 0b1010;
+    const mask = this.roadMask(i % SIZE, Math.floor(i / SIZE));
+    if ((mask & along) !== along) return false;
+    return mask !== along || (t.grade ?? 0) >= 2;
+  }
+  // Rampa olabilir mi: doğrultu boyunca düz cadde (kapalı değil)
+  private rampOk(i: number, axis: number) {
+    const t = this.tiles[i];
+    if (t?.kind !== 'road' || (t.grade ?? 0) < 2 || t.locked || isWater(i) || t.under !== undefined) return false;
+    return this.roadMask(i % SIZE, Math.floor(i / SIZE)) === (axis === 0 ? 0b0101 : 0b1010);
+  }
+  // Alt geçidin kapalı kısmı (i kapalı bir kare): baştan sona kareler ve iki uçtaki rampalar
+  underRun(i: number): { axis: number; tiles: number[]; ramps: [number, number] } | null {
+    const axis = this.tiles[i]?.under;
+    if (axis === undefined) return null;
+    const tiles = [i];
+    const ramps: number[] = [];
+    for (const s of [-1, 1]) {
+      let n = this.axisNeighbor(i, axis, s);
+      while (n >= 0 && this.tiles[n]?.under === axis) {
+        tiles.push(n);
+        n = this.axisNeighbor(n, axis, s);
+      }
+      ramps.push(n);
+    }
+    return { axis, tiles, ramps: ramps as [number, number] };
+  }
+  // Alt geçidi bu rampanın ötesine uzatma planı: rampa kapanır, ötesindeki kavşaklar da kapanır,
+  // ilk düz cadde yeni rampa olur
+  extendPlan(r: number): { cover: number[]; ramp: number; cost: number } | { error: string } {
+    const ro = this.rampOf(r);
+    if (!ro) return { error: 'Burası alt geçit rampası değil' };
+    const axis = ro.dir % 2, away = (ro.dir + 2) % 4;
+    const step = (i: number) => {
+      const x = (i % SIZE) + DIRS[away][0], z = Math.floor(i / SIZE) + DIRS[away][1];
+      return inBounds(x, z) ? idx(x, z) : -1;
+    };
+    const cover = [r];
+    let n = step(r);
+    const isJ = (k: number) => [1, 2, 4, 8].filter(b => this.roadMask(k % SIZE, Math.floor(k / SIZE)) & b).length >= 3;
+    while (n >= 0 && this.tiles[n]?.kind === 'road' && isJ(n) && this.tiles[n]!.under === undefined && this.underTileOk(n, axis)) {
+      cover.push(n);
+      n = step(n);
+    }
+    if (n < 0 || !this.rampOk(n, axis)) return { error: 'Uzatmak için ileride düz cadde olmalı' };
+    const far = step(n);
+    if (far >= 0 && this.tiles[far]?.under !== undefined) return { error: 'İleride başka bir alt geçit var, rampa sığmaz' };
+    return { cover, ramp: n, cost: UNDERPASS.extend * cover.length };
+  }
+  extendUnderpass(r: number): string | null {
+    const plan = this.extendPlan(r);
+    if ('error' in plan) return plan.error;
+    if (this.money < plan.cost) return 'Yeterli para yok';
+    const axis = this.rampOf(r)!.dir % 2;
+    this.money -= plan.cost;
+    for (const k of plan.cover) this.tiles[k]!.under = axis;
+    this.addXp(XP.build * 2 * plan.cover.length);
+    return null;
+  }
+  // İki caddenin kesiştiği kavşakta alt geçidi öbür caddeye al (sadece tek kavşaklık alt geçitte)
+  otherAxisBlocker(i: number): string | null {
+    const run = this.underRun(i);
+    if (!run) return 'Burada alt geçit yok';
+    if (run.tiles.length > 1) return 'Uzatılmış alt geçidin yönü değiştirilemez';
+    const t = this.tiles[i]!;
+    const keep = t.under;
+    delete t.under;
+    const e = this.underpassBlocker(i, 1 - run.axis);
+    t.under = keep;
+    return e;
+  }
+  switchUnderpass(i: number): string | null {
+    const e = this.otherAxisBlocker(i);
+    if (e) return e;
+    this.tiles[i]!.under = 1 - this.tiles[i]!.under!;
+    return null;
+  }
+
+  // Bu kare bir alt geçidin rampası mı? Öyleyse kapalı kısma doğru yön ve kapalı komşu kare
   rampOf(i: number): { j: number; dir: number } | null {
-    if (this.tiles[i]?.kind !== 'road') return null;
+    if (this.tiles[i]?.kind !== 'road' || this.tiles[i]!.under !== undefined) return null;
     for (let d = 0; d < 4; d++) {
       const [dx, dz] = DIRS[d];
       const x = (i % SIZE) + dx, z = Math.floor(i / SIZE) + dz;
@@ -424,8 +506,13 @@ export class City {
 
   // Yol değişince (yıkım, çeşit, kavşak bozulması) artık olmayan alt geçitler kalkar
   private checkUnderpasses() {
+    const seen = new Set<number>();
     this.tiles.forEach((t, i) => {
-      if (t?.under !== undefined && this.underpassBlocker(i, t.under)) delete t.under;
+      if (t?.under === undefined || seen.has(i)) return;
+      const run = this.underRun(i)!;
+      run.tiles.forEach(k => seen.add(k));
+      const ok = run.tiles.every(k => this.underTileOk(k, run.axis)) && run.ramps.every(r => r >= 0 && this.rampOk(r, run.axis));
+      if (!ok) for (const k of run.tiles) delete this.tiles[k]!.under;
     });
   }
 
