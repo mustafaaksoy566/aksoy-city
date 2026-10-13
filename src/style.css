@@ -432,6 +432,20 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
   .cards { cursor: grab; }
 }
 
+/* Saat çubuğu şeridi: ana ekrandan açılınca oyun saat çubuğunun altına uzanıyor ve iOS o şeridi bulanıklaştırıyor
+   (oyun bulanıkmış gibi görünüyordu). Şerit Safari'deki gibi düz mavi ile örtülür; düz renk bulanıklaşınca fark edilmez.
+   Safari'de güvenli alan sıfır olduğu için görünmez. Alt kenarı yumuşak geçişli (sistemin bulanıklığı biraz aşağı taşar). */
+#statusbar {
+  position: fixed;
+  z-index: 4; /* oyunun üstünde, düğmelerin ve pencerelerin altında */
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(env(safe-area-inset-top) * 1.18);
+  background: linear-gradient(#5bb8ec 85%, rgba(91, 184, 236, 0));
+  pointer-events: none;
+}
+
 /* Ekran kenarlarında hafif gölge (sinematik görünüm) */
 #vignette {
   position: fixed;
