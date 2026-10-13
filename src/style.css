@@ -18,7 +18,7 @@ html, body {
   height: 100%;
   min-height: 100lvh;
   overflow: hidden;
-  background: #9fd8f0;
+  background: #4f9a35; /* saat çubuğu bu renkte açılır, sonra oyunun üst kenarının rengini alır (main.ts syncEdgeColor) */
   /* Telefonun kendi yuvarlak yazı tipi (iPhone'da SF Rounded); dışarıdan yazı tipi dosyası yok */
   font-family: ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-weight: 500;

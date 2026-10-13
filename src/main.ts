@@ -1563,7 +1563,55 @@ function frame() {
   }
   camera.position.add(jolt);
   renderer.render(scene, camera);
+  syncEdgeColor(dt);
   camera.position.sub(jolt);
+}
+
+// Saat çubuğu arazinin yeşili olsun: iOS 27'de ana ekrandaki web uygulaması saatin arkasına uzanınca bulanıklaşıyor,
+// o yüzden saat ayrı bir şeritte; şerit oyunun devamı gibi görünsün diye tepedeki çimenin o anki rengini alır
+// (gündüz açık, gece koyu yeşil). iOS şeridi sayfanın zemin renginden boyuyor. Saniyede bir, çizimin hemen
+// ardından tepedeki satır okunur.
+let edgeTimer = 0;
+let edgeHex = '';
+const EDGE_DAY = new THREE.Color().setRGB(133 / 255, 209 / 255, 96 / 255, THREE.SRGBColorSpace);
+const EDGE_NIGHT = new THREE.Color().setRGB(34 / 255, 62 / 255, 38 / 255, THREE.SRGBColorSpace);
+const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+function syncEdgeColor(dt: number) {
+  edgeTimer -= dt;
+  if (edgeTimer > 0) return;
+  edgeTimer = 0.8;
+  const gl = renderer.getContext();
+  const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  if (!w || !h) return;
+  // Tuval ekranın üstünden taşıyorsa görünen ilk satırı oku (WebGL'de satırlar alttan sayılır)
+  const over = Math.max(0, -renderer.domElement.getBoundingClientRect().top) * renderer.getPixelRatio();
+  const y = Math.max(0, Math.min(h - 1, Math.round(h - 2 - over)));
+  const px = new Uint8Array(w * 4);
+  gl.readPixels(0, y, w, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  // Sadece arazinin (çimenin) pikselleri: yeşili kırmızı ve maviden belirgin fazla olanlar. Tepede çimen yoksa
+  // (şehir, deniz) son yeşil kalır; gece çimen koyulaştıkça şerit de koyulaşır.
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < w; i++) {
+    const pr = px[i * 4], pg = px[i * 4 + 1], pb = px[i * 4 + 2];
+    if (pg > pr * 1.12 && pg > pb * 1.12) {
+      r += pr;
+      g += pg;
+      b += pb;
+      n++;
+    }
+  }
+  let hex: string;
+  if (n >= w * 0.05) hex = '#' + [r, g, b].map(v => Math.round(v / n).toString(16).padStart(2, '0')).join('');
+  else {
+    // Tepede çimen yok (şehir, deniz): gündüz-gece durumuna göre arazi yeşili
+    const night = phase(((city.day % CYCLE_DAYS) + dayTimer / DAY_SECONDS) / CYCLE_DAYS).night;
+    hex = '#' + EDGE_DAY.clone().lerp(EDGE_NIGHT, night).getHexString();
+  }
+  if (hex === edgeHex) return;
+  edgeHex = hex;
+  document.documentElement.style.backgroundColor = hex;
+  document.body.style.backgroundColor = hex;
+  themeMeta?.setAttribute('content', hex);
 }
 
 // Kare hızı düşükse çözünürlüğü biraz azalt, hızlanınca geri artır. Açılıştaki ilk saniyeler (yükleme)
