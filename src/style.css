@@ -417,18 +417,28 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
   .cards { cursor: grab; }
 }
 
-/* Saat çubuğu şeridi: ana ekrandan açılınca oyun saat çubuğunun altına uzanıyor ve iOS o şeridi bulanıklaştırıyor
-   (oyun bulanıkmış gibi görünüyordu). Şerit Safari'deki gibi düz mavi ile örtülür; düz renk bulanıklaşınca fark edilmez.
-   Safari'de güvenli alan sıfır olduğu için görünmez. Alt kenarı yumuşak geçişli (sistemin bulanıklığı biraz aşağı taşar). */
+/* Saat çubuğu şeridi: iOS 27'de ana ekrandan açılan uygulamada ekranın üstü bulanıklaşıyor (Liquid Glass). En üstte
+   düz renkli (background-color, gradyan değil), sabit, ekran genişliğinde ve en az 6px boyunda bir şerit varsa iOS
+   bulanıklık yapmaz, saat çubuğunu o renge boyar. Safari'de güvenli alan sıfır olduğu için şerit görünmez.
+   Altında yumuşak geçiş (ayrı katman, şeridin rengini bozmasın). */
 #statusbar {
   position: fixed;
-  z-index: 4; /* oyunun üstünde, düğmelerin ve pencerelerin altında */
+  z-index: 40;
   top: 0;
   left: 0;
-  right: 0;
-  height: calc(env(safe-area-inset-top) * 1.18);
-  background: linear-gradient(#5bb8ec 85%, rgba(91, 184, 236, 0));
+  width: 100%;
+  height: env(safe-area-inset-top);
+  background-color: #5bb8ec;
   pointer-events: none;
+}
+#statusbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: calc(env(safe-area-inset-top) * 0.18);
+  background: linear-gradient(#5bb8ec, rgba(91, 184, 236, 0));
 }
 
 /* Ekran kenarlarında hafif gölge (sinematik görünüm) */
