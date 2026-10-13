@@ -540,7 +540,7 @@ function signTexture(lines: string[]) {
   g.lineWidth = 4;
   g.strokeRect(5, 5, 246, 86);
   g.fillStyle = '#ffffff';
-  g.font = 'bold 30px Fredoka, Arial, sans-serif';
+  g.font = 'bold 30px ui-rounded, system-ui, Arial, sans-serif';
   g.textAlign = 'center';
   lines.forEach((t, k) => g.fillText(t, 128, 40 + k * 36));
   const tex = new THREE.CanvasTexture(c);

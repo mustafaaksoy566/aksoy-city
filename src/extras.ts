@@ -1159,7 +1159,7 @@ function neonSign(text: string, color: string, aspect: number) {
     }
     const letters = vertical ? [...text] : [text];
     const size = vertical ? Math.min(w * 0.8, (h * 0.86) / letters.length) : h * 0.66;
-    x.font = `bold ${size}px Fredoka, Arial, sans-serif`;
+    x.font = `bold ${size}px ui-rounded, system-ui, Arial, sans-serif`;
     x.textAlign = 'center';
     x.textBaseline = 'middle';
     x.shadowColor = color;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, SKINS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  SIZE, ROWS, Z0, PLOT, PLOTS, DAY_SECONDS, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
@@ -31,7 +31,7 @@ import { makeDecor } from './landmarks';
 import { makePark } from './fun';
 import { MetroView } from './metro';
 import { tunnelThumb } from './places';
-import { makeModel, loadSkins } from './assets';
+import { makeModel } from './assets';
 import { buildSurroundings } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
@@ -1491,12 +1491,12 @@ function adaptQuality(dt: number) {
 // Menü düğmeleri için her binanın küçük resmini çiz
 function makeMenuPictures() {
   const items: [string, THREE.Object3D][] = [
-    ['road', makeModel('kaykit/road_junction')],
+    ['road', makeModel('proc/road-junction')],
     ['avenue', gradedRoadModel(2)],
     ['boulevard', gradedRoadModel(1)],
     ['rail', railPiece(0b0110)],
-    ['res', makeModel('kaykit/building_C')],
-    ['com', makeModel('kaykit/building_E')],
+    ['res', makeModel(RES_LEVELS[1].models[0])],
+    ['com', makeModel(RES_LEVELS[4].models[0])],
     ['park', makePark(0, 0.3)],
     ['tunnel', tunnelThumb()],
     ['hall', makeHall()],
@@ -1527,7 +1527,7 @@ function makeProductPictures() {
   }
 }
 
-Promise.all([loadModels(ALL_MODELS, (done, total) => setLoading(done / total)), loadSkins(SKINS)])
+loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
   .then(() => {
     scene.add(buildSurroundings());
     syncHighway();

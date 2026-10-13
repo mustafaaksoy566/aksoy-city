@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE, RES_LEVELS, COM_LEVELS, BASE, PROPS, PLOT, PLOTS, SKINS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
+import { SIZE, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
@@ -19,12 +19,12 @@ import { makeService, animateService, makeHall } from './services';
 import { makeIndustry, setWorking, animatePort } from './industry';
 import { makeItem, type ItemId } from './items';
 
-// Kenney yol modellerinin hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
+// Yol parçalarının (roads.ts) hangi kenarları açık (kuzey 1, doğu 2, güney 4, batı 8)
 const ROAD_BASES: [string, number][] = [
-  ['kaykit/road_straight', 0b0101],
-  ['kaykit/road_corner_curved', 0b0110],
-  ['kaykit/road_tsplit', 0b0111],
-  ['kaykit/road_junction', 0b1111],
+  ['proc/road-straight', 0b0101],
+  ['proc/road-corner', 0b0110],
+  ['proc/road-tsplit', 0b0111],
+  ['proc/road-junction', 0b1111],
 ];
 
 // Her kare için sabit "rastgele" sayı (aynı karede hep aynı süsler çıksın)
@@ -803,28 +803,12 @@ export function bridge(mask: number) {
   return g;
 }
 
-// Lüks kulenin tepesi: altın taç, anten ve gece yanan uyarı ışığı
-const crownMat = new THREE.MeshStandardMaterial({ color: '#e0b84c', metalness: 0.6, roughness: 0.35 });
-const beaconMat = new THREE.MeshStandardMaterial({ color: '#ff5252', emissive: '#ff5252', emissiveIntensity: 0 });
-beaconMat.name = 'lamp';
-function crown(top: number) {
-  const g = new THREE.Group();
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, y: number) => {
-    const mesh = new THREE.Mesh(geo, m);
-    mesh.position.y = y;
-    mesh.castShadow = true;
-    g.add(mesh);
-  };
-  add(new THREE.CylinderGeometry(0.13, 0.17, 0.08, 8), crownMat, top + 0.04);
-  add(new THREE.CylinderGeometry(0.07, 0.11, 0.1, 8), crownMat, top + 0.13);
-  add(new THREE.CylinderGeometry(0.008, 0.012, 0.42, 6), crownMat, top + 0.39);
-  add(new THREE.SphereGeometry(0.022, 8, 6), beaconMat, top + 0.61);
-  return g;
-}
-
 // Asma köprü: denizin üstündeki düz yolun iki ucunda kuleler, kulelerin tepesinden sarkan ana kablolar
 // ve kablodan yola inen askı telleri. a, b: köprünün iki ucundaki karelerin ortası; along: köprünün yönü
 const suspMat = new THREE.MeshStandardMaterial({ color: '#d0462f', roughness: 0.55, metalness: 0.2 });
+// Kule tepesindeki uyarı ışığı (gece yanar)
+const beaconMat = new THREE.MeshStandardMaterial({ color: '#ff5252', emissive: '#ff5252', emissiveIntensity: 0 });
+beaconMat.name = 'lamp';
 function suspension(a: THREE.Vector3, b: THREE.Vector3, tiles: number) {
   const g = new THREE.Group();
   const dir = b.clone().sub(a);
@@ -1476,7 +1460,7 @@ export class CityView {
       g.add(culDeSac(mask, grade));
       return g;
     }
-    const r = makeModel(nearJunction ? 'kaykit/road_straight_crossing' : p.model);
+    const r = makeModel(nearJunction ? 'proc/road-crossing' : p.model);
     r.rotation.y = (p.k * Math.PI) / 2;
     g.add(r);
     if (straight && grade) g.add(roadExtras(grade, alongX, alongX ? x : z, nearJunction, Math.floor(hash(x, z, 5) * 1000)));
@@ -1491,43 +1475,21 @@ export class CityView {
         if (alongX) g.add(prop(PROPS.hydrant, 0.2, -side * 0.45));
         else g.add(prop(PROPS.hydrant, -side * 0.45, 0.2));
       }
-    } else if (p.model === 'kaykit/road_junction' || p.model === 'kaykit/road_tsplit') {
+    } else if (p.model === 'proc/road-junction' || p.model === 'proc/road-tsplit') {
       g.add(signalPost(idx(x, z), mask));
     }
     if (!straight && grade) g.add(junctionExtras(grade, mask));
     return g;
   }
 
-  // Seviyeye göre bina: model ve yön rastgele sayıdan seçilir; bazıları aynalanır ki çeşit artsın
+  // Seviyeye göre bina: model rastgele sayıdan seçilir (bütün evler ve kuleler kodla çizilir)
   private building(kind: 'res' | 'com', level: number, variant: number, facing: number) {
     const models = (kind === 'res' ? RES_LEVELS : COM_LEVELS)[level - 1].models;
     const path = models[variant % models.length];
     const group = new THREE.Group();
-    const folder = path.slice(0, path.lastIndexOf('/'));
-    const skins = (SKINS[folder]?.length ?? 0) + 1;
-    const b = makeModel(path, Math.floor(variant / 5) % skins);
+    const b = makeModel(path);
     b.rotation.y = (FACING_TURNS[facing] * Math.PI) / 2;
-    if (Math.floor(variant / 11) % 2 && !path.startsWith('proc/')) b.scale.x *= -1;
     group.add(b);
-    if (kind === 'res' && level === 6 && !path.startsWith('proc/')) {
-      // Lüks kule: daha yüksek ve tepesinde taç
-      b.scale.y *= 1.3;
-      b.updateMatrixWorld(true);
-      group.add(crown(new THREE.Box3().setFromObject(b).max.y + 0.05));
-    }
-    if (folder === 'kenney-sub') {
-      // Banliyö evi: arka bahçede çalı ve ağaç (yönü binayla aynı dönsün)
-      const yard = new THREE.Group();
-      yard.rotation.y = b.rotation.y;
-      yard.add(prop(PROPS.bush, -0.38, -0.38, variant));
-      if (variant % 3) yard.add(prop(PROPS.treeSmall, 0.36, -0.36, variant * 2, 0.8));
-      if (variant % 4 === 1) yard.add(prop(PROPS.planter, 0.34, 0.38));
-      group.add(yard);
-    } else if (!path.startsWith('kaykit/') && !path.startsWith('proc/')) {
-      // Diğer binaların altına kaldırım
-      group.add(makeModel(BASE));
-      b.position.y = 0.05;
-    }
     return group;
   }
 

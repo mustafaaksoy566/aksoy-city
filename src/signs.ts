@@ -14,7 +14,7 @@ export function signMat(text: string, bg: string, fg = '#ffffff') {
   x.fillStyle = bg;
   x.fillRect(0, 0, 256, 64);
   x.fillStyle = fg;
-  x.font = 'bold 34px Fredoka, Arial, sans-serif';
+  x.font = 'bold 34px ui-rounded, system-ui, Arial, sans-serif';
   x.textAlign = 'center';
   x.textBaseline = 'middle';
   x.fillText(text, 128, 34);

@@ -591,7 +591,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     ${state.demo ? `<button class="demo-row back">${icon('rotateLeft')}Kendi şehrime dön</button>` : ''}
     <button class="danger-row">${icon('trash')}Yeni şehir kur</button>
     <div class="btns"><button class="big-btn green" data-close>Tamam</button></div>
-    <div class="credits">3D modeller: Kenney, KayKit, Quaternius (CC0) · Yazı tipi: Fredoka (OFL)</div>
+    <div class="credits">Bütün modeller, çizimler ve sesler oyunun kendi koduyla yapıldı.</div>
     ${state.screen ? `<div class="credits">${esc(state.screen)}</div>` : ''}
   </div>`;
   el.hidden = false;

@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // Telefonda asıl yavaşlık "çizim sayısı"ndan geliyor; 1 büyük parça, 100 küçük parçadan çok daha hızlı çizilir.
 //
 // - Dokusuz (düz renkli) malzemelerin rengi köşelere yazılır, hepsi tek malzemeyle çizilir.
-// - Dokulu malzemeler (Kenney colormap) ve pencereler (gece yandıkları için) kendi malzemeleriyle gruplanır.
+// - Dokulu malzemeler ve pencereler (gece yandıkları için) kendi malzemeleriyle gruplanır.
 
 const vertexColorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
 
@@ -112,7 +112,7 @@ export function disposeMerged(group: THREE.Group) {
 
 // Bir modeli tek geometriye çevir (renkler köşelere yazılır). Arabalar için: binlerce parça yerine tek çizim.
 export function bakeModel(obj: THREE.Object3D): THREE.BufferGeometry | null {
-  // Not: dokulu modellerde (KayKit) renk yerine dokuyu kullanmak için bakeTextured kullanılır
+  // Not: dokulu modellerde renk yerine dokuyu kullanmak için bakeTextured kullanılır
   obj.updateMatrixWorld(true);
   const geos: THREE.BufferGeometry[] = [];
   obj.traverse(node => {

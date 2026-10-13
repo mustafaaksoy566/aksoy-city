@@ -51,7 +51,7 @@ const adMat = (() => {
   x.arc(32, 46, 18, 0, Math.PI * 2);
   x.fill();
   x.fillStyle = '#ffffff';
-  x.font = 'bold 15px Fredoka, Arial, sans-serif';
+  x.font = 'bold 15px ui-rounded, system-ui, Arial, sans-serif';
   x.textAlign = 'center';
   x.fillText('AKSOY', 32, 94);
   x.fillText('CITY', 32, 112);
@@ -500,7 +500,7 @@ export const pMat = (() => {
   x.fillStyle = '#1565c0';
   x.fillRect(0, 0, 64, 64);
   x.fillStyle = '#ffffff';
-  x.font = 'bold 50px Fredoka, Arial, sans-serif';
+  x.font = 'bold 50px ui-rounded, system-ui, Arial, sans-serif';
   x.textAlign = 'center';
   x.textBaseline = 'middle';
   x.fillText('P', 32, 36);

@@ -5,9 +5,9 @@ SimCity BuildIt-style grid city builder, played on iPhone 16 Pro Safari. Live: h
 ## Working with the user
 - Speak **Turkish**, simply, step by step. The user does not code. After every batch, list each request and what was done (they often say "hepsini yap, hiçbirini unutma").
 - They usually ask "devam et daha fazlasını ekle": implement every listed item, then add something extra, test it, commit + push, and report in Turkish.
-- Free/CC0 assets: download without asking ("daha fazla siteden yardım alman gerekiyosa al bana sorma"), report what you used afterwards. Ask before anything paid, any account, or any software install. Never create accounts, enter tokens/passwords, change system or security settings, or accept terms for them.
-- Connection: kenney.nl / itch.io / opengameart only work with Cloudflare WARP on. github.com, poly.pizza (`https://static.poly.pizza/<uuid>.glb`), quaternius, polyhaven work. GitHub API gets rate-limited; verify deploys by fetching the live page and grepping for the new `index-*.js` bundle name.
-- Raw downloaded packs live in `assets-raw/` (gitignored). The style is KayKit City Builder Bits (2x2 units, scale 0.5) + Kenney skyscrapers + procedural models.
+- Everything in the game is drawn/synthesized in code: NO external models, textures, sounds or fonts (the user asked for this to avoid licences, 2026-10-13). Draw new things procedurally; do not add downloaded assets. Ask before anything paid, any account, or any software install. Never create accounts, enter tokens/passwords, change system or security settings, or accept terms for them.
+- Deploys: GitHub API (actions/runs) shows the Pages run status; or fetch the live page and grep for the new `index-*.js` bundle name.
+- Model registry: assets.ts makeModel(path) builds `proc/...` models (trees.ts, towers.ts houses/towers, roads.ts road kit, props.ts hydrant/construction props). Boats: boats.ts makeBoat. Sounds: audio.ts synthesizes them with WebAudio. Font: system rounded font (ui-rounded = SF Rounded on iPhone).
 
 ## Dev and test
 - Node: `"/c/Program Files/nodejs/node.exe"`. Dev server: `.claude/launch.json` (vite on port 5173, `--host`). Build check: `npx tsc --noEmit` then `npm run build`.
@@ -41,7 +41,7 @@ SimCity BuildIt-style grid city builder, played on iPhone 16 Pro Safari. Live: h
 - Walkers never turn left inside junctions (walkerExit): left turns cut diagonally through the box and jammed turning cars.
 - Junction signals: one pole per approach (view signalPost(tile, mask)) with red/amber/green (signals.ts SIGNAL_MATS.amber); street lamps are procedural (view streetLight).
 - Traffic (traffic.ts): cars never spawn mid-road. Junction right-of-way: a car stops at STOP if a conflicting movement (conflicts()) is inside/committed in the junction, if its exit has no room (don't block the box) or a conflicting car has waited longer on green; one manoeuvre per parking lot at a time; long-stuck cars fade out (vanish) instead of driving through others. Cadde lanes WIDE_LANES [0.125, 0.3]. They leave parking lots (a walker walks from a nearby house first), tower garages, service stations (ambulance/fire/police) or enter from the motorway at the city entrance; they route (BFS distance fields) to a lot, a garage or the exit. Look-ahead boxes stop cars/walkers from overlapping.
-- Roads use a recoloured copy of the KayKit atlas (assets.ts ROAD_COLORS, SimCity-like navy asphalt). Dead ends are drawn by culDeSac() in view.ts (half road + rounded end).
+- Roads: roads.ts road kit (straight, crossing, corner, T, junction; asphalt 0.035, lines 0.0365, curbs 0.05; SimCity-like navy asphalt ROAD_COLORS). Dead ends are drawn by culDeSac() in view.ts (half road + rounded end).
 - Reference screenshots from the user live in `ÖRNEK/` (git-ignored, SimCity BuildIt). Use them for look and feature ideas only.
 - Demo city: Ayarlar → "Hazır şehri aç" loads public/ornek-sehir.txt (gzip+base64 save); the player's own city is backed up to the -kendi key. To refresh the file from the 127.0.0.3 tab, gzip+base64 the save in the page and POST it to /__hazir-sehir (dev-only Vite plugin in vite.config.ts).
 - Testing with a large city: the 127.0.0.3 tab holds a showcase city (~500 houses); keep power/water supply >= demand there.

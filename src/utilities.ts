@@ -243,7 +243,7 @@ const tankTex = (() => {
   x.fillRect(0, 0, 256, 64);
   x.fillStyle = '#2f7fc1';
   x.fillRect(0, 50, 256, 8);
-  x.font = 'bold 28px Fredoka, Arial, sans-serif';
+  x.font = 'bold 28px ui-rounded, system-ui, Arial, sans-serif';
   x.textAlign = 'center';
   x.fillText('AKSOY', 64, 38);
   x.fillText('AKSOY', 192, 38);

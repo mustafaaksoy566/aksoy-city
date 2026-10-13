@@ -404,16 +404,6 @@ export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'coast', icon: '🏖️', label: 'Sahil', color: '#0097a7', tools: ['beach', 'volley', 'lighthouse', 'port', 'marina'] },
 ];
 
-// Modeller: KayKit City Builder Bits (kk/), Kenney City Kit 2.1 gökdelenleri (k2/), Kenney başlangıç paketi (k/)
-const k = (n: string) => `kenney/models/${n}`;
-const kk = (n: string) => `kaykit/${n}`;
-const k2 = (n: string) => `kenney2/${n}`;
-const ks = (n: string) => `kenney-sub/${n}`;
-const ki = (n: string) => `kenney-ind/${n}`;
-const kc = (n: string) => `kenney-cars/${n}`;
-const kr = (n: string) => `kenney-roads/${n}`;
-const x = (n: string) => `polypizza/extra/${n}`;
-
 // Konut seviyeleri: her seviyede bina büyür, nüfus ve elektrik/su ihtiyacı artar
 // Konut seviyeleri: ev yükseltildikçe büyür. Her seviyede üç model; yükseltince model sırası (renk ailesi) korunur.
 // 1 küçük ev, 2 iki katlı ev, 3 küçük apartman, 4 apartman bloğu, 5 konut kulesi, 6-8 gökdelenler
@@ -444,20 +434,19 @@ export function houseName(path: string) {
 // Seçilen modelin görünmesi için rastgele sayı: model sırası tutsun, menüdeki resimle aynı renk ve yön olsun
 export function houseVariant(level: number, model: number) {
   const models = RES_LEVELS[level - 1].models;
-  const path = models[model];
-  const skins = (SKINS[path.slice(0, path.lastIndexOf('/'))]?.length ?? 0) + 1;
   for (let k = Math.floor(Math.random() * 20), n = 0; n < 2000; k++, n++) {
     const v = model + models.length * k;
-    if (Math.floor(v / 5) % skins === 0 && Math.floor(v / 11) % 2 === 0) return v;
+    if (Math.floor(v / 11) % 2 === 0) return v;
   }
   return model;
 }
 
 // Ticaret seviyeleri: iş yeri sağlar, nüfus büyüdükçe yükselir
+// (Eski kayıtlardaki ticaret kareleri yüklenirken konuta çevrilir; modeller yine de konut modelleri)
 export const COM_LEVELS = [
-  { jobs: 5, need: 1, models: [kk('building_A'), kk('building_B'), kk('building_E'), k2('building-c'), k2('building-e'), k2('building-k')] },
-  { jobs: 15, need: 3, models: [kk('building_F'), kk('building_C'), kk('building_G'), k2('building-f'), k2('building-g'), k2('building-i'), k2('building-j'), k2('building-l')] },
-  { jobs: 40, need: 6, models: [k2('building-skyscraper-a'), k2('building-skyscraper-c'), k2('building-skyscraper-e'), k2('building-m'), k2('building-n')] },
+  { jobs: 5, need: 1, models: RES_LEVELS[2].models },
+  { jobs: 15, need: 3, models: RES_LEVELS[3].models },
+  { jobs: 40, need: 6, models: RES_LEVELS[5].models },
 ];
 
 export const RES_BASE_MAX = 2; // park ve dükkan yoksa evler en fazla bu seviyeye çıkar
@@ -470,74 +459,23 @@ export const BUILD_CHANCE = 0.35; // boş arsaya bir günde bina yapılma şans�
 export const GROW_CHANCE = 0.08; // bir binanın bir günde büyüme şansı
 
 export const PARK_KINDS = 3; // park çeşidi: çardaklı bahçe, göletli park, oyun parkı (fun.ts)
-export const BASE = kk('base'); // KayKit kaldırım karesi
-
-export const ROAD_MODELS = ['road_straight', 'road_straight_crossing', 'road_corner_curved', 'road_tsplit', 'road_junction'].map(kk);
-
-export const CAR_MODELS = [
-  ...['car_sedan', 'car_taxi', 'car_hatchback', 'car_stationwagon', 'car_police'].map(kk),
-  ...['van', 'delivery', 'truck', 'suv', 'suv-luxury', 'garbage-truck'].map(kc),
-];
-// Hastane ve itfaiye varsa trafikte ambulans ve itfaiye aracı da dolaşır
-export const EMERGENCY_CARS = { health: kc('ambulance'), fire: kc('firetruck'), police: kk('car_police') };
-
-// Denizde dolaşan gemi ve tekneler (Kenney Watercraft Kit)
-export const BOAT_MODELS = ['ship-cargo-a', 'boat-sail-a', 'ship-ocean-liner-small', 'boat-speed-a', 'ship-cargo-b', 'boat-sail-b', 'boat-tug-a', 'boat-fishing-small'].map(n => `kenney-boats/${n}`);
-
-// Fabrika ve depo binaları (Kenney City Kit Industrial)
-export const INDUSTRY_MODELS = {
-  factory: ['a', 'b', 'e', 'f', 'l', 'm', 'n'].map(l => ki(`building-${l}`)),
-  depot: ['c', 'g', 'k', 'p', 'q', 'r', 's', 't'].map(l => ki(`building-${l}`)),
-};
-
-// Kenney paketlerinde farklı renk düzenleri (dokular); 0 = asıl renkler
-export const SKINS: Record<string, string[]> = {
-  'kenney-sub': ['variation-a', 'variation-b', 'variation-c'],
-  'kenney-ind': ['variation-a', 'variation-b', 'variation-c'],
-  kenney2: ['variation-a', 'variation-b'],
-};
+// Yol parçaları (roads.ts)
+export const ROAD_MODELS = ['proc/road-straight', 'proc/road-crossing', 'proc/road-corner', 'proc/road-tsplit', 'proc/road-junction'];
 
 // Şehri dolduran süs eşyaları ve ağaçlar
 export const PROPS = {
-  streetlight: kk('streetlight'),
-  traffic: kk('trafficlight_B'),
-  hydrant: kk('firehydrant'),
-  bench: kk('bench'),
+  hydrant: 'proc/hydrant',
   bush: 'proc/tree-bush',
-  trash: kk('trash_A'),
-  boxA: kk('box_A'),
-  boxB: kk('box_B'),
-  watertower: kk('watertower'),
+  boxA: 'proc/box-a',
+  boxB: 'proc/box-b',
   treeLarge: 'proc/tree-round',
   treeSmall: 'proc/tree-cypress',
   treePine: 'proc/tree-pine',
   treeBlossom: 'proc/tree-blossom',
   treeStreet: 'proc/tree-street',
-  planter: ks('planter'),
-  chimney: ki('chimney-medium'),
-  chimneyLarge: ki('chimney-large'),
-  tank: ki('detail-tank'),
-  containerA: ki('shipping-container-a'),
-  containerB: ki('shipping-container-b'),
-  containerC: ki('shipping-container-c'),
-  solar: ki('solar-panel-landscape-group'),
-  cone: kr('construction-cone'),
-  barrier: kr('construction-barrier'),
-  workLight: kr('construction-light'),
-  ambulance: kc('ambulance'),
-  firetruck: kc('firetruck'),
+  cone: 'proc/cone',
+  barrier: 'proc/barrier',
+  workLight: 'proc/work-light',
 };
 
-export const ALL_MODELS = [
-  ...new Set([
-    ...ROAD_MODELS,
-    ...RES_LEVELS.flatMap(l => l.models),
-    ...COM_LEVELS.flatMap(l => l.models),
-    BASE,
-    ...CAR_MODELS,
-    ...Object.values(PROPS),
-    ...BOAT_MODELS,
-    ...INDUSTRY_MODELS.factory,
-    ...INDUSTRY_MODELS.depot,
-  ]),
-];
+export const ALL_MODELS = [...new Set([...ROAD_MODELS, ...RES_LEVELS.flatMap(l => l.models), ...Object.values(PROPS)])];

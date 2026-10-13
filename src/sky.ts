@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { SIZE, BOAT_MODELS } from './config';
-import { makeModel } from './assets';
+import { SIZE } from './config';
+import { makeBoat, SEA_BOATS } from './boats';
 import { makeAirliner } from './planes';
 import { busModel } from './vehicles';
 import { RUNWAY } from './landmarks';
@@ -113,8 +113,8 @@ export class Sky {
       this.clouds.push({ obj: c, speed: 0.008 + (k % 3) * 0.003, dir: new THREE.Vector3(), limit: 0 });
     }
     // Denizde gemiler: kuzeyde doğu-batı yönünde gidip gelir
-    BOAT_MODELS.forEach((path, k) => {
-      const b = makeModel(path);
+    SEA_BOATS.forEach((kind, k) => {
+      const b = makeBoat(kind);
       const dir = new THREE.Vector3(k % 2 ? -1 : 1, 0, 0);
       b.position.set(-80 + k * 22, SEA_Y - 0.04, -HALF - 24 - (k % 4) * 6);
       b.rotation.y = Math.atan2(dir.x, dir.z);

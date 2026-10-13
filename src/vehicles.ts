@@ -420,7 +420,7 @@ export function busModel(): THREE.Group {
 // ---------------------------------------------------------------------------------------------------------
 // Tren: banliyö treni. Beyaz gövde, kırmızı alt bant ve kırmızı burun, koyu cam bandı (yolcu camları gece
 // yanar), kırmızı sürgülü kapılar, saran ön cam ve hat tabelası, farlar, tavanda klima ve pantograf,
-// bojiler ve tekerlekler, vagonlar arasında körük. Kabinli vagon boyu ~0.8, ortadaki vagon ~0.9 (eski Kenney
+// bojiler ve tekerlekler, vagonlar arasında körük. Kabinli vagon boyu ~0.8, ortadaki vagon ~0.9 (eski tren
 // modelleriyle aynı); tekerlekler ray başının üstüne (y = 0.0075) basar, raylar ±0.08'de.
 const TR: Sec = { z: 0, hw: 0.18, y0: 0.085, y1: 0.44, rt: 0.055, rb: 0.012 };
 const HEAD_TIP = -0.392, MID_TIP = 0.442; // kabinli vagonun arka ucu, ortadaki vagonun uçları (körük hariç)

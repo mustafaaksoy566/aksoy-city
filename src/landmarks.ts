@@ -614,7 +614,7 @@ function lighthouse() {
 }
 
 // ======================= Yat limanı (2x2) =======================
-const YT = {
+export const YT = {
   white: pm('#fbfbf9', 0.35),
   teak: pm('#b98a56', 0.8),
   teakDark: pm('#8a6238', 0.8),
@@ -629,7 +629,7 @@ const YT = {
 // Tekne gövdesi yukarıdan: kıçta küt (ayna), başa doğru sivrilir. u: 0 kıç, 1 baş
 const beamAt = (u: number) => (u > 0.45 ? 1 - ((u - 0.45) / 0.55) ** 2 : 1 - (0.45 - u) * 0.22);
 // Gövde: altı V biçimli, baş tarafı yükselir. L boy (x, baş +x), B en, D derinlik; t0..t1 alttan üste dilim (boya şeritleri)
-function hullGeo(L: number, B: number, D: number, t0 = 0, t1 = 1) {
+export function hullGeo(L: number, B: number, D: number, t0 = 0, t1 = 1) {
   const geo = new THREE.BoxGeometry(L, 1, B, 12, 2, 2);
   const p = geo.attributes.position as THREE.BufferAttribute;
   for (let k = 0; k < p.count; k++) {
@@ -642,7 +642,7 @@ function hullGeo(L: number, B: number, D: number, t0 = 0, t1 = 1) {
   return geo;
 }
 // Güverte kaplaması (gövde biçiminde ince plaka, y=0 alt yüz)
-function deckGeo(L: number, B: number, h: number) {
+export function deckGeo(L: number, B: number, h: number) {
   const s = new THREE.Shape();
   const n = 12;
   for (let k = 0; k <= n; k++) {
@@ -657,7 +657,7 @@ function deckGeo(L: number, B: number, h: number) {
   return new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false }).rotateX(-Math.PI / 2);
 }
 // Boyalı gövde: su altı boyası, renkli su hattı şeridi, beyaz borda ve tik güverte
-function hull(b: THREE.Object3D, L: number, B: number, D: number, stripe: THREE.Material, top: THREE.Material = YT.white) {
+export function hull(b: THREE.Object3D, L: number, B: number, D: number, stripe: THREE.Material, top: THREE.Material = YT.white) {
   add(b, hullGeo(L, B, D, 0, 0.36), YT.anti, 0, 0, 0);
   add(b, hullGeo(L, B, D, 0.36, 0.52), stripe, 0, 0, 0);
   add(b, hullGeo(L, B, D, 0.52, 1), top, 0, 0, 0);
@@ -670,7 +670,7 @@ function sternFlag(b: THREE.Object3D, L: number, D: number) {
 }
 // Yelkenli: kamara tavanı ve camları, kokpit ve dümen, direk, bumba üstünde kılıflı ana yelken, sarılı flok,
 // çarmıhlar, gurcatalar, can halatları ve kıç bayrağı. Baş +x.
-function sailboat(stripe: string, L = 0.2, cover = '#1e5aa8') {
+export function sailboat(stripe: string, L = 0.2, cover = '#1e5aa8') {
   const b = new THREE.Group();
   const B = L * 0.32, D = L * 0.16;
   hull(b, L, B, D, pm(stripe, 0.5));
@@ -696,7 +696,7 @@ function sailboat(stripe: string, L = 0.2, cover = '#1e5aa8') {
 }
 // Motorlu yat: yüzme platformu, boydan boya camlı (gece yanan) ana kamara, eğik ön cam, flybridge ve koltuklar,
 // direklerde sert tente, radar ve anten, başta güneşlenme minderi ve korkuluk. big: bir kat daha. Baş +x.
-function motorYacht(stripe: string, L = 0.22, big = false) {
+export function motorYacht(stripe: string, L = 0.22, big = false) {
   const b = new THREE.Group();
   const B = L * 0.31, D = L * 0.2;
   hull(b, L, B, D, pm(stripe, 0.5), big ? pm('#1f2b44', 0.4) : YT.white);

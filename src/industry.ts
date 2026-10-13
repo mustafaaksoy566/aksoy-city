@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { BOAT_MODELS, type IndustryKind } from './config';
+import { type IndustryKind } from './config';
+import { makeBoat } from './boats';
 import { part, windowMat, showcaseMat } from './utilities';
-import { makeModel } from './assets';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
@@ -303,8 +303,7 @@ function port() {
   g.add(mergeStatic([st]));
   // Yanaşmış kargo gemisi (suda, rıhtıma paralel)
   const ship = new THREE.Group();
-  const hull = makeModel(BOAT_MODELS[0]);
-  hull.scale.multiplyScalar((2.6 / 3.5) * k);
+  const hull = makeBoat('container', 2.6 * k);
   hull.rotation.y = Math.PI / 2;
   ship.add(hull);
   ship.position.set(0, -0.045, 0.5 + k);

@@ -522,7 +522,7 @@ const menuMat = once(() => {
     x.fillStyle = '#d32f2f';
     x.fillRect(0, 0, 128, 22);
     x.fillStyle = '#ffffff';
-    x.font = 'bold 16px Fredoka, Arial, sans-serif';
+    x.font = 'bold 16px ui-rounded, system-ui, Arial, sans-serif';
     x.textAlign = 'center';
     x.fillText('MENÜ', 64, 17);
     // Burger, patates ve dondurma resimleri
@@ -552,7 +552,7 @@ const menuMat = once(() => {
     x.arc(cxs[2], 40, 10, 0, Math.PI * 2);
     x.fill();
     x.fillStyle = '#fdd835';
-    x.font = 'bold 13px Fredoka, Arial, sans-serif';
+    x.font = 'bold 13px ui-rounded, system-ui, Arial, sans-serif';
     for (const [k, p] of ['45₺', '25₺', '30₺'].entries()) x.fillText(p, cxs[k], 84);
   });
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
@@ -825,10 +825,10 @@ const screenMat = once(() => {
     x.arc(206, 192, 40, 0, Math.PI * 2);
     x.fill();
     x.fillStyle = '#ffffff';
-    x.font = 'bold 30px Fredoka, Arial, sans-serif';
+    x.font = 'bold 30px ui-rounded, system-ui, Arial, sans-serif';
     x.textAlign = 'center';
     x.fillText('%50', 206, 203);
-    x.font = 'bold 26px Fredoka, Arial, sans-serif';
+    x.font = 'bold 26px ui-rounded, system-ui, Arial, sans-serif';
     x.fillText('BÜYÜK', 84, 168);
     x.fillStyle = '#ffeb3b';
     x.fillText('İNDİRİM', 84, 200);

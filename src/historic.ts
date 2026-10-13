@@ -634,7 +634,7 @@ const SKIN_GLOW = canvasTexture(128, 128, g => {
 // Saha kenarı ve loca kuşağındaki LED reklam panoları
 const ADS = canvasTexture(512, 32, g => {
   const list: [string, string, string][] = [['#c62828', '#ffffff', 'AKSOY'], ['#0d47a1', '#ffffff', 'CITY'], ['#fdd835', '#1b1b1b', 'GOL!'], ['#2e7d32', '#ffffff', 'SPOR']];
-  g.font = 'bold 22px Fredoka, Arial, sans-serif';
+  g.font = 'bold 22px ui-rounded, system-ui, Arial, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   list.forEach(([bg, fg, t], i) => {
@@ -650,17 +650,17 @@ const SCREEN = canvasTexture(256, 128, g => {
   g.fillRect(0, 0, 256, 128);
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = 'bold 22px Fredoka, Arial, sans-serif';
+  g.font = 'bold 22px ui-rounded, system-ui, Arial, sans-serif';
   for (const [x, bg, t] of [[10, '#c62828', 'AKSOY'], [150, '#1565c0', 'KONUK']] as [number, string, string][]) {
     g.fillStyle = bg;
     g.fillRect(x, 10, 96, 32);
     g.fillStyle = '#ffffff';
     g.fillText(t, x + 48, 27);
   }
-  g.font = 'bold 46px Fredoka, Arial, sans-serif';
+  g.font = 'bold 46px ui-rounded, system-ui, Arial, sans-serif';
   g.fillStyle = '#ffffff';
   g.fillText('2 - 1', 128, 78);
-  g.font = 'bold 20px Fredoka, Arial, sans-serif';
+  g.font = 'bold 20px ui-rounded, system-ui, Arial, sans-serif';
   g.fillStyle = '#ffd54f';
   g.fillText('67:12', 128, 113);
 });

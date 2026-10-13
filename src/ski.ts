@@ -226,7 +226,7 @@ function litSign(text: string, bg: string, fg: string) {
       x.strokeRect(5, 5, 246, 54);
     }
     x.fillStyle = front;
-    x.font = 'bold 36px Fredoka, Arial, sans-serif';
+    x.font = 'bold 36px ui-rounded, system-ui, Arial, sans-serif';
     x.textAlign = 'center';
     x.textBaseline = 'middle';
     x.fillText(text, 128, 35);
@@ -284,7 +284,7 @@ function trailMap() {
   x.fillStyle = 'rgba(255,255,255,0.85)';
   x.fillRect(0, 0, 256, 22);
   x.fillStyle = '#c62828';
-  x.font = 'bold 18px Fredoka, Arial, sans-serif';
+  x.font = 'bold 18px ui-rounded, system-ui, Arial, sans-serif';
   x.textAlign = 'center';
   x.fillText('AKSOY DAĞI · PİSTLER', 128, 17);
   return new THREE.MeshStandardMaterial({ map: texture(c), roughness: 0.7 });
