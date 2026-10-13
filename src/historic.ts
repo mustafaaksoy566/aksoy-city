@@ -164,65 +164,6 @@ function eiffel() {
   return g;
 }
 
-// --- Özgürlük Anıtı (2x2): yıldız biçimli kale, kaide ve bakır yeşili heykel ---
-function liberty() {
-  const g = new THREE.Group();
-  const copper = mat('#6fb59a');
-  const granite = mat('#bdb5a6');
-  const stone = mat('#d4ccbc');
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#7cc35f'), 0, 0.01, 0));
-  // Yıldız kale
-  const star = new THREE.Shape();
-  for (let k = 0; k < 16; k++) {
-    const a = (k / 16) * Math.PI * 2;
-    const r = k % 2 ? 0.3 : 0.44;
-    const p = [Math.sin(a) * r, Math.cos(a) * r];
-    if (k) star.lineTo(p[0], p[1]);
-    else star.moveTo(p[0], p[1]);
-  }
-  g.add(part(new THREE.ExtrudeGeometry(star, { depth: 0.08, bevelEnabled: false }).rotateX(-Math.PI / 2), granite, 0, 0.02, 0));
-// Gerçek oranına yakın boy: yapı 2 kat büyütülür (zemin aynı kalır)
-  const s = new THREE.Group();
-  s.scale.setScalar(2);
-  s.position.y = -0.1;
-  g.add(s);
-    // Kaide
-  s.add(part(new THREE.BoxGeometry(0.3, 0.06, 0.3), stone, 0, 0.13, 0));
-  s.add(part(new THREE.CylinderGeometry(0.105, 0.14, 0.28, 4).rotateY(Math.PI / 4), stone, 0, 0.3, 0));
-  s.add(part(new THREE.BoxGeometry(0.18, 0.04, 0.18), stone, 0, 0.46, 0));
-  for (let k = 0; k < 4; k++) {
-    const w = part(new THREE.BoxGeometry(0.03, 0.06, 0.005), mat('#9c9484'), 0, 0.33, 0);
-    w.rotation.y = (k * Math.PI) / 2;
-    w.translateZ(0.11);
-    s.add(w);
-  }
-  // Heykel: uzun elbise, baş, taç, meşale tutan kol, tablet
-  const robe = new THREE.LatheGeometry(
-    [[0.07, 0], [0.065, 0.05], [0.055, 0.15], [0.05, 0.24], [0.042, 0.29], [0.02, 0.31], [0, 0.315]].map(([x, y]) => new THREE.Vector2(x, y)),
-    12,
-  );
-  s.add(part(robe, copper, 0, 0.48, 0));
-  s.add(part(new THREE.SphereGeometry(0.03, 10, 8), copper, 0, 0.82, 0.005));
-  for (let k = 0; k < 7; k++) {
-    const ray = part(new THREE.ConeGeometry(0.006, 0.05, 4), copper, 0, 0.845, 0);
-    ray.rotation.set(-0.5 + (k / 6) * 1.0 - 0.0, 0, 0);
-    ray.rotation.z = -0.9 + (k / 6) * 1.8;
-    ray.translateY(0.03);
-    s.add(ray);
-  }
-  const arm = part(new THREE.CylinderGeometry(0.012, 0.015, 0.17, 6), copper, 0.04, 0.84, 0);
-  arm.rotation.z = -0.25;
-  s.add(arm);
-  s.add(part(new THREE.CylinderGeometry(0.012, 0.008, 0.04, 6), mat('#c9a14a'), 0.062, 0.93, 0));
-  const flame = new THREE.MeshStandardMaterial({ color: '#ffcf4a', emissive: '#ffb300', emissiveIntensity: 0.4 });
-  flame.name = 'lamp';
-  s.add(part(new THREE.ConeGeometry(0.016, 0.045, 8), flame, 0.064, 0.97, 0));
-  const tablet = part(new THREE.BoxGeometry(0.05, 0.07, 0.014), copper, -0.05, 0.69, 0.035);
-  tablet.rotation.z = 0.3;
-  s.add(tablet);
-  return g;
-}
-
 // --- Pisa Kulesi (1x1): altı katlı sütunlu galeriler, eğik duruşu ---
 function pisa() {
   const g = new THREE.Group();
@@ -1046,7 +987,8 @@ function stadium() {
   return mergeStatic([st]);
 }
 
-export type HistoricKind = 'eiffel' | 'liberty' | 'pisa' | 'colosseum' | 'galata' | 'pyramid';
+// Özgürlük Anıtı wonders.ts'e taşındı (yeniden çizildi)
+export type HistoricKind = 'eiffel' | 'pisa' | 'colosseum' | 'galata' | 'pyramid';
 export const HISTORIC: Record<HistoricKind | 'stadium', () => THREE.Object3D> = {
-  eiffel, liberty, pisa, colosseum, galata, pyramid, stadium,
+  eiffel, pisa, colosseum, galata, pyramid, stadium,
 };

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
-  SIZE, ROWS, X0, Z0, PLOT, PLOTS, DAY_SECONDS, dayNumber, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
+  SIZE, ROWS, X0, Z0, PLOT, PLOTS, DAY_SECONDS, dayNumber, ON_SEA, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
 import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
@@ -28,6 +28,7 @@ import { makeUtility } from './utilities';
 import { makeService, makeHall } from './services';
 import { makeIndustry } from './industry';
 import { makeDecor } from './landmarks';
+import { WONDER_KINDS } from './wonders'; // dünya harikaları kendilerini makeDecor'a kaydeder
 import { makePark } from './fun';
 import { MetroView } from './metro';
 import { tunnelThumb } from './places';
@@ -1193,7 +1194,7 @@ const input = new TileInput(renderer.domElement, camera, {
     if (tool !== 'tunnel') view.refresh(res.done, tool !== 'bulldoze');
     play(tool === 'bulldoze' ? 'remove' : 'place');
     afterChange();
-    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && tool !== 'tunnel' && res.done.some(i => !city.isConnected(i))) {
+    if (!ROAD_TOOLS.includes(tool) && tool !== 'bulldoze' && tool !== 'park' && tool !== 'tunnel' && !ON_SEA.includes(tool) && res.done.some(i => !city.isConnected(i))) {
       toast('Bu yol şehir girişine bağlı değil. Yolu soldaki otoyola bağla!', 'error');
     }
   },
@@ -1695,7 +1696,8 @@ function makeMenuPictures() {
   for (const k of ['wind', 'solar', 'plant', 'tower', 'pump'] as const) items.push([k, makeUtility(k)]);
   for (const k of ['police', 'fire', 'health', 'school'] as const) items.push([k, makeService(k)]);
   for (const k of ['factory', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro', 'depot', 'port'] as const) items.push([k, makeIndustry(k)]);
-  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'parking', 'lake', 'biglake', 'hill', 'volley', 'casino', 'observatory', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'liberty', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
+  for (const k of ['fountain', 'statue', 'wheel', 'stadium', 'station', 'busstop', 'parking', 'lake', 'biglake', 'hill', 'volley', 'casino', 'observatory', 'uni', 'airport', 'beach', 'metro', 'clocktower', 'museum', 'funfair', 'lighthouse', 'marina', 'mosque', 'zoo', 'eiffel', 'pisa', 'colosseum', 'galata', 'pyramid'] as const) items.push([k, makeDecor(k)]);
+  for (const k of WONDER_KINDS) items.push([k, makeDecor(k)]);
   try {
     setThumbs(renderThumbs(items));
   } catch (err) {
@@ -1741,7 +1743,7 @@ loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
     if (!city.hasZones) toast('Hoş geldin! Sağ alttaki İnşa Et düğmesinden yol ve konut yap.');
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
-    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod, dayNight, frame } });
+    if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod, dayNight, frame, makeDecor } });
   })
   .catch(err => {
     console.error(err);

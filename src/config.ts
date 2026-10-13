@@ -240,6 +240,7 @@ export type DecorKind =
   | 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'parking' | 'uni' | 'airport' | 'beach' | 'metro'
   | 'clocktower' | 'museum' | 'funfair' | 'lighthouse' | 'marina' | 'mosque'
   | 'eiffel' | 'liberty' | 'pisa' | 'colosseum' | 'galata' | 'pyramid' | 'zoo'
+  | 'maiden' | 'hagia' | 'taj' | 'bigben' | 'parthenon' | 'chichen' | 'opera' | 'stonehenge'
   | 'lake' | 'biglake' | 'hill' | 'volley' | 'casino' | 'observatory';
 export interface DecorInfo { radius: number; happy: number; upkeep: number; covers?: ServiceKind; income?: number; road?: boolean }
 export const DECOR: Record<DecorKind, DecorInfo> = {
@@ -265,6 +266,15 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   colosseum: { radius: 12, happy: 0.24, upkeep: 22, income: 550, road: true },
   galata: { radius: 8, happy: 0.16, upkeep: 8, income: 260, road: true },
   pyramid: { radius: 11, happy: 0.2, upkeep: 12, income: 450, road: true },
+  // Dünya harikaları (wonders.ts). Kız Kulesi denizin içine kurulur; turistler tekneyle gelir (yol gerekmez)
+  maiden: { radius: 9, happy: 0.18, upkeep: 6, income: 320 },
+  hagia: { radius: 12, happy: 0.24, upkeep: 20, income: 560, road: true },
+  taj: { radius: 12, happy: 0.25, upkeep: 22, income: 600, road: true },
+  bigben: { radius: 9, happy: 0.18, upkeep: 10, income: 340, road: true },
+  parthenon: { radius: 10, happy: 0.2, upkeep: 12, income: 420, road: true },
+  chichen: { radius: 10, happy: 0.2, upkeep: 12, income: 400, road: true },
+  opera: { radius: 11, happy: 0.22, upkeep: 18, income: 500, road: true },
+  stonehenge: { radius: 7, happy: 0.14, upkeep: 4, income: 220, road: true },
   museum: { radius: 9, happy: 0.15, upkeep: 15, income: 220, road: true }, // müze: turist getirir
   funfair: { radius: 10, happy: 0.22, upkeep: 14, income: 260, road: true }, // lunapark: atlıkarınca ve hız treni
   busstop: { radius: 4, happy: 0.05, upkeep: 1 }, // otobüs durağı: otobüsler dolaşır
@@ -282,7 +292,9 @@ export type BuildTool = 'road' | 'avenue' | 'boulevard' | 'rail' | 'tunnel' | 'r
 // Simge yapılardan 6. seviye konut için gereken en az mutluluk katkısı (otobüs durağı yetmez)
 export const LUXURY_DECOR = 0.1;
 // Su kenarına (nehre bitişik) kurulması gereken yapılar
-export const NEEDS_WATER: BuildTool[] = ['beach', 'port', 'lighthouse', 'marina'];
+export const NEEDS_WATER: BuildTool[] = ['beach', 'port', 'lighthouse', 'marina', 'opera'];
+// Denizin içine (bütün kareleri deniz olan yere) kurulanlar
+export const ON_SEA: BuildTool[] = ['maiden'];
 // Sadece deniz kıyısına kurulanlar
 export const NEEDS_SEA: BuildTool[] = ['lighthouse', 'marina'];
 export type Tool = 'pan' | BuildTool;
@@ -316,6 +328,7 @@ export const COST: Record<BuildTool, number> = {
   bakery: 1500, fashion: 2000, garden: 2500, cafe: 3000, electro: 4000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000, mosque: 5000,
   zoo: 11000, lake: 1500, biglake: 3500, hill: 1200, volley: 2500, casino: 15000, observatory: 9000, eiffel: 30000, liberty: 25000, pisa: 12000, colosseum: 32000, galata: 10000, pyramid: 28000,
+  maiden: 14000, hagia: 30000, taj: 34000, bigben: 16000, parthenon: 22000, chichen: 20000, opera: 30000, stonehenge: 9000,
 };
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar, karakol, itfaiye ve depo 2x2:
@@ -323,6 +336,7 @@ export const COST: Record<BuildTool, number> = {
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
   store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
   health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
+  maiden: 2, hagia: 3, taj: 3, bigben: 2, parthenon: 2, chichen: 2, opera: 3, stonehenge: 2,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -337,6 +351,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   beach: 6, bakery: 7, port: 8, fashion: 8, garden: 9, cafe: 10, electro: 12, metro: 10, clocktower: 4, museum: 8, funfair: 9, lighthouse: 5, marina: 7,
   boulevard: 4, avenue: 8, mosque: 6,
   zoo: 8, lake: 3, biglake: 6, hill: 3, volley: 6, casino: 10, observatory: 9, galata: 6, pisa: 7, liberty: 9, eiffel: 10, colosseum: 11, pyramid: 12,
+  stonehenge: 6, maiden: 7, bigben: 8, chichen: 9, parthenon: 10, hagia: 11, opera: 11, taj: 12,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -382,7 +397,15 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   metro: { icon: 'Ⓜ️', label: 'Metro', hint: 'Metro istasyonu: çevresindeki evleri mutlu eder.' },
   zoo: { icon: '🦒', label: 'Hayvanat Bahçesi', hint: 'Hayvanat bahçesi: zürafalar, filler ve aslanlar dolaşır. Turist getirir, çevresini mutlu eder.' },
   eiffel: { icon: '🗼', label: 'Eyfel Kulesi', hint: 'Eyfel Kulesi: demir kafesli dev kule. Çok turist getirir, gece tepesi ışıklanır.' },
-  liberty: { icon: '🗽', label: 'Özgürlük Anıtı', hint: 'Özgürlük Anıtı: yıldız biçimli kalenin üstünde meşaleli heykel. Çok turist getirir.' },
+  liberty: { icon: '🗽', label: 'Özgürlük Anıtı', hint: 'Özgürlük Anıtı: yıldız biçimli Fort Wood kalesi, granit kaide ve bakır yeşili heykel; kıvrımlı elbisesi, yedi ışınlı tacı, gece yanan altın meşalesi var. Çok turist getirir.' },
+  maiden: { icon: '🌊', label: 'Kız Kulesi', hint: 'Kız Kulesi: denizin içine kurulur (2x2 deniz). Kayalık adacıkta taş bina, fener odalı kule ve Türk bayrağı; iskelede tekne sallanır. Turistler tekneyle gelir.' },
+  hagia: { icon: '🕌', label: 'Ayasofya', hint: 'Ayasofya: kırk pencereli basık büyük kubbe, yarım kubbeler, iri payandalar ve dört minare. Çok turist getirir.' },
+  taj: { icon: '👑', label: 'Tac Mahal', hint: 'Tac Mahal: beyaz mermer türbe, soğan kubbe, dört minare, uzun havuzlu bahçe ve kırmızı kumtaşı yapılar. Çok turist getirir.' },
+  bigben: { icon: '🔔', label: 'Big Ben', hint: 'Big Ben: gotik saat kulesi (gece kadranları yanar) ve Westminster Sarayı. Turist getirir.' },
+  parthenon: { icon: '🏛️', label: 'Parthenon', hint: 'Parthenon: Akropolis tepesinde yivli sütunlu antik tapınak kalıntısı ve Erekhtheion. Turist getirir.' },
+  chichen: { icon: '🛕', label: 'Chichen Itza', hint: 'Chichen Itza: Maya basamak piramidi; dört yanında merdiven, tepesinde taş tapınak. Turist getirir.' },
+  opera: { icon: '🎭', label: 'Sidney Opera Binası', hint: 'Sidney Opera Binası: su kıyısına kurulur. Beyaz karo kaplı yelken kabukları, gece yanan camlar. Çok turist getirir.' },
+  stonehenge: { icon: '🪨', label: 'Stonehenge', hint: 'Stonehenge: çember biçimli dev dikili taşlar ve lentolar, çevrede otlayan koyunlar. Turist getirir.' },
   pisa: { icon: '🏛️', label: 'Pisa Kulesi', hint: 'Pisa Kulesi: altı katlı sütunlu, ünlü eğik kule. Turist getirir.' },
   colosseum: { icon: '🏟️', label: 'Kolezyum', hint: 'Kolezyum: kemerli dev arena, bir yanı yıkık. Çok turist getirir.' },
   galata: { icon: '🏰', label: 'Galata Kulesi', hint: 'Galata Kulesi: taş gövde, seyir balkonu ve sivri külah. Turist getirir.' },
@@ -414,7 +437,7 @@ export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro'] },
   { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'zoo', 'casino', 'observatory', 'wheel', 'museum', 'funfair', 'stadium'] },
-  { group: 'historic', icon: '🏛️', label: 'Tarihi', color: '#a1887f', tools: ['galata', 'pisa', 'liberty', 'eiffel', 'colosseum', 'pyramid', 'clocktower', 'mosque'] },
+  { group: 'historic', icon: '🏛️', label: 'Tarihi', color: '#a1887f', tools: ['galata', 'stonehenge', 'maiden', 'pisa', 'bigben', 'liberty', 'chichen', 'eiffel', 'parthenon', 'colosseum', 'hagia', 'opera', 'pyramid', 'taj', 'clocktower', 'mosque'] },
   { group: 'nature', icon: '🌄', label: 'Manzara', color: '#43a047', tools: ['lake', 'biglake', 'hill'] },
   { group: 'coast', icon: '🏖️', label: 'Sahil', color: '#0097a7', tools: ['beach', 'volley', 'lighthouse', 'port', 'marina'] },
 ];

@@ -5,7 +5,7 @@ import {
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
-  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH,
+  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH, ON_SEA,
   HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
@@ -833,7 +833,8 @@ export class City {
   get tourism() {
     let sum = 0;
     this.tiles.forEach((t, i) => {
-      if (t && isDecor(t.kind) && DECOR[t.kind].income && this.isConnected(i)) sum += DECOR[t.kind].income!;
+      // Denizdeki yapılara turistler tekneyle gelir (yola bağlı olmaları gerekmez)
+      if (t && isDecor(t.kind) && DECOR[t.kind].income && (this.isConnected(i) || ON_SEA.includes(t.kind as BuildTool))) sum += DECOR[t.kind].income!;
     });
     return sum;
   }
@@ -1418,6 +1419,11 @@ export class City {
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
+    // Kız Kulesi gibi yapılar denizin içine kurulur (bütün kareleri deniz)
+    if (ON_SEA.includes(tool)) {
+      if (!cells.every(isSea)) return 'Bu yapı denizin içine kurulur';
+      return cells.some(c => this.tiles[c]) ? 'Burası dolu' : null;
+    }
     if (cells.some(isSea)) {
       if (tool !== 'road') return gradeOf(tool) > 0 && t?.kind === 'road' ? 'Asma köprü yükseltilemez' : 'Denizin üstüne sadece yol (asma köprü) yapılır';
       if (this.level < SEA_BRIDGE.level) return `Asma köprü şehir seviyesi ${SEA_BRIDGE.level}'te açılır`;
@@ -1844,6 +1850,8 @@ export class City {
       if (!t || !isWater(i)) return;
       if (t.kind === 'road' || t.kind === 'rail') return; // nehir köprüleri ve asma köprüler kalır
       const anchor = c.tiles[c.anchorOf(i)];
+      // Denizin içine kurulan yapılar (Kız Kulesi) yerinde kalır
+      if (anchor && ON_SEA.includes(anchor.kind as BuildTool) && isSea(i)) return;
       if (isSea(i) && anchor && anchor.kind in COST) c.seaRefund += COST[anchor.kind as BuildTool];
       for (const cell of c.cellsOf(i)) {
         c.tiles[cell] = null;

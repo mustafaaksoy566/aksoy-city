@@ -117,20 +117,20 @@ const ASHLAR = (() => {
   t.anisotropy = 4;
   return t;
 })();
-const stoneMat = (color: string) => new THREE.MeshStandardMaterial({ color, map: ASHLAR, roughness: 0.92 });
+export const stoneMat = (color: string) => new THREE.MeshStandardMaterial({ color, map: ASHLAR, roughness: 0.92 });
 // Çekilmiş (Extrude) parçaların doku koordinatlarını taş dokusunun ölçüsüne getir
-function stoneUV(geo: THREE.BufferGeometry) {
+export function stoneUV(geo: THREE.BufferGeometry) {
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 0.4, uv.getY(i) / 0.44);
   return geo;
 }
 // Kaya: köşeli, düz gölgeli
-const ROCK = new THREE.MeshStandardMaterial({ color: '#8f8a80', roughness: 1, flatShading: true });
-const ROCK_LIGHT = new THREE.MeshStandardMaterial({ color: '#b0a796', roughness: 1, flatShading: true });
+export const ROCK = new THREE.MeshStandardMaterial({ color: '#8f8a80', roughness: 1, flatShading: true });
+export const ROCK_LIGHT = new THREE.MeshStandardMaterial({ color: '#b0a796', roughness: 1, flatShading: true });
 // Saydam cam (fener odası, hayvan bölmesi camı, teras korkuluğu)
-const GLASS = new THREE.MeshStandardMaterial({ color: '#d4eef8', transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.3, depthWrite: false });
+export const GLASS = new THREE.MeshStandardMaterial({ color: '#d4eef8', transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.3, depthWrite: false });
 
-function rock(g: THREE.Object3D, x: number, y: number, z: number, r: number, sx = 1, sy = 0.7, sz = 1, m: THREE.Material = ROCK) {
+export function rock(g: THREE.Object3D, x: number, y: number, z: number, r: number, sx = 1, sy = 0.7, sz = 1, m: THREE.Material = ROCK) {
   const o = add(g, new THREE.IcosahedronGeometry(r, 0), m, x, y, z);
   o.scale.set(sx, sy, sz);
   o.rotation.set(Math.sin(x * 9) * 0.3, x * 7 + z * 13, Math.cos(z * 9) * 0.3);
@@ -157,7 +157,7 @@ function archPath(p: THREE.Path, x: number, y: number, w: number, h: number) {
 }
 // Kemerli pencere / kapı / niş (yüzü +z, alt orta 0,0). Aynı ölçüler tek geometriyi paylaşır.
 const archCache = new Map<string, THREE.BufferGeometry>();
-function archGeo(w: number, h: number, depth = 0.004) {
+export function archGeo(w: number, h: number, depth = 0.004) {
   const key = `${w}|${h}|${depth}`;
   let geo = archCache.get(key);
   if (!geo) {
@@ -169,7 +169,7 @@ function archGeo(w: number, h: number, depth = 0.004) {
   return geo;
 }
 // Revak cephesi: n sivri kemerli açıklığı olan duvar (yüzü +z, alt orta 0,0). open: açıklığın bölmeye oranı
-function arcadeGeo(w: number, h: number, n: number, depth: number, open = 0.74, rise = 0.78) {
+export function arcadeGeo(w: number, h: number, n: number, depth: number, open = 0.74, rise = 0.78) {
   const s = new THREE.Shape();
   const bay = w / n, r = (bay * open) / 2, top = h * rise;
   s.moveTo(-w / 2, 0);
@@ -188,14 +188,14 @@ function arcadeGeo(w: number, h: number, n: number, depth: number, open = 0.74, 
   return stoneUV(new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 5 }).translate(0, 0, -depth / 2));
 }
 // Yarım küre kubbe (tabanı y=0)
-const dome = (r: number, seg = 20) => new THREE.SphereGeometry(r, seg, Math.max(4, seg >> 2), 0, Math.PI * 2, 0, Math.PI / 2);
+export const dome = (r: number, seg = 20) => new THREE.SphereGeometry(r, seg, Math.max(4, seg >> 2), 0, Math.PI * 2, 0, Math.PI / 2);
 // Üçgen çatı kütlesi: w genişlik (x), d derinlik (z), h yükseklik; tabanı y=0'da
-function gable(w: number, d: number, h: number) {
+export function gable(w: number, d: number, h: number) {
   const sh = new THREE.Shape([new THREE.Vector2(-d / 2, 0), new THREE.Vector2(d / 2, 0), new THREE.Vector2(0, h)]);
   return new THREE.ExtrudeGeometry(sh, { depth: w, bevelEnabled: false }).rotateY(Math.PI / 2).translate(-w / 2, 0, 0);
 }
 // Beşik çatı: üçgen alınlık duvarı (wall) ve saçaklı iki eğik çatı plakası. Mahya x yönünde; y alt kenar.
-function pitched(g: THREE.Object3D, w: number, d: number, h: number, roof: THREE.Material, wall: THREE.Material | null, x: number, y: number, z: number, over = 0.012) {
+export function pitched(g: THREE.Object3D, w: number, d: number, h: number, roof: THREE.Material, wall: THREE.Material | null, x: number, y: number, z: number, over = 0.012) {
   if (wall) add(g, gable(w, d, h), wall, x, y, z);
   const ang = Math.atan2(h, d / 2);
   const run = d / 2 + over;
@@ -1169,7 +1169,12 @@ function mosque() {
   return mergeStatic([st]);
 }
 
+// Başka dosyalarda çizilen simge yapılar (wonders.ts: dünya harikaları) kendilerini buraya kaydeder
+export const EXTRA_DECOR: Partial<Record<DecorKind, () => THREE.Object3D>> = {};
+
 export function makeDecor(kind: DecorKind): THREE.Object3D {
+  const extra = EXTRA_DECOR[kind];
+  if (extra) return extra();
   if (kind === 'zoo') return zoo();
   if (kind in HISTORIC) return HISTORIC[kind as keyof typeof HISTORIC]();
   if (kind === 'mosque') return mosque();

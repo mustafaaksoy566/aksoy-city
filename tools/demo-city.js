@@ -9,8 +9,9 @@ const { City, serviceArea } = cityMod;
 const W = cfg.SIZE;
 const I = (x, z) => z * W + x;
 const c = new City();
-// Hazır şehir eski 48x64'lük alanda kurulur; doğudaki ve güneydeki yeni araziler satın alınmamış kalır
-c.owned.forEach((_, p) => (c.owned[p] = p % cfg.PLOTS < 6 && Math.floor(p / cfg.PLOTS) < 8 ? 1 : 0));
+// Hazır şehir eski 48x64'lük alanda ve doğudaki yeni arazide (Dünya Harikaları) kurulur; güneydeki yeni
+// araziler satın alınmamış kalır
+c.owned.forEach((_, p) => (c.owned[p] = Math.floor(p / cfg.PLOTS) < 8 ? 1 : 0));
 c.xp = 99999;
 c.money = 5e8;
 const errs = [];
@@ -276,7 +277,8 @@ c.tiles.forEach((t, i) => {
 
 // --- Doğuda sanayi ve enerji, güneyde havalimanı ve güneş-rüzgâr tarlası ---
 const westSlots = [18, 20, 22, 24, 26, 30, 32, 34, 36, 38, 40, 42, 44, 47, 49, 51, 53, 55, 57, 59, 61];
-const eastSlots = [18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60];
+// 20, 32 ve 44 boş kalır: z = 21, 33 ve 45 sıralarından doğudaki Dünya Harikaları bölgesine yol geçer
+const eastSlots = [18, 22, 24, 26, 28, 30, 34, 36, 38, 40, 42, 46, 48, 50, 52, 54, 56, 58, 60];
 const slots = [...westSlots.map(z => [43, z]), ...eastSlots.map(z => [46, z])].sort((a, b) => a[1] - b[1]);
 const industry = [];
 for (const [x, z] of slots) industry.push([x, z]);
@@ -335,6 +337,35 @@ for (let pass = 0; pass < 4; pass++) {
   c.apply('avenue', jam);
   c.refresh();
 }
+
+// --- Doğudaki yeni arazide Dünya Harikaları parkı, denizde Kız Kulesi ---
+// Sanayi yolundan (x=45) doğuya yollar: z=21 ve z=45 yol, z=33 bulvar; x=55 bulvarı kuzeyden güneye
+for (const [z, gr] of [[21, 0], [33, 1], [45, 0]]) {
+  if (c.tiles[I(46, z)] || c.tiles[I(47, z)]) errs.push('doğu yolu dolu ' + z);
+  road(46, z, 63, z, gr);
+}
+road(55, 21, 55, 45, 1);
+place('opera', 49, 18);
+place('hagia', 48, 22);
+place('taj', 52, 22);
+place('bigben', 56, 22);
+place('parthenon', 59, 22);
+place('chichen', 62, 22);
+place('stonehenge', 56, 31);
+place('biglake', 49, 27);
+place('lake', 60, 27);
+place('hill', 49, 37);
+place('lake', 57, 37);
+place('fountain', 52, 34);
+place('statue', 60, 34);
+place('maiden', 8, 13);
+for (let x = 48; x <= 63; x++) {
+  for (const z of [31, 32, 34, 44]) {
+    if (x === 55 || c.tiles[I(x, z)]) continue;
+    place('park', x, z);
+  }
+}
+c.refresh();
 
 // --- Son ayarlar ---
 c.money = 250000;
