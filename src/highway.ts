@@ -646,7 +646,13 @@ interface Car {
   pos: THREE.Vector3;
   h: number;
   fade: number;
+  wait?: number; // ne kadar süredir duruyor (kilit kırıcı)
+  ghost?: number; // kilit kırılırken önündekilere bakmadan yavaşça ilerlediği süre
 }
+// Şehre giden her şeritte dolaşan araba sayısı (otobüsler şehre girince otobandan çıkar, sayı artmaz)
+const TO_CITY_CARS = 3;
+// Şehirden çıkıp otobanda giden araba bu kadarı geçerse otoban dolu sayılır
+const FROM_CITY_MAX = 28;
 interface Route {
   lane: Lane;
   slow: Float32Array; // her noktada en yüksek hız (kavşakta yavaş)
@@ -677,9 +683,23 @@ export class HighwayTraffic {
   // Şehir yeni araba istiyor mu? İstemiyorsa şehre gidecek arabalar tünelin içinde bekler (görünmez)
   cityWants: (() => boolean) | null = null;
 
-  // Şehirden çıkan araba aynı renk ve modelle otobana devam eder
+  // Şehirden çıkan araba aynı renk ve modelle otobana devam eder (otoban doluysa şehrin kenarından gitmiş sayılır)
   leaveCity(type: number, paint: THREE.Color, wide: number) {
+    if (this.saturated()) return;
     this.exits.push({ type, paint, wide: Math.min(1, Math.max(0, wide)) });
+  }
+  private fromCityCount() {
+    let n = 0;
+    for (const c of this.cars) if (this.routes[c.route].gate === 'fromCity') n++;
+    return n;
+  }
+  // Otoban dolu: şehirden çıkan araba artık otobana eklenmez (şehirde kuyruk birikmesin)
+  private saturated() {
+    return this.fromCityCount() >= FROM_CITY_MAX;
+  }
+  // Otoban kalabalık: şehirdeki arabalar daha az "şehirden çık" hedefi seçsin
+  busy() {
+    return this.exits.length > 1 || this.fromCityCount() >= FROM_CITY_MAX / 2;
   }
   // Şehre otobüs gönder: tünelden çıkar, şehrin girişinde şehir trafiğine geçer (dış şerit)
   sendBus() {
@@ -693,6 +713,7 @@ export class HighwayTraffic {
 
   // Şehirden çıkan araba otobana geçebilir mi? (yolun başı boş değilse şehrin kenarında bekler, kaybolmaz)
   canLeave(wide: number) {
+    if (this.saturated()) return true;
     const r = this.gates.from[Math.min(1, Math.max(0, wide))];
     return !this.exits.length && (r === undefined || !this.cars.some(c => c.route === r && c.s < 0.9));
   }
@@ -865,15 +886,44 @@ export class HighwayTraffic {
         v = Math.min(v, Math.max(0, (ahead - (this.lengthOf(car) + this.lengthOf(o)) / 2 - 0.09) * 3));
       }
       // Şehre giden (otobüs değil): şehir yeterince kalabalıksa tünelden çıkmadan bekle
-      if (route.gate === 'toCity' && car.type >= 0 && car.s < 4 && this.cityWants && !this.cityWants()) v = 0;
+      let held = false;
+      if (route.gate === 'toCity' && car.type >= 0 && car.s < 4 && this.cityWants && !this.cityWants()) {
+        v = 0;
+        held = true;
+      }
       // Şehre giden: giriş doluysa sınırın dışında bekle (şehirdeki kuyruğun içine girmesin)
-      if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.(route.wide ?? 1)) v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
+      if (route.gate === 'toCity' && car.s > route.lane.length - 1.2 && this.cityBusy?.(route.wide ?? 1)) {
+        v = Math.min(v, Math.max(0, (route.lane.length - 0.55 - car.s) * 3));
+        held = true;
+      }
+      // Kilit kırıcı: kavşakta herkes birbirini bekleyip 5 saniyeden uzun durursa araba 2 saniye önüne bakmadan
+      // yavaşça ilerler (döngü halinde bekleme çözülür). Şehrin girişinde bilerek bekleyenler hariç.
+      if (!held) {
+        if (car.ghost) {
+          car.ghost = Math.max(0, car.ghost - dt);
+          v = Math.max(v, this.cap(route, car.s) * 0.45);
+        } else if (v < 0.03 && car.v < 0.05) {
+          car.wait = (car.wait ?? 0) + dt;
+          if (car.wait > 5) {
+            car.ghost = 2;
+            car.wait = 0;
+          }
+        } else car.wait = 0;
+      }
       car.v += (v - car.v) * Math.min(1, dt * 3);
       car.s += car.v * dt;
       if (car.s > route.lane.length) {
         if (route.gate === 'toCity') {
           // Şehrin girişine geldi: şehir trafiğine geçer, tünelden yeni araba gelir (giriş doluysa bekler)
           if (!this.enterCity || this.enterCity(car.type, car.paint, route.wide ?? 1)) {
+            // Otobüs ve fazladan araba otobandan çıkar (eskiden otobüs normal arabaya dönüp otobanda kalıyordu,
+            // uzun oyunda yüzlerce araba birikip göbek kavşağı kilitliyordu)
+            let same = 0;
+            for (const o of this.cars) if (o.route === car.route && o.type >= 0 && !gone.has(o)) same++;
+            if (car.type < 0 || same > TO_CITY_CARS) {
+              gone.add(car);
+              return;
+            }
             car.s = 0;
             car.type = CAR_KINDS.indexOf(NORMAL_CARS[Math.floor(Math.random() * NORMAL_CARS.length)]);
             car.paint = carPaint(CAR_KINDS[car.type]);

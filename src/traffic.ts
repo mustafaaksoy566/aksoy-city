@@ -322,7 +322,7 @@ export class Traffic {
   private wanted = 0; // şehirde gezmesi gereken araba sayısı
   private walkers: Walkers | null = null;
   // Otoban: şehirden çıkan arabalar ona devredilir
-  highway: { leaveCity(type: number, paint: THREE.Color, wide: number): void; canLeave(wide: number): boolean; sendBus(): void; busesComing(): number } | null = null;
+  highway: { leaveCity(type: number, paint: THREE.Color, wide: number): void; canLeave(wide: number): boolean; busy(): boolean; sendBus(): void; busesComing(): number } | null = null;
 
   constructor(private city: City) {}
 
@@ -586,7 +586,8 @@ export class Traffic {
         return { kind: 'lot', spot: best, bay, road: best.road };
       }
     }
-    if (r < 0.8 && this.garages.length) {
+    // Otoban kalabalıksa şehirden çıkmak yerine şehirde bir garaja gitsin
+    if ((r < 0.8 || this.highway?.busy()) && this.garages.length) {
       const g = this.garages[Math.floor(Math.random() * this.garages.length)];
       return { kind: 'garage', spot: g, road: g.road };
     }
