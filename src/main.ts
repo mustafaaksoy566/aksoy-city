@@ -74,7 +74,8 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
 let quality: Quality = (readPref(QUALITY_KEY) as Quality) || 'high';
 const dpr = () => window.devicePixelRatio || 1;
 const maxRatio = () => (quality === 'high' ? Math.min(dpr(), 3) : quality === 'mid' ? Math.min(dpr(), 2) : Math.min(dpr(), 1.25));
-const minRatio = () => (quality === 'high' ? Math.min(dpr(), 2) : quality === 'mid' ? Math.min(dpr(), 1.5) : 1);
+// Yüksek grafikte ekranın kendi keskinliğinin altına hiç inilmez (telefonda bulanık görünmesin)
+const minRatio = () => (quality === 'high' ? Math.min(dpr(), 3) : quality === 'mid' ? Math.min(dpr(), 1.5) : 1);
 let pixelRatio = maxRatio();
 renderer.setPixelRatio(pixelRatio);
 renderer.shadowMap.enabled = quality !== 'low';
