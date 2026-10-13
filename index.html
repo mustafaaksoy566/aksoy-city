@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- black-translucent YAPMAYIN: iOS 26+ saydam istenen saat şeridine Liquid Glass bulanıklık bandı çiziyor (iOS 27'de
+         ekranın üstü bulanık). default ile şerit opak olur ve rengini en üstteki sabit kutunun düz rengi (#statusbar)
+         verir. iOS bu etiketi yalnızca ana ekrana EKLERKEN okur: değişince uygulama silinip yeniden eklenmeli. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Aksoy City" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#5bb8ec" />

@@ -417,10 +417,10 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
   .cards { cursor: grab; }
 }
 
-/* Saat çubuğu şeridi: iOS 27'de ana ekrandan açılan uygulamada ekranın üstü bulanıklaşıyor (Liquid Glass). En üstte
-   düz renkli (background-color, gradyan değil), sabit, ekran genişliğinde ve en az 6px boyunda bir şerit varsa iOS
-   bulanıklık yapmaz, saat çubuğunu o renge boyar. Safari'de güvenli alan sıfır olduğu için şerit görünmez.
-   Altında yumuşak geçiş (ayrı katman, şeridin rengini bozmasın). */
+/* Saat çubuğu şeridi: iOS 26+ (WebKit fixedContainerEdges) saat çubuğunun rengini tepeden 8px içerideki noktadan
+   yukarı yürüyüp bulduğu İLK sabit (fixed/sticky) kutunun DÜZ background-color'ından alır; bulamazsa ekranın üstünü
+   Liquid Glass ile bulanıklaştırır. Gradyan sayılmaz, 10px ve altı kutu atlanır, pointer-events:none olan kutu hiç
+   görülmez. Ayrıca index.html'de black-translucent OLMAMALI. Safari'de güvenli alan sıfır, şerit görünmez. */
 #statusbar {
   position: fixed;
   z-index: 40;
@@ -430,8 +430,6 @@ body.sheet #actions, body.sheet #cam, body.building #actions, body.building #cam
   height: env(safe-area-inset-top);
   background-color: #5bb8ec;
 }
-/* Ana ekrandan açılınca en az 8px (iOS en az 6px boyundaki öğeyi tanıyor) */
-html.standalone #statusbar { min-height: 8px; }
 #statusbar::after {
   content: '';
   position: absolute;
@@ -680,6 +678,8 @@ html.standalone #statusbar { min-height: 8px; }
 .dlg .demo-row { margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 11px; border-radius: 14px; background: #e3f2fd; color: #1565c0; font-size: 15px; font-weight: 600; }
 .dlg .demo-row.back { background: #e8f5e9; color: #2e7d32; }
 .dlg .demo-row .ic { width: 22px; height: 22px; }
+.dlg .save-pair { display: flex; gap: 8px; margin-top: 10px; }
+.dlg .save-row { flex: 1; padding: 10px 6px; border-radius: 14px; background: #fff8e1; color: #8a5a00; font-size: 13.5px; font-weight: 600; line-height: 1.2; }
 .credits { margin-top: 12px; font-size: 11px; color: var(--muted); line-height: 1.4; text-align: center; }
 
 /* ---------------- Mesajlar ---------------- */

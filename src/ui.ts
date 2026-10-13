@@ -576,6 +576,8 @@ export interface SettingsHandlers {
   demo(): void; // hazır şehri aç
   restore(): void; // hazır şehirden kendi şehrine dön
   rename(name: string): void;
+  copyCity(): void; // şehri yazı olarak panoya kopyala (yedek / başka yere taşıma)
+  pasteCity(): void; // panodaki şehri yükle
 }
 
 export function openSettings(state: SettingsState, on: SettingsHandlers) {
@@ -589,6 +591,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     <div class="row">${icon('screen')}<span>Grafik</span><span class="segc">${q.map(([k, l]) => `<button data-q="${k}" class="${state.quality === k ? 'on' : ''}">${l}</button>`).join('')}</span></div>
     <button class="demo-row">${icon('build')}${state.demo ? 'Hazır şehri yeniden aç' : 'Hazır şehri aç (örnek büyük şehir)'}</button>
     ${state.demo ? `<button class="demo-row back">${icon('rotateLeft')}Kendi şehrime dön</button>` : ''}
+    <div class="save-pair"><button class="save-row" data-save="copy">📋 Şehri kopyala</button><button class="save-row" data-save="paste">📥 Kopyalanan şehri yükle</button></div>
     <button class="danger-row">${icon('trash')}Yeni şehir kur</button>
     <div class="btns"><button class="big-btn green" data-close>Tamam</button></div>
     <div class="credits">Bütün modeller, çizimler ve sesler oyunun kendi koduyla yapıldı.</div>
@@ -618,6 +621,15 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     el.hidden = true;
     on.reset();
   });
+  el.querySelectorAll<HTMLButtonElement>('.save-row').forEach(b =>
+    b.addEventListener('click', () => {
+      if (b.dataset.save === 'copy') on.copyCity();
+      else {
+        el.hidden = true;
+        on.pasteCity();
+      }
+    }),
+  );
   el.querySelectorAll<HTMLButtonElement>('.demo-row').forEach(b =>
     b.addEventListener('click', () => {
       el.hidden = true;

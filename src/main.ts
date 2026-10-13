@@ -1298,6 +1298,63 @@ async function restoreOwn() {
   }
 }
 
+// Şehri yazı olarak kopyala / yapıştır: ana ekran uygulaması silinip yeniden eklenirken (ya da başka telefona
+// geçerken) şehir kaybolmasın. İçinde şu anki şehir, hazır şehir açıksa kendi şehrinin yedeği ve şehrin adı var;
+// sıkıştırılıp yazıya çevrilir.
+async function packText(obj: unknown) {
+  const json = JSON.stringify(obj);
+  const buf = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return 'AKSOY1:' + btoa(bin);
+}
+async function unpackText(text: string) {
+  const b64 = text.trim().replace(/^AKSOY1:/, '').replace(/\s+/g, '');
+  const bin = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  return JSON.parse(await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+}
+async function copyCity() {
+  try {
+    const text = await packText({ city: city.serialize(), own: readPref(DEMO_KEY) === '1' ? readPref(BACKUP_KEY) : null, name: cityName });
+    await navigator.clipboard.writeText(text);
+    toast('📋 Şehir kopyalandı! Yeni uygulamada Ayarlar → "Kopyalanan şehri yükle"ye dokun.');
+  } catch (err) {
+    console.warn(err);
+    toast('Kopyalanamadı. Tekrar dene.', 'error');
+  }
+}
+async function pasteCity() {
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    // iPhone panoyu okumaya izin vermezse elle yapıştırma
+  }
+  if (!text.startsWith('AKSOY1:')) text = prompt('Kopyaladığın şehri buraya yapıştır:') ?? '';
+  if (!text.trim()) return;
+  try {
+    const pack = (await unpackText(text)) as { city: Parameters<typeof City.load>[0]; own: string | null; name?: string };
+    if (!City.canLoad(pack.city)) throw new Error('kayıt açılamadı');
+    const ok = await confirmDialog('Şehri yükle', 'Kopyaladığın şehir açılsın mı? Şu anki şehrin yerine geçer.', 'Yükle');
+    if (!ok) return;
+    if (pack.own) {
+      writePref(BACKUP_KEY, pack.own);
+      writePref(DEMO_KEY, '1');
+    } else writePref(DEMO_KEY, '0');
+    if (pack.name) {
+      cityName = pack.name;
+      writePref(NAME_KEY, pack.name);
+      setCityName(pack.name);
+    }
+    swapCity(City.load(pack.city));
+    toast('🏙️ Şehir yüklendi!');
+  } catch (err) {
+    console.warn(err);
+    toast('Bu yazı bir şehir değil ya da eksik kopyalanmış.', 'error');
+  }
+}
+
 async function resetCity() {
   const ok = await confirmDialog('Yeni şehir', 'Şehrin tamamen silinip baştan başlansın mı? Bu geri alınamaz.', 'Sil, baştan başla');
   if (!ok) return;
@@ -1341,6 +1398,8 @@ document.getElementById('settings')!.addEventListener('click', () => {
         writePref(RAIN_KEY, on ? '1' : '0');
       },
       reset: resetCity,
+      copyCity: () => void copyCity(),
+      pasteCity: () => void pasteCity(),
       demo: openDemo,
       restore: restoreOwn,
       rename: name => {
@@ -1385,6 +1444,17 @@ function fitStandalone() {
   const standalone = nav.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
   document.documentElement.classList.toggle('standalone', standalone);
   if (!standalone) {
+    app.removeAttribute('style');
+    document.documentElement.style.removeProperty('--sgap');
+    return;
+  }
+  // Sayfa saat çubuğunun altına uzanmıyorsa (saat çubuğu opak) aradaki fark doğaldır, düzeltme yapılmaz
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;padding-top:env(safe-area-inset-top);visibility:hidden';
+  document.body.appendChild(probe);
+  const inset = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  probe.remove();
+  if (inset <= 0) {
     app.removeAttribute('style');
     document.documentElement.style.removeProperty('--sgap');
     return;
