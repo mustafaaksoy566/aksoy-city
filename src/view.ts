@@ -999,7 +999,8 @@ function river() {
   // Ağız: nehir kumsalın kenarından deniz seviyesine iner, genişleyip denizin rengine karışarak kaybolur
   const rows: [number, number, number, number][] = [
     // [kıyıdan uzaklık, yükseklik, yarım genişlik, görünürlük]
-    [0, RIVER_Y, 1, 1], [0.5, SEA_Y + 0.004, 1.1, 0.95], [1.4, SEA_Y + 0.004, 1.45, 0.6], [2.6, SEA_Y + 0.004, 1.9, 0.25], [3.8, SEA_Y + 0.004, 2.3, 0],
+    // Kumsalın içinden kısa bir ağız: nehir suyu deniz seviyesine iner ve hemen denizin rengine karışır
+    [0, RIVER_Y, 1, 1], [0.6, SEA_Y + 0.004, 1.04, 0.75], [1.2, SEA_Y + 0.004, 1.15, 0.25], [1.8, SEA_Y + 0.004, 1.3, 0],
   ];
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const cx = wx(a + 1), z0 = wz(s);

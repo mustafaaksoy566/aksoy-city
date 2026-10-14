@@ -5,7 +5,7 @@ import { mergeStatic } from './batcher';
 import { SEA_Y } from './water';
 import { pm, BULB, WATER, UP, type V3, add, box, cyl, rod, item, bench, lamp, frame, basin, frustum, tree } from './parts';
 import { carModel } from './cars';
-import { EXTRA_DECOR, archGeo, dome, gable, pitched, stoneMat, stoneUV, rock, motorYacht } from './landmarks';
+import { EXTRA_DECOR, archGeo, dome, gable, pitched, stoneMat, stoneUV, rock, motorYacht, ROCK } from './landmarks';
 
 // Dünya harikaları: Özgürlük Anıtı, Kız Kulesi, Ayasofya, Tac Mahal, Big Ben, Parthenon, Chichen Itza,
 // Sidney Opera Binası, Stonehenge, Kapadokya (uçan balonlarıyla), Efes (Celsus Kütüphanesi), Pamukkale ve
@@ -354,121 +354,125 @@ function liberty() {
   return g;
 }
 
-// ======================= Kız Kulesi (2x2, denizin içinde) =======================
-// Boğaz'daki küçük adacık: çevresi dalgakıran kayaları, kesme taş rıhtım ve korkuluk; iki katlı kemer
-// pencereli taş bina, damında küçük kurşun kubbe, batı ucunda kare taş kule; kulenin tepesinde balkon,
-// sekizgen fener odası (gece yanar), kurşun külah ve Türk bayrağı. Önde ahşap iskele ve dalgada sallanan
-// tekne, rıhtımda kafe şemsiyeleri. Zemin plakası yok: çevresi deniz.
+// ======================= Kız Kulesi (3x3, denizin içinde, gerçek ölçüsünde) =======================
+// Üsküdar açığındaki adacık (yaklaşık 45 x 28 m): çevresi dalgakıran kayaları, sudan yükselen kesme taş rıhtım
+// duvarı ve alçak taş korkuluk; boyunca uzanan iki katlı, kemer pencereli açık gri taş bina (damı teras, güney
+// ucunda küçük kurşun kubbe), kuzey ucunda bitişik kare taş kule: üç kat dar pencere, köşe taşları, dışa
+// taşan balkon ve korkuluk, sekizgen camlı fener odası (gece yanar), kurşun külah ve Türk bayrağı (bayrağıyla
+// yaklaşık 30 m). Doğu yüzünde taş iskele ve merdiven, dalgada sallanan tekne; güney terasında kafe.
 const KK = {
-  wall: stoneMat('#f1e8d6'),
-  quay: stoneMat('#cfc3ab'),
-  trim: pm('#e8dfcb', 0.85),
-  paving: pm('#dcd2bf', 0.95),
-  lead: shiny('#8a99a8', 0.25, 0.6),
+  wall: stoneMat('#ddd6c8'),
+  quay: stoneMat('#b5ab98'),
+  trim: pm('#efe9dd', 0.85),
+  corner: pm('#c9c0ae', 0.9),
+  paving: pm('#cfc6b4', 0.95),
+  lead: shiny('#7d8a97', 0.25, 0.6),
   wood: pm('#8a6440', 0.85),
   rail: pm('#f5f3ee', 0.5),
-  red: pm('#c62828', 0.7),
   cloth: pm('#f7f4ee', 0.8),
   light: lit('#eaf4f8'),
   gold: shiny('#e0b84c', 0.7, 0.3),
+  rockDark: new THREE.MeshStandardMaterial({ color: '#6e6a63', roughness: 1, flatShading: true }),
 };
 function maiden() {
   const n = 3, s = small(n);
   const ys = SEA_Y / (n * 0.96);
   const g = new THREE.Group();
   const st = new THREE.Group();
-  // Rıhtım: yuvarlatılmış dikdörtgen taş duvar (denizin içinden yükselir), üstü taş döşeme
-  const quay = roundRect(-0.25, -0.155, 0.5, 0.31, 0.075);
-  add(st, stoneUV(flat(new THREE.ExtrudeGeometry(quay, { depth: 0.095, bevelEnabled: false, curveSegments: 6 }))), KK.quay, 0, ys - 0.035, 0);
-  add(st, flat(new THREE.ShapeGeometry(roundRect(-0.243, -0.148, 0.486, 0.296, 0.07), 6)), KK.paving, 0, ys + 0.062, 0);
-  const deck = ys + 0.06;
-  // Dalgakıran kayaları
-  for (let k = 0; k < 46; k++) {
-    const a = (k / 46) * Math.PI * 2;
-    const r = 1.04 + hash(k) * 0.12;
-    const x = Math.sin(a) * 0.27 * r, z = Math.cos(a) * 0.18 * r;
-    rock(st, x, ys + 0.004, z, 0.02 + hash(k + 9) * 0.018, 1.2, 0.7, 1);
-  }
-  // Rıhtım korkuluğu
-  const edge = roundRect(-0.242, -0.147, 0.484, 0.294, 0.068).getSpacedPoints(60);
+  // Adacık: suyun içinden yükselen kayalık kütle, üstünde rıhtım duvarı ve taş döşeme
+  const L = 0.8, D = 0.5;
+  add(st, flat(new THREE.ExtrudeGeometry(roundRect(-L / 2 - 0.03, -D / 2 - 0.03, L + 0.06, D + 0.06, 0.12), { depth: 0.05, bevelEnabled: false, curveSegments: 6 })), KK.rockDark, 0, ys - 0.06, 0);
+  add(st, stoneUV(flat(new THREE.ExtrudeGeometry(roundRect(-L / 2, -D / 2, L, D, 0.1), { depth: 0.075, bevelEnabled: false, curveSegments: 8 }))), KK.quay, 0, ys - 0.04, 0);
+  const deck = ys + 0.035;
+  add(st, flat(new THREE.ShapeGeometry(roundRect(-L / 2 + 0.008, -D / 2 + 0.008, L - 0.016, D - 0.016, 0.092), 8)), KK.paving, 0, deck + 0.003, 0);
+  // Alçak taş korkuluk (doğudaki iskele ağzında açık)
+  const edge = roundRect(-L / 2 + 0.006, -D / 2 + 0.006, L - 0.012, D - 0.012, 0.094).getSpacedPoints(90);
   edge.forEach((p, k) => {
-    if (k % 2 === 0) cyl(st, 0.0018, 0.0018, 0.022, KK.rail, p.x, deck, -p.y, 5);
-    if (k < edge.length - 1) {
-      const q = edge[k + 1];
-      if (!(Math.abs(p.x - 0.03) < 0.03 && -p.y > 0.12)) rod(st, [p.x, deck + 0.022, -p.y], [q.x, deck + 0.022, -q.y], 0.0016, KK.rail, 4);
-    }
+    if (k === edge.length - 1) return;
+    const q = edge[k + 1];
+    if (p.x > 0.02 && p.x < 0.16 && -p.y > 0.2) return;
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    const w = box(st, len + 0.002, 0.016, 0.008, KK.trim, (p.x + q.x) / 2, deck, -(p.y + q.y) / 2);
+    w.rotation.y = Math.atan2(q.y - p.y, q.x - p.x);
   });
-  // Ana bina: iki kat, kemerli pencereler, saçak, korkuluklu dam ve küçük kubbe
-  const bx = 0.055, bw = 0.22, bd = 0.15, bh = 0.088;
+  // Dalgakıran kayaları (çevresinde; iskele tarafı açık)
+  for (let k = 0; k < 70; k++) {
+    const a = (k / 70) * Math.PI * 2;
+    if (Math.cos(a) > 0.75 && Math.sin(a) > -0.2) continue; // iskele ve tekne tarafı açık
+    const r = 1.02 + hash(k) * 0.1;
+    rock(st, Math.sin(a) * (L / 2 + 0.03) * r, ys + 0.004, Math.cos(a) * (D / 2 + 0.03) * r, 0.022 + hash(k + 9) * 0.022, 1.2, 0.7, 1, k % 3 ? KK.rockDark : ROCK);
+  }
+  // Ana bina: iki kat, kemerli pencereler, kat silmesi, saçak, korkuluklu dam terası
+  const bx = 0.04, bw = 0.4, bd = 0.2, bh = 0.14;
   st.add(part(uvBox(bw, bh, bd, 0.4, 0.44), KK.wall, bx, deck + bh / 2, 0));
   for (const side of [-1, 1]) {
-    for (let k = 0; k < 7; k++) {
-      const x = bx - bw / 2 + 0.02 + k * ((bw - 0.04) / 6);
-      for (const y of [0.012, 0.052]) {
-        const w = add(st, archGeo(0.017, 0.03, 0.003), windowMat, x, deck + y, side * (bd / 2 + 0.001));
+    for (let k = 0; k < 9; k++) {
+      const x = bx - bw / 2 + 0.025 + k * ((bw - 0.05) / 8);
+      for (const y of [0.02, 0.085]) {
+        const w = add(st, archGeo(0.02, 0.04, 0.003), windowMat, x, deck + y, side * (bd / 2 + 0.001));
         if (side < 0) w.rotation.y = Math.PI;
       }
     }
-  }
-  for (const side of [-1, 1]) {
     for (let k = 0; k < 4; k++) {
-      for (const y of [0.012, 0.052]) {
-        const w = add(st, archGeo(0.017, 0.03, 0.003), windowMat, bx + side * (bw / 2 + 0.001), deck + y, -bd / 2 + 0.025 + k * ((bd - 0.05) / 3));
+      for (const y of [0.02, 0.085]) {
+        const w = add(st, archGeo(0.02, 0.04, 0.003), windowMat, bx + side * (bw / 2 + 0.001), deck + y, -bd / 2 + 0.03 + k * ((bd - 0.06) / 3));
         w.rotation.y = (side * Math.PI) / 2;
       }
     }
   }
-  box(st, bw + 0.002, 0.004, bd + 0.002, KK.trim, bx, deck + 0.045, 0);
-  box(st, bw + 0.012, 0.008, bd + 0.012, KK.trim, bx, deck + bh, 0);
-  box(st, bw - 0.004, 0.004, bd - 0.004, KK.paving, bx, deck + bh + 0.008, 0);
-  frame(st, bw + 0.008, bd + 0.008, 0.014, 0.005, KK.trim, bx, deck + bh + 0.008, 0);
-  const dy = deck + bh + 0.012;
-  cyl(st, 0.034, 0.036, 0.016, KK.wall, 0.12, dy, 0, 16);
-  add(st, dome(0.034, 18), KK.lead, 0.12, dy + 0.016, 0);
-  rod(st, [0.12, dy + 0.048, 0], [0.12, dy + 0.066, 0], 0.0018, KK.gold, 4);
-  for (const [x, z] of [[0.02, -0.05], [0.16, 0.05]] as [number, number][]) box(st, 0.012, 0.03, 0.012, KK.trim, x, dy, z);
-  // Kule: kare taş gövde, dar kemerli pencereler, balkon, sekizgen fener odası, kurşun külah, bayrak
-  const tx = -0.125, tw = 0.082, th = 0.24;
+  box(st, bw + 0.004, 0.006, bd + 0.004, KK.trim, bx, deck + 0.07, 0);
+  box(st, bw + 0.014, 0.01, bd + 0.014, KK.trim, bx, deck + bh, 0);
+  box(st, bw - 0.004, 0.004, bd - 0.004, KK.paving, bx, deck + bh + 0.01, 0);
+  frame(st, bw + 0.01, bd + 0.01, 0.018, 0.006, KK.trim, bx, deck + bh + 0.01, 0);
+  // Güney ucunda küçük kurşun kubbe (kasnağı ve alemiyle)
+  const dy = deck + bh + 0.014;
+  cyl(st, 0.05, 0.052, 0.022, KK.wall, bx + 0.13, dy, 0, 18);
+  add(st, dome(0.05, 18), KK.lead, bx + 0.13, dy + 0.022, 0);
+  rod(st, [bx + 0.13, dy + 0.07, 0], [bx + 0.13, dy + 0.095, 0], 0.0022, KK.gold, 4);
+  // Kule: binanın kuzey ucuna bitişik kare taş gövde, köşe taşları, üç kat dar pencere
+  const tx = bx - bw / 2 - 0.055, tw = 0.12, th = 0.27;
   st.add(part(uvBox(tw, th, tw, 0.4, 0.44), KK.wall, tx, deck + th / 2, 0));
+  for (const [cx, cz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) box(st, 0.012, th, 0.012, KK.corner, tx + (cx * tw) / 2, deck, (cz * tw) / 2);
   for (let k = 0; k < 4; k++) {
     const f = item(st, tx, 0, (k * Math.PI) / 2, 1, 0);
-    for (const y of [0.1, 0.16]) add(f, archGeo(0.014, 0.032, 0.003), windowMat, 0, deck + y, tw / 2 + 0.001);
-    box(f, tw + 0.002, 0.004, 0.004, KK.trim, 0, deck + 0.095, tw / 2);
+    for (const y of [0.16, 0.2, 0.235]) add(f, archGeo(0.018, 0.042, 0.003), windowMat, 0, deck + y, tw / 2 + 0.001);
+    box(f, tw + 0.004, 0.006, 0.006, KK.trim, 0, deck + 0.155, tw / 2);
   }
-  box(st, tw + 0.016, 0.01, tw + 0.016, KK.trim, tx, deck + th, 0);
-  frame(st, tw + 0.016, tw + 0.016, 0.016, 0.003, KK.rail, tx, deck + th + 0.01, 0);
-  const ly = deck + th + 0.01;
-  cyl(st, 0.034, 0.036, 0.022, KK.wall, tx, ly, 0, 8);
-  add(st, new THREE.CylinderGeometry(0.03, 0.03, 0.036, 8), KK.light, tx, ly + 0.04, 0);
+  // Balkon: dışa taşan döşeme, korkuluk
+  box(st, tw + 0.05, 0.012, tw + 0.05, KK.trim, tx, deck + th, 0);
+  frame(st, tw + 0.046, tw + 0.046, 0.022, 0.003, KK.rail, tx, deck + th + 0.012, 0);
+  // Sekizgen fener odası (camlı, gece yanar), kurşun külah, alem ve bayrak
+  const ly = deck + th + 0.012;
+  cyl(st, 0.05, 0.052, 0.02, KK.wall, tx, ly, 0, 8);
+  add(st, new THREE.CylinderGeometry(0.044, 0.044, 0.05, 8), KK.light, tx, ly + 0.045, 0);
   for (let k = 0; k < 8; k++) {
     const a = (k / 8) * Math.PI * 2 + Math.PI / 8;
-    box(st, 0.004, 0.036, 0.004, KK.rail, tx + Math.sin(a) * 0.0305, ly + 0.022, Math.cos(a) * 0.0305);
+    box(st, 0.005, 0.05, 0.005, KK.trim, tx + Math.sin(a) * 0.045, ly + 0.02, Math.cos(a) * 0.045);
   }
-  cyl(st, 0.038, 0.038, 0.006, KK.trim, tx, ly + 0.058, 0, 8);
-  add(st, new THREE.ConeGeometry(0.04, 0.08, 8), KK.lead, tx, ly + 0.064 + 0.04, 0);
-  add(st, new THREE.SphereGeometry(0.006, 8, 6), KK.gold, tx, ly + 0.146, 0);
-  flag(st, TR_FLAG, tx, ly + 0.146, 0, 0.06, 0.045, -0.3);
-  // Doğudaki alçak ek bina ve kafe terası
-  st.add(part(uvBox(0.05, 0.05, 0.11, 0.4, 0.44), KK.wall, 0.19, deck + 0.025, 0));
-  box(st, 0.056, 0.006, 0.116, KK.trim, 0.19, deck + 0.05, 0);
-  for (const [x, z] of [[-0.19, -0.1], [-0.2, 0.1], [0.215, -0.11]] as [number, number][]) {
-    rod(st, [x, deck, z], [x, deck + 0.04, z], 0.0015, KK.rail, 4);
-    add(st, new THREE.ConeGeometry(0.026, 0.012, 8), KK.cloth, x, deck + 0.045, z);
-    cyl(st, 0.01, 0.01, 0.012, KK.wood, x + 0.012, deck, z + 0.008, 8);
+  cyl(st, 0.056, 0.056, 0.008, KK.trim, tx, ly + 0.07, 0, 8);
+  add(st, lathe([[0.056, 0], [0.05, 0.03], [0.034, 0.07], [0.014, 0.1], [0.004, 0.115], [0, 0.12]], 8), KK.lead, tx, ly + 0.078, 0);
+  add(st, new THREE.SphereGeometry(0.007, 8, 6), KK.gold, tx, ly + 0.2, 0);
+  flag(st, TR_FLAG, tx, ly + 0.2, 0, 0.07, 0.055, -0.3);
+  // Güney terası: kafe masaları ve şemsiyeler
+  for (const [x, z] of [[0.31, -0.12], [0.31, 0.1], [0.36, -0.01]] as [number, number][]) {
+    rod(st, [x, deck, z], [x, deck + 0.05, z], 0.0018, KK.rail, 4);
+    add(st, new THREE.ConeGeometry(0.03, 0.014, 8), KK.cloth, x, deck + 0.055, z);
+    cyl(st, 0.012, 0.012, 0.014, KK.wood, x + 0.014, deck, z + 0.01, 8);
   }
-  // Rıhtımın dört köşesinde lamba (rıhtımın döşemesinde dururlar; deniz seviyesi değişse de)
+  // Rıhtım lambaları (döşemede dururlar)
   const onDeck = item(st, 0, 0, 0, 1, deck - 0.03);
-  for (const [x, z] of [[-0.22, 0.12], [0.22, 0.12], [-0.22, -0.12], [0.22, -0.12]] as [number, number][]) lamp(onDeck, x, z, s, 0.14);
-  // İskele: ahşap döşeme ve denize inen kazıklar
-  box(st, 0.05, 0.006, 0.11, KK.wood, 0.03, deck - 0.006, 0.2);
-  for (const [x, z] of [[0.008, 0.16], [0.052, 0.16], [0.008, 0.25], [0.052, 0.25]] as [number, number][]) cyl(st, 0.003, 0.003, 0.06, KK.wood, x, ys - 0.03, z, 6);
+  for (const [x, z] of [[-0.36, 0.2], [0.36, 0.2], [-0.36, -0.2], [0.36, -0.2], [0, 0.22], [0, -0.22]] as [number, number][]) lamp(onDeck, x, z, s, 0.14);
+  // Doğu yüzünde iskele: taş basamaklar, ahşap döşeme ve kazıklar
+  for (let k = 0; k < 3; k++) box(st, 0.12, 0.012, 0.02, KK.quay, 0.09, deck - 0.012 * (k + 1), D / 2 + 0.01 + k * 0.02);
+  box(st, 0.07, 0.006, 0.12, KK.wood, 0.09, ys + 0.01, D / 2 + 0.11);
+  for (const [x, z] of [[0.06, 0.32], [0.12, 0.32], [0.06, 0.4], [0.12, 0.4]] as [number, number][]) cyl(st, 0.004, 0.004, 0.06, KK.wood, x, ys - 0.04, z, 6);
   g.add(mergeStatic([st]));
   // Dalgada sallanan tekne (landmarks.ts animateDecor: userData.bob)
-  const boat = motorYacht('#c62828', 0.16);
-  boat.position.set(0.108, ys - 0.012, 0.21);
+  const boat = motorYacht('#c62828', 0.2);
+  boat.position.set(0.2, ys - 0.008, 0.38);
   boat.rotation.y = Math.PI / 2;
   g.add(boat);
-  g.userData.bob = [{ obj: boat, phase: 0.7 }];
+  g.userData.bob = [{ obj: boat, phase: 0.7, y: ys - 0.008 }];
   return g;
 }
 
@@ -2030,9 +2034,170 @@ function troy() {
   return g;
 }
 
+// ======================= Galata Kulesi (2x2, gerçek ölçüsünde) =======================
+// 67 metre: dibi 16,5 metre çaplı, yukarı doğru hafif incelen kesme taş gövde; üst üste dar kemerli pencereler,
+// 46 metrede dışa taşan seyir balkonu ve demir korkuluğu, üstünde kemerli pencereli kasnak (gece yanar),
+// kurşun külah ve tepelik. Çevresinde Arnavut kaldırımlı Galata meydanı: kafe masaları, ağaçlar, köşelerde
+// üç-dört katlı eski Beyoğlu evleri.
+const GL = {
+  stone: stoneMat('#bfb19a'),
+  stone2: pm('#a8997f', 0.95),
+  dark: pm('#3f3a35', 1),
+  lead: shiny('#56606c', 0.3, 0.55),
+  iron: pm('#2e3338', 0.6, 0.4),
+  cobble: stoneMat('#a49a8c'),
+  plaster: [pm('#e9d3b0', 0.9), pm('#d9a98a', 0.9), pm('#efe6d6', 0.9), pm('#c9b8a0', 0.9)],
+  roof: pm('#a5543a', 0.8),
+  gold: shiny('#e0b84c', 0.7, 0.3),
+};
+// Eski Beyoğlu evi: sıvalı cephe, katlarda pencere sıraları, çıkma (cumba), kiremit çatı
+function oldHouse(g: THREE.Object3D, x: number, z: number, w: number, d: number, floors: number, k: number, rot = 0) {
+  const h = item(g, x, z, rot, 1, 0.03);
+  const fh = 0.06;
+  box(h, w, fh * floors, d, GL.plaster[k % GL.plaster.length], 0, 0, 0);
+  for (let f = 0; f < floors; f++) for (let i = 0; i < Math.max(2, Math.round(w / 0.05)); i++) {
+    const n = Math.max(2, Math.round(w / 0.05));
+    box(h, 0.016, 0.03, 0.004, windowMat, -w / 2 + ((i + 0.5) * w) / n, f * fh + 0.016, d / 2 + 0.001);
+  }
+  box(h, w * 0.5, fh * (floors - 1) - 0.01, 0.025, GL.plaster[(k + 1) % GL.plaster.length], 0, fh, d / 2 + 0.012);
+  box(h, w + 0.01, 0.006, d + 0.01, GL.stone2, 0, fh * floors, 0);
+  add(h, gable(w + 0.01, d + 0.01, 0.04), GL.roof, 0, fh * floors + 0.006, 0);
+}
+function galata2() {
+  const n = 2, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  add(st, uvBox(0.98, 0.03, 0.98, 0.06, 0.06), GL.cobble, 0, 0.015, 0);
+  // Gövde: dipte biraz geniş taş kaide, yukarı doğru incelir (gerçek: 16,5 m çap, 46 m'de balkon)
+  const R = 0.214, top = 1.2;
+  add(st, lathe([[R + 0.012, 0], [R + 0.012, 0.05], [R, 0.06], [R * 0.93, top]], 32), GL.stone, 0, 0.03, 0);
+  for (const y of [0.06, 0.4, 0.75, 1.1]) cyl(st, R - (y / top) * R * 0.07 + 0.004, R - (y / top) * R * 0.07 + 0.004, 0.012, GL.stone2, 0, 0.03 + y, 0, 32);
+  // Dar kemerli pencereler: sekiz yönde, katlarda
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + (k % 2) * 0.2;
+    for (let f = 0; f < 6; f++) {
+      const y = 0.12 + f * 0.19 + (k % 2) * 0.09;
+      if (y > top - 0.1) continue;
+      const r = R - (y / top) * R * 0.07 + 0.002;
+      const w = add(st, archGeo(0.02, 0.05, 0.006), GL.dark, Math.sin(a) * r, 0.03 + y, Math.cos(a) * r);
+      w.rotation.y = a;
+    }
+  }
+  // Seyir balkonu: taş konsollar, dışa taşan döşeme ve demir korkuluk
+  const by = 0.03 + top;
+  for (let k = 0; k < 24; k++) {
+    const a = (k / 24) * Math.PI * 2;
+    box(st, 0.014, 0.03, 0.03, GL.stone2, Math.sin(a) * (R * 0.93 + 0.012), by - 0.03, Math.cos(a) * (R * 0.93 + 0.012)).rotation.y = a;
+  }
+  cyl(st, R + 0.05, R * 0.95, 0.018, GL.stone2, 0, by, 0, 32);
+  add(st, new THREE.CylinderGeometry(R + 0.048, R + 0.048, 0.035, 32, 1, true), GL.iron, 0, by + 0.035, 0);
+  for (let k = 0; k < 32; k++) {
+    const a = (k / 32) * Math.PI * 2;
+    rod(st, [Math.sin(a) * (R + 0.047), by + 0.018, Math.cos(a) * (R + 0.047)], [Math.sin(a) * (R + 0.047), by + 0.052, Math.cos(a) * (R + 0.047)], 0.0018, GL.iron, 4);
+  }
+  // Kasnak: kemerli büyük pencereler (gece yanar), saçak
+  const dr = R * 0.86;
+  cyl(st, dr, dr, 0.13, GL.stone, 0, by + 0.018, 0, 32);
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    const w = add(st, archGeo(0.05, 0.09, 0.006), windowMat, Math.sin(a) * (dr + 0.002), by + 0.035, Math.cos(a) * (dr + 0.002));
+    w.rotation.y = a;
+  }
+  cyl(st, dr + 0.02, dr + 0.02, 0.012, GL.stone2, 0, by + 0.148, 0, 32);
+  // Kurşun külah ve tepelik
+  add(st, new THREE.ConeGeometry(dr + 0.025, 0.3, 32), GL.lead, 0, by + 0.16 + 0.15, 0);
+  add(st, new THREE.SphereGeometry(0.012, 10, 8), GL.gold, 0, by + 0.465, 0);
+  rod(st, [0, by + 0.465, 0], [0, by + 0.52, 0], 0.003, GL.gold, 4);
+  // Meydan: kafe masaları ve şemsiyeler, ağaçlar, lambalar, banklar
+  for (const [x, z] of [[0.32, 0.36], [0.4, 0.26], [0.26, 0.42], [-0.34, 0.36]] as [number, number][]) {
+    rod(st, [x, 0.03, z], [x, 0.09, z], 0.002, GL.iron, 4);
+    add(st, new THREE.ConeGeometry(0.04, 0.018, 10), GL.plaster[2], x, 0.095, z);
+    cyl(st, 0.014, 0.014, 0.02, GL.stone2, x + 0.02, 0.03, z + 0.01, 8);
+  }
+  for (const [x, z] of [[0.38, -0.05], [-0.38, 0.05], [0.05, 0.4]] as [number, number][]) plant(st, PROPS.treeLarge, x, z, n, 0.45);
+  for (const [x, z] of [[0.3, 0.12], [-0.3, -0.1], [-0.12, 0.33]] as [number, number][]) lamp(st, x, z, s, 0.16);
+  bench(st, -0.2, 0.42, Math.PI, s);
+  // Köşelerde eski Beyoğlu evleri (arka iki köşe)
+  oldHouse(st, -0.36, -0.38, 0.22, 0.18, 4, 0);
+  oldHouse(st, 0.35, -0.38, 0.24, 0.18, 3, 1);
+  oldHouse(st, -0.4, -0.12, 0.14, 0.16, 3, 2, Math.PI / 2);
+  g.add(mergeStatic([st]));
+  return g;
+}
+
+// ======================= Pisa Kulesi (2x2, gerçek ölçüsünde) =======================
+// 56 metre, 15,5 metre çaplı beyaz mermer çan kulesi, 4 derece eğik: dipte kör kemerli kaide katı, üstünde altı
+// kat açık galeri (sütun sıraları, kemer kuşakları), en üstte daha dar çan katı. Mucizeler Meydanı'nın çimeni,
+// mermer yollar, turistler ve banklar.
+const PZ = {
+  marble: pm('#f2ede1', 0.6),
+  shade: pm('#d8d0bf', 0.75),
+  band: pm('#e3dccd', 0.7),
+  lawn: pm('#79bd57', 1),
+  path: pm('#ece6d9', 0.85),
+  bell: shiny('#9c7a3c', 0.6, 0.4),
+};
+function pisa2() {
+  const n = 2, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, PZ.lawn, 0, 0, 0);
+  // Mermer yollar ve kulenin çevresindeki döşeme
+  add(st, flat(new THREE.CircleGeometry(0.3, 40)), PZ.path, 0, 0.0315, 0);
+  box(st, 0.08, 0.002, 0.5, PZ.path, 0, 0.03, 0.26);
+  box(st, 0.98, 0.002, 0.07, PZ.path, 0, 0.03, 0.42);
+  const tower = new THREE.Group();
+  const R = 0.2;
+  // Kaide katı (kör kemerler: yarım sütunlar ve kemer kuşağı)
+  const H0 = 0.29;
+  cyl(tower, R * 0.97, R, H0, PZ.marble, 0, 0, 0, 32);
+  for (let k = 0; k < 15; k++) {
+    const a = (k / 15) * Math.PI * 2;
+    cyl(tower, 0.008, 0.008, H0 - 0.04, PZ.band, Math.sin(a) * R, 0.01, Math.cos(a) * R, 6);
+  }
+  cyl(tower, R + 0.008, R + 0.008, 0.02, PZ.band, 0, H0 - 0.02, 0, 32);
+  // Altı galeri katı: içte gölgeli duvar, dışta sütun sırası, üstünde kemer kuşağı
+  const FH = 0.17;
+  for (let f = 0; f < 6; f++) {
+    const y = H0 + f * FH;
+    cyl(tower, R * 0.8, R * 0.8, FH, PZ.shade, 0, y, 0, 24);
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2 + (f % 2) * 0.05;
+      cyl(tower, 0.0055, 0.0055, FH - 0.03, PZ.marble, Math.sin(a) * R * 0.97, y + 0.006, Math.cos(a) * R * 0.97, 5);
+    }
+    cyl(tower, R + 0.006, R + 0.006, 0.024, PZ.marble, 0, y + FH - 0.024, 0, 32);
+    cyl(tower, R + 0.01, R + 0.01, 0.006, PZ.band, 0, y + FH - 0.006, 0, 32);
+  }
+  // Çan katı: daha dar, kemerli açıklıklar, çanlar
+  const yb = H0 + 6 * FH;
+  cyl(tower, R * 0.62, R * 0.62, 0.14, PZ.marble, 0, yb, 0, 24);
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    const w = add(tower, archGeo(0.03, 0.08, 0.006), PZ.shade, Math.sin(a) * (R * 0.62 + 0.001), yb + 0.03, Math.cos(a) * (R * 0.62 + 0.001));
+    w.rotation.y = a;
+  }
+  add(tower, new THREE.SphereGeometry(0.02, 10, 8), PZ.bell, 0.05, yb + 0.07, 0);
+  cyl(tower, R * 0.66, R * 0.66, 0.016, PZ.band, 0, yb + 0.14, 0, 24);
+  // Meşhur eğiklik: dipten 4 derece
+  tower.position.y = 0.03;
+  tower.rotation.z = 0.069;
+  st.add(tower);
+  // Turistler (kuleyi "tutan" pozlar) ve banklar
+  for (const [x, z, k] of [[0.18, 0.3, 0], [-0.2, 0.34, 1], [0.32, 0.12, 2], [-0.32, -0.2, 3]] as [number, number, number][]) {
+    const p = item(st, x, z, k, s);
+    cyl(p, 0.022, 0.026, 0.09, GL.plaster[k % 4], 0, 0, 0, 8);
+    add(p, new THREE.SphereGeometry(0.02, 8, 6), pm('#e8c3a0', 0.8), 0, 0.11, 0);
+  }
+  bench(st, 0.3, 0.44, Math.PI, s);
+  bench(st, -0.3, 0.44, Math.PI, s);
+  for (const x of [-0.42, 0.42]) lamp(st, x, 0.36, s, 0.16);
+  g.add(mergeStatic([st]));
+  return g;
+}
+
 // Simge yapılar arasına kaydet (landmarks.ts makeDecor önce buraya bakar)
 const WONDERS: Partial<Record<DecorKind, () => THREE.Object3D>> = {
-  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge, cappadocia, ephesus, pamukkale, troy,
+  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge, cappadocia, ephesus, pamukkale, troy, galata: galata2, pisa: pisa2,
 };
 Object.assign(EXTRA_DECOR, WONDERS);
 export const WONDER_KINDS = Object.keys(WONDERS) as DecorKind[];

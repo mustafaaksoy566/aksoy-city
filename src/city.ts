@@ -1574,6 +1574,8 @@ export class City {
     // Kız Kulesi gibi yapılar denizin içine kurulur (bütün kareleri deniz)
     if (ON_SEA.includes(tool)) {
       if (!cells.every(isSea)) return 'Bu yapı denizin içine kurulur';
+      // Kıyıdaki ilk deniz sırası kumsal: kıyıdan biraz açıkta, derin suda olmalı
+      if (cells.some(c => Math.floor(c / SIZE) >= COAST_ROW - 1)) return 'Bu yapı kıyıdan biraz açığa, derin suya kurulur';
       return cells.some(c => this.tiles[c]) ? 'Burası dolu' : null;
     }
     if (cells.some(isSea)) {

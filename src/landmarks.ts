@@ -1228,11 +1228,11 @@ export function animateDecor(obj: THREE.Object3D, dt: number) {
     }
   }
   // Yatlar dalgada sallanır
-  const bob = obj.userData.bob as { obj: THREE.Object3D; phase: number }[] | undefined;
+  const bob = obj.userData.bob as { obj: THREE.Object3D; phase: number; y?: number }[] | undefined;
   if (bob) {
     const t = (obj.userData.t = ((obj.userData.t as number | undefined) ?? 0) + dt);
     for (const b of bob) {
-      b.obj.position.y = SEA_Y / (2 * 0.96) - 0.012 + Math.sin(t * 1.3 + b.phase) * 0.004;
+      b.obj.position.y = (b.y ?? SEA_Y / (2 * 0.96) - 0.012) + Math.sin(t * 1.3 + b.phase) * 0.004;
       b.obj.rotation.z = Math.sin(t * 1.1 + b.phase) * 0.03;
     }
   }

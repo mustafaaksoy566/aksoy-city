@@ -4,7 +4,7 @@ import {
   SIZE, ROWS, X0, Z0, PLOT, PLOTS, DAY_SECONDS, dayNumber, ON_SEA, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
 } from './config';
-import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
+import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block, isSeaXZ } from './city';
 import {
   describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, describeAchievements, type CardActions,
 } from './info';
@@ -18,7 +18,7 @@ import { updateWater } from './water';
 import { Fireworks } from './fireworks';
 import { questDone } from './quests';
 import { loadModels } from './assets';
-import { CityView, tileCenter, gradedRoadModel, entranceTile, underpassThumb } from './view';
+import { CityView, tileCenter, gradedRoadModel, entranceTile, underpassThumb, FACING_TURNS } from './view';
 import { mergeStatic } from './batcher';
 import { Traffic, Walkers } from './traffic';
 import { Trains } from './trains';
@@ -37,7 +37,7 @@ import { MetroView } from './metro';
 import { RiverBoats } from './riverboats';
 import { tunnelThumb } from './places';
 import { makeModel } from './assets';
-import { buildSurroundings, heightAt } from './terrain';
+import { buildSurroundings, heightAt, setHarbors, updateSurf, type Harbor } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
 import { setSignalTime, updateSignals } from './signals';
@@ -949,8 +949,30 @@ function syncHighway() {
   highway.setCityLanes(traffic.entranceLanes());
 }
 
+// Liman ve yat limanlarının önü derin rıhtım havuzu (kumsal yok): denize bakan kenarından açığa doğru
+function harborRects(): Harbor[] {
+  const out: Harbor[] = [];
+  city.tiles.forEach((t, i) => {
+    if (!t || (t.kind !== 'port' && t.kind !== 'marina')) return;
+    const n = t.fp ?? 1;
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const rot = (FACING_TURNS[t.facing] * Math.PI) / 2;
+    const dx = Math.round(Math.sin(rot)), dz = Math.round(Math.cos(rot));
+    // Önündeki kare deniz değilse (nehir kıyısındaki liman) havuz yok
+    const fx = dx > 0 ? x + n : dx < 0 ? x - 1 : x, fz = dz > 0 ? z + n : dz < 0 ? z - 1 : z;
+    if (!isSeaXZ(fx, fz)) return;
+    const c = tileCenter(x + (n - 1) / 2, z + (n - 1) / 2);
+    const h = n / 2, reach = 2.4;
+    const ex = c.x + dx * h, ez = c.z + dz * h;
+    if (dx) out.push({ x0: Math.min(ex, ex + dx * reach), x1: Math.max(ex, ex + dx * reach), z0: c.z - h + 0.02, z1: c.z + h - 0.02 });
+    else out.push({ x0: c.x - h + 0.02, x1: c.x + h - 0.02, z0: Math.min(ez, ez + dz * reach), z1: Math.max(ez, ez + dz * reach) });
+  });
+  return out;
+}
+
 function afterChange() {
   if (highwayMesh) syncHighway();
+  setHarbors(harborRects());
   warnTraffic();
   findShowSpots();
   showEvents();
@@ -1863,6 +1885,7 @@ function frame() {
   dayNight.dome.position.copy(camera.position);
   updateSeason(dt);
   const look = photoTod ?? tod;
+  updateSurf(clock.elapsedTime, phase(look).night);
   fireworks.update(dt, phase(look).night, showSpots);
   dayNight.update(look, dt, weather.amount);
   setMusicNight(phase(look).night);
@@ -2003,6 +2026,7 @@ let picsReady = false; // ürün resimleri çizildi mi (hediye penceresi resimli
 
 loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
   .then(() => {
+    setHarbors(harborRects());
     scene.add(buildSurroundings());
     syncHighway();
     highway.init();

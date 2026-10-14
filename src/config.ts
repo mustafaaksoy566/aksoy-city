@@ -264,9 +264,9 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   // Tarihi yapılar: çok turist getirir, geniş bir alanı mutlu eder
   eiffel: { radius: 14, happy: 0.25, upkeep: 20, income: 900, road: true },
   liberty: { radius: 12, happy: 0.22, upkeep: 18, income: 620, road: true },
-  pisa: { radius: 8, happy: 0.16, upkeep: 8, income: 250, road: true },
+  pisa: { radius: 9, happy: 0.16, upkeep: 8, income: 320, road: true },
   colosseum: { radius: 14, happy: 0.24, upkeep: 22, income: 820, road: true },
-  galata: { radius: 8, happy: 0.16, upkeep: 8, income: 260, road: true },
+  galata: { radius: 9, happy: 0.16, upkeep: 8, income: 340, road: true },
   pyramid: { radius: 13, happy: 0.2, upkeep: 12, income: 670, road: true },
   // Dünya harikaları (wonders.ts). Kız Kulesi denizin içine kurulur; turistler tekneyle gelir (yol gerekmez)
   maiden: { radius: 10, happy: 0.18, upkeep: 6, income: 400 },
@@ -346,6 +346,7 @@ export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
   store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
   health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 5, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 3, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 5, liberty: 3, colosseum: 5, pyramid: 6,
   maiden: 3, hagia: 4, taj: 5, bigben: 3, parthenon: 4, chichen: 3, opera: 5, stonehenge: 2, cappadocia: 3, ephesus: 2, pamukkale: 3, troy: 2,
+  galata: 2, pisa: 2,
 };
 // Havalimanı yükseltilir: küçük havaalanı (4x4) → büyük havalimanı (6x6: iki pist, uzun terminal, körüklü kapılar).
 // Büyürken çevresinde boş yer olmalı; turist geliri, alanı ve uçuş sıklığı artar.
@@ -426,9 +427,9 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   pamukkale: { icon: '♨️', label: 'Pamukkale', hint: 'Pamukkale (3x3): bembeyaz traverten basamaklarında yay yay taşan turkuaz havuzlar; tepede Hierapolis tiyatrosu, sütunlu cadde ve içinde sütun parçaları duran Antik Havuz. Çok turist getirir.' },
   troy: { icon: '🐴', label: 'Truva Atı', hint: 'Truva Atı: kalaslardan çakılmış dev tahta at (yan pencereleri ve karnına çıkan merdiveniyle), arkada Truva’nın eğimli taş surları ve yıkık kulesi. Turist getirir.' },
   stonehenge: { icon: '🪨', label: 'Stonehenge', hint: 'Stonehenge: çember biçimli dev dikili taşlar ve lentolar, çevrede otlayan koyunlar. Turist getirir.' },
-  pisa: { icon: '🏛️', label: 'Pisa Kulesi', hint: 'Pisa Kulesi: altı katlı sütunlu, ünlü eğik kule. Turist getirir.' },
+  pisa: { icon: '🏛️', label: 'Pisa Kulesi', hint: 'Pisa Kulesi (2x2): 56 metrelik, 4 derece eğik beyaz mermer çan kulesi; altı kat sütunlu galeri, Mucizeler Meydanı’nın çimeni. Turist getirir.' },
   colosseum: { icon: '🏟️', label: 'Kolezyum', hint: 'Kolezyum: kemerli dev arena, bir yanı yıkık. Çok turist getirir.' },
-  galata: { icon: '🏰', label: 'Galata Kulesi', hint: 'Galata Kulesi: taş gövde, seyir balkonu ve sivri külah. Turist getirir.' },
+  galata: { icon: '🏰', label: 'Galata Kulesi', hint: 'Galata Kulesi (2x2): 67 metrelik kesme taş kule, seyir balkonu, kurşun külah; çevresinde Arnavut kaldırımlı meydan ve eski Beyoğlu evleri. Turist getirir.' },
   pyramid: { icon: '🔺', label: 'Gize Piramitleri', hint: 'Gize Piramitleri: büyük, ortanca ve küçük piramit ile Sfenks (4x4). Çok turist getirir.' },
   mosque: { icon: '🕌', label: 'Cami', hint: 'Cami: büyük kubbesi, iki minaresi ve şadırvanlı avlusuyla şehrin simgesi.' },
   lake: { icon: '🦆', label: 'Göl', hint: 'Göl (2x2): sazlar, nilüferler, iskele ve ördekler. Çevresini mutlu eder.' },

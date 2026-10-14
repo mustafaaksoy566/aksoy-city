@@ -113,7 +113,7 @@ place('mosque', 36, 47);
 // Diğer simgeler
 place('museum', 30, 21);
 place('galata', 36, 21);
-place('pisa', 39, 21);
+place('pisa', 38, 21);
 place('clocktower', 8, 36);
 place('observatory', 24, 4);
 place('casino', 22, 6);
@@ -241,7 +241,7 @@ const homes = () => c.tiles.map((t, i) => (t?.kind === 'res' && t.level > 0 ? i 
 // --- Metro ağı: her mahallede istasyon, caddelerin altında tüneller (metro olan yerde araba az olur) ---
 for (const [x0, z0] of [[8, 24], [20, 24], [32, 24], [2, 45], [34, 45], [8, 53], [20, 53], [32, 53], [6, 34], [30, 27], [14, 44]]) {
   // Yeri doluysa yakınındaki bir evin yerine
-  const spot = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]].map(([dx, dz]) => [x0 + dx, z0 + dz]).find(([x, z]) => {
+  const spot = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [3, 0], [-3, 0], [1, 1], [-1, 1], [1, -1], [-1, -1], [0, 2], [0, -2]].map(([dx, dz]) => [x0 + dx, z0 + dz]).find(([x, z]) => {
     const t = c.tiles[I(x, z)];
     return (!t || t.kind === 'res') && near(x, z) && z >= 21;
   });

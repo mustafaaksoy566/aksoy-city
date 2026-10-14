@@ -164,77 +164,7 @@ function eiffel() {
   return g;
 }
 
-// --- Pisa Kulesi (1x1): altı katlı sütunlu galeriler, eğik duruşu ---
-function pisa() {
-  const g = new THREE.Group();
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#7cc35f'), 0, 0.01, 0));
-  const tower = new THREE.Group();
-  const marble = mat('#f3eee2');
-  const shade = mat('#d9d2c2');
-  tower.add(part(new THREE.CylinderGeometry(0.16, 0.17, 0.16, 20), marble, 0, 0.08, 0));
-  for (let s = 0; s < 6; s++) {
-    const y = 0.16 + s * 0.13;
-    tower.add(part(new THREE.CylinderGeometry(0.13, 0.13, 0.13, 20), shade, 0, y + 0.065, 0));
-    tower.add(part(new THREE.CylinderGeometry(0.168, 0.168, 0.016, 20), marble, 0, y + 0.122, 0));
-    for (let k = 0; k < 14; k++) {
-      const a = (k / 14) * Math.PI * 2;
-      tower.add(part(new THREE.CylinderGeometry(0.007, 0.007, 0.11, 5), marble, Math.sin(a) * 0.155, y + 0.06, Math.cos(a) * 0.155));
-    }
-  }
-  // Çan kulesi
-  const top = 0.16 + 6 * 0.13;
-  tower.add(part(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 18), marble, 0, top + 0.05, 0));
-  for (let k = 0; k < 10; k++) {
-    const a = (k / 10) * Math.PI * 2;
-    tower.add(part(new THREE.CylinderGeometry(0.008, 0.008, 0.09, 5), marble, Math.sin(a) * 0.11, top + 0.05, Math.cos(a) * 0.11));
-  }
-  tower.add(part(new THREE.CylinderGeometry(0.12, 0.12, 0.015, 18), marble, 0, top + 0.105, 0));
-  tower.scale.setScalar(2.3); // gerçek oranına yakın boy
-  tower.rotation.z = 0.075; // meşhur eğiklik
-  g.add(mergeStatic([tower]));
-  return g;
-}
-
-// --- Galata Kulesi (1x1): taş gövde, seyir balkonu, sivri külah ---
-// Kendi karesine sığar (yola taşmaz) ama evlerin çok üstüne çıkar: ince ve uzun.
-function galata() {
-  const g = new THREE.Group();
-  const stone = mat('#cdbb9c');
-  const dark = mat('#4b5563');
-  const roof = mat('#55606e');
-  g.add(part(new THREE.BoxGeometry(0.98, 0.02, 0.98), mat('#cfc6b3'), 0, 0.01, 0));
-  for (const [x, z] of [[-0.38, 0.38], [0.38, 0.38], [-0.38, -0.38], [0.38, -0.38]]) g.add(part(new THREE.BoxGeometry(0.14, 0.04, 0.14), mat('#5aa646'), x, 0.03, z));
-  // Gerçek oranına yakın boy: genişlik 1.55, boy 2.3 kat (taban 0.7 kare, karenin içinde kalır)
-  const t = new THREE.Group();
-  t.scale.set(1.55, 2.3, 1.55);
-  t.position.y = -0.03;
-  g.add(t);
-  t.add(part(new THREE.CylinderGeometry(0.2, 0.22, 0.08, 20), stone, 0, 0.06, 0));
-  t.add(part(new THREE.CylinderGeometry(0.17, 0.19, 0.72, 20), stone, 0, 0.46, 0));
-  // Taş sıraları ve pencereler
-  for (let row = 0; row < 4; row++) {
-    t.add(part(new THREE.CylinderGeometry(0.185 - row * 0.005, 0.185 - row * 0.005, 0.008, 20), mat('#bba98a'), 0, 0.17 + row * 0.15, 0));
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2 + row * 0.5;
-      const w = part(new THREE.BoxGeometry(0.025, 0.045, 0.01), dark, Math.sin(a) * 0.182, 0.22 + row * 0.15, Math.cos(a) * 0.182);
-      w.rotation.y = a;
-      t.add(w);
-    }
-  }
-  // Balkon: dışa taşan halka, korkuluk ve kemerli pencereler
-  t.add(part(new THREE.CylinderGeometry(0.22, 0.2, 0.03, 20), stone, 0, 0.84, 0));
-  t.add(part(new THREE.CylinderGeometry(0.215, 0.215, 0.03, 20, 1, true), dark, 0, 0.87, 0));
-  t.add(part(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 20), mat('#e0d3b8'), 0, 0.91, 0));
-  for (let k = 0; k < 10; k++) {
-    const a = (k / 10) * Math.PI * 2;
-    const w = part(new THREE.BoxGeometry(0.03, 0.07, 0.01), dark, Math.sin(a) * 0.162, 0.91, Math.cos(a) * 0.162);
-    w.rotation.y = a;
-    t.add(w);
-  }
-  t.add(part(new THREE.ConeGeometry(0.175, 0.4, 20), roof, 0, 1.17, 0));
-  t.add(part(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 5), mat('#e0b84c'), 0, 1.4, 0));
-  return mergeStatic([g]);
-}
+// Pisa ve Galata kuleleri wonders.ts'te (gerçek ölçüsünde, 2x2)
 
 // --- Kolezyum (3x3): kemerli eliptik duvar (bir yanı yıkık), içeride basamaklı oturma ve kum arena ---
 function colosseum() {
@@ -988,7 +918,7 @@ function stadium() {
 }
 
 // Özgürlük Anıtı wonders.ts'e taşındı (yeniden çizildi)
-export type HistoricKind = 'eiffel' | 'pisa' | 'colosseum' | 'galata' | 'pyramid';
+export type HistoricKind = 'eiffel' | 'colosseum' | 'pyramid';
 export const HISTORIC: Record<HistoricKind | 'stadium', () => THREE.Object3D> = {
-  eiffel, pisa, colosseum, galata, pyramid, stadium,
+  eiffel, colosseum, pyramid, stadium,
 };
