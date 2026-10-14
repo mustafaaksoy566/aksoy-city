@@ -252,6 +252,7 @@ export interface Stats {
   storage: { used: number; cap: number };
   happiness: number;
   questsReady: number;
+  achReady: number;
   day: number;
   night: boolean;
 }
@@ -285,6 +286,9 @@ export function setStats(s: Stats) {
   const badge = $('quests-badge');
   badge.textContent = String(s.questsReady);
   badge.hidden = s.questsReady === 0;
+  const ach = $('ach-badge');
+  ach.textContent = String(s.achReady);
+  ach.hidden = s.achReady === 0;
 }
 
 // --- Mesajlar ---
@@ -381,7 +385,7 @@ export function floatIncome(n: number) {
 const signature = (c: InfoCard) =>
   [
     c.title, c.subtitle, c.thumb, c.icon, c.lines.length, c.stats?.length ?? 0, c.jobs?.length ?? 0, c.cost?.length ?? 0,
-    (c.tiles ?? []).map(t => t.section + t.name).join(','), c.quests?.length ?? 0, ...(c.actions ?? []).map(a => a.label),
+    (c.tiles ?? []).map(t => t.section + t.name).join(','), c.quests?.length ?? 0, c.chart?.length ?? 0, ...(c.actions ?? []).map(a => a.label),
   ].join('|');
 
 let runs: { tiles: (() => void)[]; quests: (() => void)[]; actions: (() => void)[] } = { tiles: [], quests: [], actions: [] };
@@ -435,6 +439,7 @@ export function showInfo(card: InfoCard | null) {
       ${statHtml ? `<div class="stats">${statHtml}</div>` : ''}
       <div class="lines">${card.lines.map(() => '<div class="line"></div>').join('')}</div>
       ${card.jobs?.length ? `<div class="jobs">${card.jobs.map(() => '<div class="job"><span></span><i><b></b></i></div>').join('')}</div>` : ''}
+      ${card.chart?.length ? `<div class="charts">${card.chart.map(() => '<div class="chart"></div>').join('')}</div>` : ''}
       ${tilesHtml ? `<div class="tiles">${tilesHtml}</div>` : ''}
       ${questHtml ? `<div class="quests">${questHtml}</div>` : ''}
       ${card.cost?.length ? `<div class="cost">${card.cost.map(() => '<span class="cc"></span>').join('')}</div>` : ''}
@@ -480,6 +485,7 @@ function update(el: HTMLElement, card: InfoCard) {
   el.querySelectorAll<HTMLElement>('.quest').forEach((d, n) => {
     const q = card.quests![n];
     d.classList.toggle('done', q.done);
+    d.classList.toggle('claimed', !!q.claimed);
     d.querySelector('.qt')!.textContent = q.text;
     const qp = d.querySelector<HTMLElement>('.qp');
     if (qp && q.pics !== undefined && qp.dataset.h !== q.pics) {
@@ -490,7 +496,14 @@ function update(el: HTMLElement, card: InfoCard) {
     d.querySelector('.qn')!.textContent = q.count;
     const b = d.querySelector<HTMLButtonElement>('.claim')!;
     b.disabled = !q.done;
-    b.innerHTML = q.done ? `${esc(q.button ?? 'Ödülü al')}<br>${esc(q.reward.replace('\n', ' '))}` : esc(q.reward).replace('\n', '<br>');
+    b.innerHTML = q.claimed ? '✓' : q.done ? `${esc(q.button ?? 'Ödülü al')}<br>${esc(q.reward.replace('\n', ' '))}` : esc(q.reward).replace('\n', '<br>');
+  });
+  el.querySelectorAll<HTMLElement>('.chart').forEach((d, n) => {
+    const c = card.chart![n];
+    const key = c.values.join(',');
+    if (d.dataset.k === key) return;
+    d.dataset.k = key;
+    d.innerHTML = chartHtml(c);
   });
   el.querySelectorAll<HTMLElement>('.cc').forEach((d, n) => {
     const c = card.cost![n];
@@ -508,6 +521,22 @@ function update(el: HTMLElement, card: InfoCard) {
 }
 
 export const infoOpen = () => !$('info').hidden;
+
+// Kartlardaki çizgi grafik (nüfus, kasa): her nokta bir günün sonu, son nokta şu an
+function chartHtml(c: NonNullable<InfoCard['chart']>[number]) {
+  const v = c.values;
+  const head = (extra = '') => `<div class="ch-h"><b>${esc(c.label)}</b>${extra}</div>`;
+  if (v.length < 2) return head() + '<div class="ch-empty">Grafik için biraz daha oyna: her günün sonunda bir nokta eklenir.</div>';
+  const W = 300, H = 64;
+  const min = Math.min(...v), max = Math.max(...v);
+  const span = max - min || 1;
+  const pts = v.map((y, k) => `${((k / (v.length - 1)) * W).toFixed(1)},${(H - 4 - ((y - min) / span) * (H - 12)).toFixed(1)}`);
+  const last = Math.round(v[v.length - 1]);
+  const diff = last - Math.round(v[0]);
+  return `${head(`<span>${fmt(last)}</span><em class="${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${fmt(Math.abs(diff))}</em>`)}
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="M0,${H} L${pts.join(' L')} L${W},${H} Z" fill="${c.color}" opacity="0.16"/><polyline points="${pts.join(' ')}" fill="none" stroke="${c.color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>
+    <div class="ch-f"><span>${v.length - 1} gün önce</span><span>en az ${fmt(Math.round(min))} · en çok ${fmt(Math.round(max))}</span><span>şimdi</span></div>`;
+}
 
 // --- Seviye atlama kutlaması ---
 export interface Unlock { key?: string; icon: string; label: string }
@@ -682,11 +711,17 @@ const HELP: [string, string, string[]][] = [
   ['🗺️', 'Şehri büyütmek', [
     '3. seviyeden sonra kenardaki + işaretlerine dokunup yeni arazi satın alabilirsin.',
     'Harita doğuda ve güneyde nehrin ötesine kadar uzanır; kuzeyde deniz ve ada var.',
-    'Kız Kulesi denizin içine, Opera Binası su kıyısına kurulur.',
+    'Kız Kulesi denizin içine, Opera Binası su kıyısına kurulur. Kapadokya’da gündüz sıcak hava balonları uçar.',
   ]],
   ['🔥', 'Olaylar', [
     'İtfaiyenin kapsamadığı evlerde yangın çıkabilir; karttan söndür.',
     'Polisin olmadığı yerlerde hırsızlık olur. Depremde hasar gören evleri karttan onar.',
+  ]],
+  ['🏆', 'Ödüller ve fotoğraf', [
+    'Sağdaki kupa Başarımlar: şehir büyüdükçe kademeler tamamlanır, ödülünü oradan al.',
+    'Her gün oyuna girince günlük hediye gelir; art arda gelinen günlerde büyür, 7. gün en büyüğü.',
+    'Nüfus ve bütçe kartlarında son günlerin grafiği var.',
+    'Sol alttaki fotoğraf makinesi arayüzü gizler: açıyı seç, istersen akşam ya da gece yap, deklanşöre bas.',
   ]],
   ['🎮', 'Kumanda', [
     'Tek parmakla kaydır, iki parmakla yakınlaştır ve döndür. İki parmağı yukarı-aşağı kaydırınca kamera eğilir.',
@@ -705,6 +740,76 @@ export function openHelp(back?: () => void) {
   el.hidden = false;
   el.querySelector('[data-close]')!.addEventListener('click', () => (el.hidden = true));
   if (back) el.querySelector('[data-back]')!.addEventListener('click', back);
+}
+
+// --- Fotoğraf modu ---
+// Arayüz gizlenir; altta deklanşör, kapat ve günün saati (sadece görüntü: gündüz, akşam, gece) düğmeleri
+export type PhotoTime = 'now' | 'day' | 'dusk' | 'night';
+export interface PhotoHandlers { close(): void; shoot(): void; time(t: PhotoTime): void }
+let photoBar: HTMLDivElement | null = null;
+const PHOTO_TIMES: [PhotoTime, string, string][] = [['now', 'clock', 'Şimdi'], ['day', 'sun', 'Gündüz'], ['dusk', 'sunset', 'Akşam'], ['night', 'moon', 'Gece']];
+export function setPhotoBar(on: boolean, h?: PhotoHandlers) {
+  document.body.classList.toggle('photo-on', on);
+  photoBar?.remove();
+  photoBar = null;
+  if (!on || !h) return;
+  const bar = (photoBar = document.createElement('div'));
+  bar.id = 'photobar';
+  bar.innerHTML = `<div class="pb-times">${PHOTO_TIMES.map(([k, ic, l]) => `<button data-t="${k}" class="${k === 'now' ? 'on' : ''}">${icon(ic as keyof typeof ICONS)}<small>${l}</small></button>`).join('')}</div>
+    <div class="pb-main"><button class="pb-x" aria-label="Fotoğraf modunu kapat">${icon('close')}</button><button class="pb-shot" aria-label="Fotoğraf çek"><i></i></button><span class="pb-gap"></span></div>
+    <small class="pb-hint">Kaydırarak ve iki parmakla yakınlaştırıp döndürerek açıyı seç</small>`;
+  document.body.appendChild(bar);
+  bar.querySelector('.pb-x')!.addEventListener('click', () => h.close());
+  bar.querySelector('.pb-shot')!.addEventListener('click', () => h.shoot());
+  bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach(b =>
+    b.addEventListener('click', () => {
+      bar.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b));
+      h.time(b.dataset.t as PhotoTime);
+    }),
+  );
+}
+// Deklanşör: ekran bir an beyazlar
+export function photoFlash() {
+  const f = document.createElement('div');
+  f.className = 'photo-flash';
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 600);
+}
+// Çekilen fotoğraf: önizleme, kaydet/paylaş (share yoksa indir bağlantısı)
+export function showPhoto(url: string, share: (() => void) | null) {
+  const el = $('dialog');
+  el.innerHTML = `<div class="dlg photo">
+    <h2>${icon('camera')}Fotoğraf hazır</h2>
+    <img class="ph-img" src="${url}" alt="Şehrinin fotoğrafı">
+    <p class="ph-hint">${share ? 'Kaydet / Paylaş\'a dokun, açılan menüden "Resmi Kaydet"i seç. Resme basılı tutarak da kaydedebilirsin.' : 'İndir\'e tıklayınca fotoğraf bilgisayarına kaydedilir.'}</p>
+    <div class="btns"><button class="big-btn gray" data-close>Kapat</button>${share ? '<button class="big-btn green" data-share>Kaydet / Paylaş</button>' : `<a class="big-btn green" download="aksoy-city.jpg" href="${url}">İndir</a>`}</div>
+  </div>`;
+  el.hidden = false;
+  el.querySelector('[data-close]')!.addEventListener('click', () => (el.hidden = true));
+  el.querySelector('[data-share]')?.addEventListener('click', () => share?.());
+}
+
+// --- Günlük hediye ---
+// Her gün oyuna girince hediye: yedi günlük takvim, art arda gelinen her gün büyür (7. gün en büyüğü)
+export interface GiftBox { day: number; items: { pic: string; coin?: boolean; text: string }[] }
+export function openGift(today: number, boxes: GiftBox[], claim: () => void) {
+  const el = $('dialog');
+  el.innerHTML = `<div class="dlg gift">
+    <h2>${icon('gift')}Günlük hediye</h2>
+    <p>Her gün oyuna gir, hediyen büyüsün! Bugün <b>${today}. gün</b>.</p>
+    <div class="gift-days">${boxes.map(b => `<div class="gd${b.day < today ? ' past' : b.day === today ? ' today' : ''}${b.day === 7 ? ' big' : ''}">
+      <small>${b.day}. gün</small>
+      <div class="gd-items">${b.items.map(it => `<span class="gi">${it.coin ? `<span class="gp">${ICONS.coin}</span>` : it.pic}<b>${esc(it.text)}</b></span>`).join('')}</div>
+      ${b.day < today ? '<span class="gd-ok">✓</span>' : ''}
+    </div>`).join('')}</div>
+    <p class="gift-note">Bir gün gelmezsen takvim 1. günden başlar.</p>
+    <div class="btns"><button class="big-btn green" data-claim>Hediyeyi al</button></div>
+  </div>`;
+  el.hidden = false;
+  el.querySelector('[data-claim]')!.addEventListener('click', () => {
+    el.hidden = true;
+    claim();
+  });
 }
 
 // --- Yükleme ekranı ---

@@ -4,11 +4,12 @@ import { part, windowMat } from './utilities';
 import { mergeStatic } from './batcher';
 import { SEA_Y } from './water';
 import { pm, BULB, WATER, UP, type V3, add, box, cyl, rod, item, bench, lamp, frame, basin, frustum, tree } from './parts';
+import { carModel } from './cars';
 import { EXTRA_DECOR, archGeo, dome, gable, pitched, stoneMat, stoneUV, rock, motorYacht } from './landmarks';
 
 // Dünya harikaları: Özgürlük Anıtı, Kız Kulesi, Ayasofya, Tac Mahal, Big Ben, Parthenon, Chichen Itza,
-// Sidney Opera Binası ve Stonehenge. Hepsi kodla çizilir; dokular da (bayrak, saat kadranı, gotik cephe,
-// karo) tuvale kodla boyanır. Yerel ölçü 1x1: n karelik yapı n*0.96 kat büyütülür, içindeki bank, lamba ve
+// Sidney Opera Binası, Stonehenge, Kapadokya (uçan balonlarıyla) ve Efes (Celsus Kütüphanesi). Hepsi kodla
+// çizilir; dokular da (bayrak, saat kadranı, gotik cephe, karo, tüf katmanları, balon boyası) tuvale kodla boyanır. Yerel ölçü 1x1: n karelik yapı n*0.96 kat büyütülür, içindeki bank, lamba ve
 // ağaç gibi eşyalar 1/(n*0.96) ile küçültülür. y = 0 yol hizası, zemin plakası 0.03'te biter; ön yüz +z yola
 // bakar (Opera'da suya, Kız Kulesi denizin içinde). Sabit parçalar tek parçada birleştirilir.
 
@@ -1417,9 +1418,372 @@ function stonehenge() {
   return g;
 }
 
+// ======================= Kapadokya (3x3) =======================
+// Peri bacaları: yumuşak tüf kayadan, katman katman renkli konik kuleler; tepelerinde koyu bazalt şapka, içlerine
+// oyulmuş kapı ve pencereler (bir kısmı gece yanan mağara odaları). Arkada oyma pencereli tüf sırtı, yanda bağ,
+// önde balonların kalktığı düzlük. Sıcak hava balonları sabah sırayla kalkıp şehrin üstünde yavaşça süzülür,
+// akşam sırayla iner; gece yerde bekler, brülörleri ara ara yanınca balon içten turuncu parlar.
+const STRATA = canvasTex(8, 128, g => {
+  const bands = ['#e8d6b8', '#e2caa6', '#eddfc6', '#dcc09c', '#e6d0b2', '#dfc4a3', '#efe3cd', '#d9b693', '#e7d2b4'];
+  for (let y = 0, k = 0; y < 128; k++) {
+    const h = 5 + Math.floor(hash(k * 3.7) * 13);
+    g.fillStyle = bands[k % bands.length];
+    g.fillRect(0, y, 8, h);
+    g.fillStyle = 'rgba(120, 90, 60, 0.1)';
+    g.fillRect(0, y, 8, 1);
+    y += h;
+  }
+});
+const KP = {
+  ground: pm('#d8c29c', 1),
+  field: pm('#cbb487', 1),
+  pad: pm('#bba57a', 1),
+  vine: pm('#6e9a3f', 0.9),
+  soil: pm('#b59a74', 1),
+  tuff: new THREE.MeshStandardMaterial({ map: STRATA, roughness: 1 }),
+  cap: pm('#6c5847', 0.95),
+  hole: pm('#3a2d25', 1),
+  path: pm('#e6d6b4', 1),
+  basket: pm('#8a5a2c', 0.9),
+  rim: pm('#5b3b1e', 0.9),
+  rope: pm('#4a3a2a', 0.9),
+  burner: pm('#50565e', 0.4, 0.6),
+};
+// Mağara penceresi: koyu oyuk, gece sarı yanar (DayNight 'window' adlı malzemeleri yakar)
+const CAVE_WIN = (() => {
+  const m = new THREE.MeshStandardMaterial({ color: '#3d2f26', roughness: 0.9 });
+  m.name = 'window';
+  return m;
+})();
+// Tüf gövde: aşağıdan yukarı daralan döner yüzey; prof(t) 0 tabanda 1 tepede yarıçap çarpanı. Katman dokusu
+// gövdenin boyuna göre tekrar eder (bütün kayalarda katmanlar aynı kalınlıkta)
+function tuffBody(prof: (t: number) => number, r: number, h: number, seed: number, flatTop = false) {
+  const pts: [number, number][] = [];
+  const n = 10;
+  for (let k = 0; k <= n; k++) {
+    const t = k / n;
+    pts.push([r * prof(t) * (1 + (hash(seed + k * 1.3) - 0.5) * 0.12), t * h]);
+  }
+  if (flatTop) pts.push([0, h]);
+  const geo = lathe(pts, 14);
+  geo.scale(1 + (hash(seed) - 0.5) * 0.24, 1, 1 + (hash(seed + 1) - 0.5) * 0.24);
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * (h / 0.12) + hash(seed + 2));
+  return geo;
+}
+const spire = (t: number) => 0.26 + 0.74 * Math.pow(1 - t, 1.5);
+const mesa = (t: number) => 1 - 0.45 * Math.pow(t, 1.8);
+// Kayanın yüzüne oyulmuş kapı ya da pencere (a: hangi yöne baktığı, t: yükseklik oranı)
+function carve(g: THREE.Object3D, x: number, z: number, r: number, h: number, prof: (t: number) => number, a: number, t: number, w: number, hh: number, m: THREE.Material) {
+  const rr = r * prof(t) * 0.96;
+  const o = box(g, w, hh, 0.008, m, x + Math.sin(a) * rr, 0.03 + t * h, z + Math.cos(a) * rr);
+  o.rotation.y = a;
+}
+// Balon zarfı: ağzı altta (y = 0), en geniş yeri üçte ikide; dilimli renkli boyası tuvale çizilir
+const ENVELOPE = lathe(
+  ([[0.2, 0], [0.3, 0.15], [0.5, 0.42], [0.72, 0.75], [0.9, 1.08], [0.99, 1.4], [1.0, 1.6], [0.95, 1.8], [0.82, 1.98], [0.6, 2.12], [0.32, 2.2], [0, 2.23]] as [number, number][]).map(
+    ([r, y]) => [r * 0.085, y * 0.085] as [number, number],
+  ),
+  18,
+);
+const BALLOON_STYLES = [
+  ['#e53935', '#fb8c00', '#fdd835', '#43a047', '#1e88e5', '#8e24aa'],
+  ['#d32f2f', '#fafafa'],
+  ['#1565c0', '#ffd54f'],
+  ['#2e7d32', '#ff8f00', '#fff3e0'],
+  ['#6a1b9a', '#ec407a', '#ffd1e8'],
+  ['#00897b', '#ffffff', '#fbc02d'],
+];
+const BALLOON_MATS: THREE.MeshStandardMaterial[] = [];
+function balloonMat(k: number) {
+  const i = k % BALLOON_STYLES.length;
+  if (BALLOON_MATS[i]) return BALLOON_MATS[i];
+  const pal = BALLOON_STYLES[i];
+  const tex = canvasTex(192, 128, g => {
+    const n = 12;
+    for (let s = 0; s < n; s++) {
+      g.fillStyle = pal[s % pal.length];
+      g.fillRect((s * 192) / n, 0, 192 / n + 1, 128);
+    }
+    // Ekvatorda süslü bant, tepede koyu kapak, ağızda kenar şeridi (doku yukarıdan aşağı: tepe y = 0)
+    const by = 128 * (1 - 0.66);
+    g.fillStyle = i % 2 ? '#fff6d0' : '#fdd835';
+    g.fillRect(0, by - 6, 192, 12);
+    g.fillStyle = pal[0];
+    for (let x = 0; x < 192; x += 16) {
+      g.beginPath();
+      g.moveTo(x, by + 6);
+      g.lineTo(x + 8, by - 6);
+      g.lineTo(x + 16, by + 6);
+      g.fill();
+    }
+    g.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    g.fillRect(0, 0, 192, 5);
+    g.fillStyle = pal[pal.length - 1];
+    g.fillRect(0, 120, 192, 8);
+  });
+  const m = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: '#ff9a40', emissiveIntensity: 0, roughness: 0.7, side: THREE.DoubleSide });
+  m.name = 'balloon';
+  return (BALLOON_MATS[i] = m);
+}
+const FLAME = new THREE.MeshBasicMaterial({ color: '#ffb347', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+const BASKET_Y = -0.055; // sepetin altı zarfın ağzından bu kadar aşağıda
+function balloon(k: number) {
+  const b = new THREE.Group();
+  const mat = balloonMat(k);
+  add(b, ENVELOPE, mat, 0, 0, 0);
+  const rig = new THREE.Group();
+  const bw = 0.026, bh = 0.02;
+  box(rig, bw, bh, bw, KP.basket, 0, BASKET_Y, 0);
+  frame(rig, bw + 0.004, bw + 0.004, 0.004, 0.003, KP.rim, 0, BASKET_Y + bh - 0.002, 0);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) rod(rig, [(sx * bw) / 2, BASKET_Y + bh, (sz * bw) / 2], [sx * 0.012, 0.004, sz * 0.012], 0.0011, KP.rope, 4);
+  cyl(rig, 0.0055, 0.0055, 0.008, KP.burner, 0, BASKET_Y + bh + 0.012, 0, 8);
+  add(rig, new THREE.TorusGeometry(0.017, 0.0016, 4, 18).rotateX(Math.PI / 2), KP.rope, 0, 0.002, 0);
+  b.add(mergeStatic([rig]));
+  const flame = add(b, new THREE.ConeGeometry(0.0055, 0.03, 8), FLAME, 0, BASKET_Y + bh + 0.034, 0);
+  flame.visible = false;
+  b.traverse(o => {
+    o.castShadow = false; // gölge haritası her karede çizilmiyor: uçan balonun gölgesi yerde takılı kalmasın
+    o.receiveShadow = false;
+  });
+  return { b, flame, mat };
+}
+function cappadocia() {
+  const n = 3, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, KP.ground, 0, 0, 0);
+  // Balon düzlüğü, kalkış yerleri ve yola inen patika
+  box(st, 0.74, 0.003, 0.38, KP.field, 0.11, 0.03, 0.28);
+  const PADS: [number, number][] = [[-0.2, 0.2], [0, 0.16], [0.2, 0.2], [0.38, 0.27], [-0.08, 0.37], [0.17, 0.39]];
+  for (const [x, z] of PADS) add(st, flat(new THREE.CircleGeometry(0.05, 18)), KP.pad, x, 0.0345, z);
+  box(st, 0.05, 0.002, 0.2, KP.path, -0.29, 0.03, 0.39);
+  // Bağ: toprak sıraların arasında asma sıraları
+  box(st, 0.15, 0.003, 0.3, KP.soil, -0.39, 0.03, 0.29);
+  for (let k = 0; k < 6; k++) box(st, 0.012, 0.014, 0.27, KP.vine, -0.45 + k * 0.024, 0.033, 0.29);
+  // Arka sırt: düz tepeli, katmanlı tüf tümsekleri ve yüzlerine oyulmuş mağara otelinin pencereleri
+  const ridge: [number, number, number, number][] = [[-0.36, -0.37, 0.12, 0.13], [-0.17, -0.38, 0.13, 0.16], [0.03, -0.37, 0.12, 0.12], [0.21, -0.38, 0.13, 0.15], [0.37, -0.37, 0.11, 0.11]];
+  ridge.forEach(([x, z, r, h], k) => {
+    add(st, tuffBody(mesa, r, h, 50 + k, true), KP.tuff, x, 0.03, z);
+    for (let w = 0; w < 6; w++) {
+      const a = (hash(k * 7 + w) - 0.5) * 1.3, t = 0.18 + (w % 3) * 0.24 + hash(k + w * 3) * 0.06;
+      carve(st, x, z, r, h, mesa, a, t, 0.012, 0.016, w % 2 ? CAVE_WIN : KP.hole);
+    }
+  });
+  // Peri bacaları: kümeler halinde; bazılarının dibinde ortak tümsek
+  const CH: [number, number, number, number][] = [
+    [-0.4, -0.18, 0.17, 0.06], [-0.3, -0.1, 0.12, 0.05], [-0.38, -0.01, 0.09, 0.045], [-0.2, -0.21, 0.21, 0.065], [-0.11, -0.09, 0.14, 0.05],
+    [-0.22, 0.03, 0.08, 0.04], [-0.01, -0.2, 0.16, 0.055], [0.07, -0.07, 0.11, 0.045], [-0.02, 0.04, 0.07, 0.035], [0.15, -0.22, 0.19, 0.06],
+    [0.23, -0.09, 0.13, 0.05], [0.13, 0.03, 0.085, 0.04], [0.33, -0.17, 0.15, 0.055], [0.41, -0.05, 0.11, 0.05], [0.31, 0.04, 0.08, 0.04],
+    [-0.45, 0.1, 0.06, 0.03], [0.45, 0.1, 0.07, 0.033],
+  ];
+  CH.forEach(([x0, z0, h, r], k) => {
+    const x = x0 + (hash(k + 11) - 0.5) * 0.02, z = z0 + (hash(k + 13) - 0.5) * 0.02;
+    if (k % 3 === 0) add(st, tuffBody(t => 1 - 0.6 * t, r * 1.7, h * 0.22, 80 + k, true), KP.tuff, x, 0.03, z);
+    add(st, tuffBody(spire, r, h, 100 + k), KP.tuff, x, 0.03, z);
+    // Bazalt şapka
+    const rc = r * 0.5;
+    add(st, lathe([[0.001, -0.004], [rc, 0], [rc * 1.06, 0.006], [rc * 0.82, 0.013], [rc * 0.35, 0.02], [0, 0.022]], 12), KP.cap, x, 0.03 + h - 0.005, z);
+    // Oyma kapı ve pencereler (bir kısmı yaşanan oda: gece yanar)
+    const a = (hash(k + 17) - 0.5) * 2.4;
+    if (h > 0.09) carve(st, x, z, r, h, spire, a, 0.06, 0.014, 0.022, KP.hole);
+    for (let w = 0; w < (h > 0.14 ? 3 : 1); w++) carve(st, x, z, r, h, spire, a + (w - 1) * 0.9, 0.3 + w * 0.12, 0.01, 0.013, (k + w) % 3 ? CAVE_WIN : KP.hole);
+  });
+  // Kavaklar, kayısı ağaçları, kayalar
+  for (const [x, z] of [[-0.46, -0.46], [-0.3, 0.14], [0.46, 0.4], [0.46, -0.27], [-0.46, 0.44]] as [number, number][]) plant(st, PROPS.treeSmall, x, z, n, 0.55);
+  for (const [x, z] of [[0.08, -0.13], [-0.32, 0.1]] as [number, number][]) plant(st, PROPS.treeLarge, x, z, n, 0.4);
+  // Yere serili (şişirilmeyi bekleyen) iki balon, yanlarında fan; balon ekiplerinin arabaları
+  for (const [x, z, a, color] of [[0.07, 0.28, 0.7, '#ef6c00'], [0.44, 0.13, Math.PI / 2, '#5e35b1']] as [number, number, number, string][]) {
+    const e = add(st, new THREE.SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), pm(color, 0.8), x, 0.033, z);
+    e.scale.set(0.055, 0.01, 0.022);
+    e.rotation.y = a;
+    const fx = x - Math.cos(a) * 0.065, fz = z + Math.sin(a) * 0.065;
+    cyl(st, 0.008, 0.008, 0.016, KP.burner, fx, 0.033, fz, 10).rotation.set(Math.PI / 2, a, 0, 'YXZ');
+  }
+  for (const [kind, x, z, rot, color] of [['pickup', -0.19, 0.45, Math.PI / 2, '#f5f5f5'], ['van', 0.37, 0.43, 0, '#ffca28']] as const) {
+    const c = carModel(kind, color);
+    c.position.set(x, 0.033, z);
+    c.rotation.y = rot;
+    c.scale.multiplyScalar(s);
+    st.add(c);
+  }
+  for (let k = 0; k < 10; k++) rock(st, -0.45 + hash(k + 60) * 0.9, 0.035, -0.06 + hash(k + 61) * 0.14, 0.008 + hash(k) * 0.01, 1.2, 0.7, 1, PT.rock);
+  for (const [x, z] of [[-0.29, 0.28], [0.47, 0.03], [0.02, 0.475]] as [number, number][]) lamp(st, x, z, s, 0.14);
+  g.add(mergeStatic([st]));
+  // Sıcak hava balonları (her biri kendi kalkış yerinde başlar)
+  const fly = PADS.map(([px, pz], k) => {
+    const { b, flame, mat } = balloon(k);
+    b.position.set(px, 0.03 - BASKET_Y, pz);
+    g.add(b);
+    return {
+      b, flame, mat, px, pz, lift: 0,
+      th: hash(k + 4) * Math.PI * 2,
+      // Ne kadar yükseğe çıkar ve süzüldüğü yolun yarıçapları (yerel ölçü; 1 = 3 kare): Kapadokya'nın
+      // çevresinde kalır, ekranda yapıyla birlikte görünür
+      alt: 1.2 + hash(k + 9) * 0.4,
+      rx: 0.7 + hash(k + 3) * 0.6, rz: 0.6 + hash(k + 5) * 0.5,
+      cx: (hash(k + 7) - 0.5) * 0.4, cz: (hash(k + 8) - 0.5) * 0.4,
+      sp: (0.02 + hash(k + 2) * 0.012) * (k % 2 ? 1 : -1),
+    };
+  });
+  let last = 0;
+  const step = (t: number) => {
+    const dt = Math.min(0.25, Math.max(0, t - last));
+    last = t;
+    // Gece ne kadar: lambalar (BULB) gece yanar
+    const night = Math.min(1, BULB.emissiveIntensity / 2);
+    fly.forEach((f, k) => {
+      // Sabah sırayla kalkar, akşam ters sırayla iner
+      const want = 1 - night > 0.3 + k * 0.09 ? 1 : 0;
+      f.lift += Math.max(-dt * 0.07, Math.min(dt * 0.07, want - f.lift));
+      f.th += dt * f.sp * Math.min(1, f.lift * 2);
+      const up = THREE.MathUtils.smoothstep(f.lift, 0, 1), out = THREE.MathUtils.smoothstep(f.lift, 0.3, 1);
+      const qx = f.cx + Math.cos(f.th) * f.rx, qz = f.cz + Math.sin(f.th) * f.rz;
+      f.b.position.set(f.px + (qx - f.px) * out, 0.03 - BASKET_Y + up * f.alt + Math.sin(t * 0.4 + k) * 0.012 * up, f.pz + (qz - f.pz) * out);
+      f.b.rotation.y = t * 0.04 + k * 1.3;
+      // Brülör: kalkarken sık, havada ara ara, gece yerde arada bir yanar (balon içten parlar)
+      const rising = f.lift > 0.01 && f.lift < 0.99;
+      const burn = rising ? Math.sin(t * 2.2 + k) > -0.3 : Math.sin(t * 0.7 + k * 1.9) + Math.sin(t * 1.9 + k) * 0.3 > (f.lift > 0.5 ? 0.85 : 1.05);
+      f.flame.visible = burn;
+      f.flame.scale.set(1, 0.75 + Math.sin(t * 23 + k) * 0.25, 1);
+      f.mat.emissiveIntensity = burn ? 0.08 + night * 0.85 : 0;
+    });
+  };
+  g.userData.animals = [{ obj: g, cx: 0, cz: 0, r: 0, phase: 0, speed: 0, step }];
+  return g;
+}
+
+// ======================= Efes: Celsus Kütüphanesi (2x2) =======================
+// İki katlı sütunlu cephe: altta dört çift sütun (her çiftin ortasında nişinde bir heykel: Bilgelik, Erdem,
+// Düşünce, Bilgi), aralarında üç kapı; üstte üç çift sütun, yanlarda üçgen ortada kavisli alınlık, üst kat
+// pencereleri. Önde mermer basamaklar ve meydan, arkada yıkık okuma salonu duvarları; iki yanda Kuretler
+// Caddesi'nin kırık sütunları, yerde sütun parçaları, servi ve çam ağaçları.
+const EF = {
+  ground: pm('#c2bc88', 1),
+  marble: pm('#f1ebde', 0.7), // sütunlar
+  marble2: pm('#d8c9ac', 0.85), // duvarlar
+  marble3: pm('#c6b28e', 0.9), // kaideler, saçak bantları
+  dark: pm('#3c322b', 1),
+  pave: stoneMat('#ddd2bb'),
+  statue: pm('#f6f2ea', 0.6),
+};
+// Kavisli alınlık: yay biçimli levha (yüzü +z)
+function segPediment(w: number, h: number, d: number) {
+  const sh = new THREE.Shape();
+  sh.moveTo(-w / 2, 0);
+  sh.quadraticCurveTo(0, h * 2, w / 2, 0);
+  sh.lineTo(-w / 2, 0);
+  return new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false, curveSegments: 10 }).translate(0, 0, -d / 2);
+}
+// Elbiseli mermer heykel (ayakta, kolları önde)
+function figure(g: THREE.Object3D, x: number, y: number, z: number) {
+  add(g, lathe([[0.0075, 0], [0.007, 0.02], [0.0058, 0.038], [0.0052, 0.046], [0.0028, 0.052], [0, 0.053]], 10), EF.statue, x, y, z);
+  add(g, new THREE.SphereGeometry(0.0045, 10, 8), EF.statue, x, y + 0.0575, z);
+  box(g, 0.008, 0.004, 0.006, EF.statue, x, y + 0.036, z + 0.004);
+}
+function ephesus() {
+  const n = 2, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, EF.ground, 0, 0, 0);
+  // Mermer meydan (önde) ve kütüphanenin içi
+  add(st, uvBox(0.98, 0.004, 0.32, 0.08, 0.08), EF.pave, 0, 0.032, 0.33);
+  const W = 0.58;
+  box(st, W + 0.04, 0.048, 0.42, EF.marble3, 0, 0.03, -0.09);
+  const y0 = 0.078;
+  // Basamaklar
+  for (let i = 0; i < 6; i++) box(st, W + 0.03 - i * 0.004, 0.008 * (i + 1), 0.014, i % 2 ? EF.marble2 : EF.marble, 0, 0.03, 0.187 - i * 0.012);
+  // Arka duvar (cephe), kapılar, nişler ve üst kat pencereleri
+  box(st, W, 0.31, 0.03, EF.marble2, 0, y0, 0.035);
+  for (const [x, w, h] of [[0, 0.055, 0.1], [-0.17, 0.042, 0.085], [0.17, 0.042, 0.085]] as [number, number, number][]) {
+    add(st, archGeo(w, h, 0.004), EF.dark, x, y0 + 0.03, 0.051);
+    box(st, w + 0.014, 0.008, 0.008, EF.marble3, x, y0 + 0.03 + h + 0.004, 0.054);
+  }
+  const PAIRS = [-0.255, -0.085, 0.085, 0.255];
+  // Alt kat: çıkıntılı kaideler üstünde çift sütunlar, aralarında nişte heykel
+  box(st, W, 0.022, 0.045, EF.marble2, 0, y0 + 0.142, 0.072);
+  for (const px of PAIRS) {
+    box(st, 0.085, 0.03, 0.05, EF.marble3, px, y0, 0.09);
+    add(st, archGeo(0.028, 0.07, 0.004), EF.dark, px, y0 + 0.034, 0.051);
+    figure(st, px, y0 + 0.03, 0.074);
+    for (const sx of [-1, 1]) {
+      const x = px + sx * 0.027;
+      cyl(st, 0.0082, 0.0094, 0.1, EF.marble, x, y0 + 0.03, 0.097, 14);
+      cyl(st, 0.0125, 0.0088, 0.011, EF.marble3, x, y0 + 0.13, 0.097, 12);
+    }
+    box(st, 0.092, 0.028, 0.056, EF.marble, px, y0 + 0.14, 0.092);
+    box(st, 0.096, 0.007, 0.06, EF.marble3, px, y0 + 0.16, 0.092);
+  }
+  // Üst kat: kapıların üstünde üç çift sütun, alınlıklar
+  for (const ux of [-0.17, 0, 0.17]) {
+    const half = ux === 0 ? 0.034 : 0.03;
+    box(st, half * 2 + 0.03, 0.016, 0.044, EF.marble3, ux, y0 + 0.164, 0.082);
+    add(st, archGeo(0.034, 0.062, 0.004), EF.dark, ux, y0 + 0.19, 0.051);
+    for (const sx of [-1, 1]) {
+      const x = ux + sx * half;
+      cyl(st, 0.0072, 0.0082, 0.085, EF.marble, x, y0 + 0.18, 0.088, 14);
+      cyl(st, 0.011, 0.0078, 0.0095, EF.marble3, x, y0 + 0.265, 0.088, 12);
+    }
+    box(st, half * 2 + 0.036, 0.022, 0.05, EF.marble, ux, y0 + 0.274, 0.085);
+    box(st, half * 2 + 0.04, 0.006, 0.054, EF.marble3, ux, y0 + 0.288, 0.085);
+    if (ux === 0) add(st, segPediment(half * 2 + 0.034, 0.022, 0.044), EF.marble2, ux, y0 + 0.296, 0.085);
+    else add(st, gable(0.044, half * 2 + 0.036, 0.034).rotateY(Math.PI / 2), EF.marble2, ux, y0 + 0.296, 0.085);
+  }
+  // Çatı saçağı
+  box(st, W + 0.012, 0.014, 0.04, EF.marble3, 0, y0 + 0.305, 0.04);
+  // Arkada yıkık okuma salonu: yan duvarlar ve arka duvar, kırık üst kenarlar
+  for (const sx of [-1, 1]) {
+    for (let k = 0; k < 8; k++) {
+      const h = 0.27 - k * 0.025 - hash(k + sx * 5) * 0.05;
+      box(st, 0.024, Math.max(0.03, h), 0.04, EF.marble2, sx * (W / 2 - 0.012), y0, 0.0 - k * 0.04);
+    }
+  }
+  for (let k = 0; k < 12; k++) box(st, W / 12 - 0.002, 0.04 + hash(k + 30) * 0.08, 0.024, EF.marble3, -W / 2 + (k + 0.5) * (W / 12), y0, -0.29);
+  for (let k = 0; k < 6; k++) {
+    const d = add(st, new THREE.CylinderGeometry(0.009, 0.009, 0.03, 12), EF.marble2, -0.2 + k * 0.08, y0 + 0.009, -0.16 + hash(k + 40) * 0.1);
+    d.rotation.set(0, hash(k + 41) * 3, Math.PI / 2);
+  }
+  // Kuretler Caddesi: iki yanda sıra sütunlar (çoğu kırık)
+  for (const sx of [-1, 1]) {
+    for (let k = 0; k < 9; k++) {
+      const z = -0.42 + k * 0.1;
+      const r = hash(k * 3 + sx);
+      if (r < 0.15) continue;
+      const h = r > 0.6 ? 0.13 : 0.03 + r * 0.12;
+      const x = sx * 0.44;
+      box(st, 0.026, 0.012, 0.026, EF.marble3, x, 0.03, z);
+      cyl(st, 0.0085, 0.0095, h, EF.marble, x, 0.042, z, 12);
+      if (r > 0.6) box(st, 0.024, 0.01, 0.024, EF.marble3, x, 0.042 + h, z);
+    }
+  }
+  // Yerdeki parçalar: sütun gövdeleri, başlıklar, bloklar
+  for (let k = 0; k < 8; k++) {
+    const x = (hash(k + 50) - 0.5) * 0.7, z = 0.22 + hash(k + 51) * 0.2;
+    if (Math.abs(x) < 0.33 && z < 0.26) continue;
+    if (k % 2) {
+      const d = add(st, new THREE.CylinderGeometry(0.009, 0.009, 0.02 + hash(k) * 0.02, 12), EF.marble2, x, 0.045, z);
+      d.rotation.set(0, hash(k + 52) * 3, Math.PI / 2);
+    } else box(st, 0.024, 0.012, 0.018, EF.marble3, x, 0.034, z).rotation.y = hash(k + 53) * 3;
+  }
+  // Meydanda basamakların iki yanında kaide üstünde heykeller
+  for (const x of [-0.25, 0.25]) {
+    box(st, 0.036, 0.04, 0.036, EF.marble3, x, 0.034, 0.27);
+    box(st, 0.042, 0.006, 0.042, EF.marble, x, 0.074, 0.27);
+    figure(st, x, 0.08, 0.27);
+  }
+  // Ağaçlar, lambalar, bank
+  for (const [x, z] of [[-0.46, -0.46], [0.46, -0.46], [-0.37, -0.42], [0.37, 0.46], [-0.37, 0.46]] as [number, number][]) plant(st, PROPS.treeSmall, x, z, n, 0.55);
+  for (const [x, z] of [[0.36, -0.36], [-0.36, -0.2]] as [number, number][]) plant(st, PROPS.treePine, x, z, n, 0.45);
+  for (const x of [-0.33, 0.33]) lamp(st, x, 0.36, s, 0.16);
+  bench(st, 0.18, 0.44, Math.PI, s);
+  bench(st, -0.18, 0.44, Math.PI, s);
+  g.add(mergeStatic([st]));
+  return g;
+}
+
 // Simge yapılar arasına kaydet (landmarks.ts makeDecor önce buraya bakar)
 const WONDERS: Partial<Record<DecorKind, () => THREE.Object3D>> = {
-  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge,
+  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge, cappadocia, ephesus,
 };
 Object.assign(EXTRA_DECOR, WONDERS);
 export const WONDER_KINDS = Object.keys(WONDERS) as DecorKind[];

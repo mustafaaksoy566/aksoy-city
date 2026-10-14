@@ -6,6 +6,8 @@ const SOUNDS = {
   grow: ['grow'],
   click: ['click'],
   error: ['error'],
+  shutter: ['shutter'],
+  chime: ['chime'],
 };
 export type Sound = keyof typeof SOUNDS;
 
@@ -139,6 +141,31 @@ function ambienceSound() {
   return buf;
 }
 
+// Fotoğraf makinesi deklanşörü: iki kısa mekanik tık
+function shutterSound() {
+  let lp = 0;
+  return buffer(0.16, (t, r) => {
+    lp += (r() * 2 - 1 - lp) * 0.45;
+    const a = env(t, 0.0008, 0.006);
+    const b = t > 0.065 ? env(t - 0.065, 0.0008, 0.01) * 0.8 : 0;
+    return lp * (a + b) * 1.4 + Math.sin(TAU * 2300 * t) * a * 0.25;
+  }, 9);
+}
+// Başarım ve hediye: yükselen dört notalı çan sesi
+function chimeSound() {
+  const notes = [1047, 1319, 1568, 2093];
+  return buffer(1.0, t => {
+    let v = 0;
+    notes.forEach((f, k) => {
+      const u = t - k * 0.085;
+      if (u < 0) return;
+      const e = env(u, 0.004, 0.32);
+      v += (Math.sin(TAU * f * u) + Math.sin(TAU * f * 2.01 * u) * 0.25) * e * 0.22;
+    });
+    return v;
+  });
+}
+
 function synthAll() {
   for (let k = 0; k < 4; k++) {
     buffers.set(`place-${k}`, placeSound(k));
@@ -147,6 +174,8 @@ function synthAll() {
   buffers.set('grow', growSound());
   buffers.set('click', clickSound());
   buffers.set('error', errorSound());
+  buffers.set('shutter', shutterSound());
+  buffers.set('chime', chimeSound());
 }
 
 // iPhone sesi ancak parmak kalktığında (touchend/click) açıyor, o yüzden birkaç olayı dinliyoruz

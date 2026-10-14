@@ -6,8 +6,10 @@ import {
 } from './config';
 import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block } from './city';
 import {
-  describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, type CardActions,
+  describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, describeAchievements, type CardActions,
 } from './info';
+import { readyAchievements, claimAchievement } from './achievements';
+import { GIFT_DAYS, giftDay, giftReward, claimGift, skipGiftToday } from './gift';
 import { Sky } from './sky';
 import { CameraRig } from './camera';
 import { Weather } from './weather';
@@ -42,8 +44,9 @@ import { setupAudioUnlock, play, isMuted, setMuted, isMusicOn, setMusic, setMusi
 import {
   buildCatalog, setMode, setStats, toast, setChip, floatIncome, floatText, hideLoading, showInfo, celebrateLevel, setThumbs,
   setLoading, loadFailed, openSettings, openHelp, confirmDialog, onInfoClose, setCityName, fmt, setServiceBar, setPlaceBar, thumbOf, type Quality,
+  setPhotoBar, showPhoto, photoFlash, openGift, type PhotoTime, type GiftBox,
 } from './ui';
-import { ProductionPanel, setProductPics } from './production';
+import { ProductionPanel, setProductPics, productPic } from './production';
 import { makeItem, ITEM_IDS } from './items';
 
 const SAVE_KEY = 'aksoy-city-save-v1';
@@ -237,6 +240,7 @@ const updateStats = () =>
     storage: { used: city.storageUsed, cap: city.storageCap },
     happiness: city.happiness,
     questsReady: city.quests.filter(q => questDone(city, q)).length,
+    achReady: readyAchievements(city).length,
     day: dayNumber(city.day),
     night: phase(((city.day % CYCLE_DAYS) + 0.5) / CYCLE_DAYS).night > 0.5,
   });
@@ -285,7 +289,7 @@ function showEvents() {
 }
 
 // --- Bilgi kartı (binaya ya da göstergelere dokununca) ---
-type CardKey = number | 'storage' | 'quests' | 'budget' | 'city' | 'power' | 'water' | 'hall';
+type CardKey = number | 'storage' | 'quests' | 'ach' | 'budget' | 'city' | 'power' | 'water' | 'hall';
 let openCard: CardKey | null = null;
 
 const cardActions: CardActions = {
@@ -411,6 +415,27 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  achieve(id) {
+    // '*': hazır olanların hepsi (bir kademe alınınca sıradaki de hazırsa o da alınır)
+    const ids = id === '*' ? readyAchievements(city).map(a => a.id) : [id];
+    let money = 0, n = 0, name = '';
+    for (let k = 0; k < 100 && ids.length; k++) {
+      const a = ids.shift()!;
+      const tier = claimAchievement(city, a);
+      if (!tier) continue;
+      money += tier.money;
+      n++;
+      name = tier.name;
+      shownAch.delete(a);
+      if (id === '*' && readyAchievements(city).some(x => x.id === a)) ids.push(a);
+    }
+    if (n) {
+      play('chime', 0.5);
+      if (money) floatIncome(money);
+      toast(n > 1 ? `🏆 ${n} başarımın ödülü alındı!` : `🏆 "${name}" başarımının ödülü alındı!`);
+    }
+    afterChange();
+  },
   ship(n) {
     const err = city.ship(n, Date.now());
     if (err) {
@@ -508,6 +533,7 @@ function renderCard() {
   const card =
     openCard === 'storage' ? describeStorage(city, cardActions)
     : openCard === 'quests' ? describeQuests(city, cardActions)
+    : openCard === 'ach' ? describeAchievements(city, cardActions)
     : openCard === 'budget' ? describeBudget(city, cardActions)
     : openCard === 'city' ? describeCity(city, cityName)
     : openCard === 'power' || openCard === 'water' ? describeUtility(city, openCard, cardActions)
@@ -1120,7 +1146,7 @@ function faceRoad() {
 const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
   lift(cell) {
-    if (moving || tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
+    if (photoOn || moving || tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
     rig.releaseGrab();
     startMove(cell);
     moving!.dragging = true;
@@ -1228,7 +1254,7 @@ const input = new TileInput(renderer.domElement, camera, {
     showCoverage();
   },
   tap(cell, x, y) {
-    if (moving) return; // yerleştirme beklerken kart açılmasın
+    if (moving || photoOn) return; // yerleştirme beklerken ve fotoğraf modunda kart açılmasın
     // Binanın üstündeki hazır ürün baloncuğuna dokununca ürünler depoya gelir
     const bubble = view.readyBubbleAt(x, y, camera, renderer.domElement.getBoundingClientRect());
     if (bubble !== null) {
@@ -1280,7 +1306,7 @@ document.querySelector('#mode .mode-done')!.addEventListener('click', () => pick
 
 // Üstteki göstergeler
 const cardButtons: [string, CardKey][] = [
-  ['storage', 'storage'], ['quests', 'quests'], ['money', 'budget'], ['pop', 'city'], ['lvl', 'city'],
+  ['storage', 'storage'], ['quests', 'quests'], ['ach', 'ach'], ['money', 'budget'], ['pop', 'city'], ['lvl', 'city'],
   ['power', 'power'], ['water', 'water'], ['happy', 'hall'], ['clock', 'city'],
 ];
 for (const [id, key] of cardButtons) document.getElementById(id)!.addEventListener('click', () => toggleCard(key));
@@ -1472,6 +1498,141 @@ document.getElementById('settings')!.addEventListener('click', () => {
   );
 });
 
+// --- Başarımlar: yeni tamamlanan kademe bir kez haber verilir (ödül Başarımlar kartından alınır) ---
+const shownAch = new Set<string>();
+let achTimer = 0;
+let achReadyOnce = false;
+function checkAchievements() {
+  const ready = readyAchievements(city);
+  for (const a of ready) {
+    if (shownAch.has(a.id)) continue;
+    shownAch.add(a.id);
+    // Açılışta zaten tamamlanmış olanlar için ses ve yazı çıkmaz (rozet yeter)
+    if (!achReadyOnce) continue;
+    const tier = a.tiers[city.achieved[a.id] ?? 0];
+    play('chime', 0.45);
+    toast(`🏆 Başarım: "${tier.name}"! Ödülünü sağdaki kupadan al.`);
+  }
+  achReadyOnce = true;
+  updateStats();
+}
+
+// --- Fotoğraf modu: arayüz gizlenir, şehrin fotoğrafı çekilir ---
+let photoOn = false;
+let photoTod: number | null = null; // sadece görüntü için seçilen saat (null = oyunun saati)
+const PHOTO_TOD: Record<PhotoTime, number | null> = { now: null, day: 0.3, dusk: 0.69, night: 0.8 };
+function openPhoto() {
+  if (photoOn) return;
+  closeProduction();
+  if (moving) cancelMove();
+  pickTool('pan');
+  catalog.close();
+  openTile(null);
+  photoOn = true;
+  view.showIcons(false);
+  setPhotoBar(true, { close: closePhoto, shoot: shootPhoto, time: t => (photoTod = PHOTO_TOD[t]) });
+  play('click', 0.3);
+}
+function closePhoto() {
+  if (!photoOn) return;
+  photoOn = false;
+  photoTod = null;
+  view.showIcons(true);
+  setPhotoBar(false);
+  play('click', 0.3);
+}
+// Ekranda görünen kısım (tuval güvenli alanın dışına taşar) kopyalanır, köşesine şehrin adı yazılır
+function shootPhoto() {
+  renderer.render(scene, camera);
+  const src = renderer.domElement;
+  const r = src.getBoundingClientRect();
+  const k = src.width / r.width;
+  const x0 = Math.max(0, Math.round(-r.left * k)), y0 = Math.max(0, Math.round(-r.top * k));
+  const x1 = Math.min(src.width, Math.round((window.innerWidth - r.left) * k));
+  const y1 = Math.min(src.height, Math.round((window.innerHeight - r.top) * k));
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 8 || h < 8) return;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d')!;
+  g.drawImage(src, x0, y0, w, h, 0, 0, w, h);
+  stampPhoto(g, w, h);
+  const url = c.toDataURL('image/jpeg', 0.92);
+  photoFlash();
+  play('shutter', 0.6);
+  const file = dataFile(url, `${cityName.replace(/[^\p{L}\p{N}]+/gu, '-') || 'aksoy-city'}.jpg`);
+  const canShare = typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
+  const share = canShare ? () => void navigator.share({ files: [file], title: cityName }).catch(() => {}) : null;
+  setTimeout(() => showPhoto(url, share), 260);
+}
+function stampPhoto(g: CanvasRenderingContext2D, w: number, h: number) {
+  const s = Math.min(w, h) / 400;
+  const pad = 14 * s;
+  const title = cityName;
+  const sub = `Nüfus ${fmt(city.population)} · ${fmt(dayNumber(city.day))}. gün · Seviye ${city.level}`;
+  const font = (weight: number, size: number) => `${weight} ${size * s}px ui-rounded, "SF Pro Rounded", system-ui, sans-serif`;
+  g.font = font(800, 19);
+  const tw = g.measureText(title).width;
+  g.font = font(600, 12);
+  const sw = g.measureText(sub).width;
+  const bw = Math.max(tw, sw) + pad * 2, bh = 54 * s;
+  const x = pad, y = h - bh - 26 * s;
+  g.fillStyle = 'rgba(14, 26, 42, 0.58)';
+  g.beginPath();
+  if (g.roundRect) g.roundRect(x, y, bw, bh, 14 * s);
+  else g.rect(x, y, bw, bh);
+  g.fill();
+  g.fillStyle = '#ffffff';
+  g.textBaseline = 'alphabetic';
+  g.font = font(800, 19);
+  g.fillText(title, x + pad, y + 25 * s);
+  g.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  g.font = font(600, 12);
+  g.fillText(sub, x + pad, y + 43 * s);
+}
+function dataFile(url: string, name: string) {
+  const bin = atob(url.slice(url.indexOf(',') + 1));
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new File([u8], name, { type: 'image/jpeg' });
+}
+document.getElementById('photo')!.addEventListener('click', openPhoto);
+
+// --- Günlük hediye: takvim gününde bir kez (açılışta ya da uygulamaya geri dönünce) ---
+function checkGift() {
+  const day = giftDay(city);
+  if (day === null) return;
+  if (!picsReady) {
+    setTimeout(checkGift, 500);
+    return;
+  }
+  // Başka bir pencere, üretim ekranı ya da fotoğraf modu açıksa biraz sonra yine bakılır
+  if (!document.getElementById('dialog')!.hidden || !document.getElementById('levelup')!.hidden || prod.isOpen || photoOn || moving) {
+    setTimeout(checkGift, 4000);
+    return;
+  }
+  const boxes = Array.from({ length: GIFT_DAYS }, (_, k) => {
+    const r = giftReward(city, k + 1);
+    const items: GiftBox['items'] = [{ pic: '', coin: true, text: fmt(r.money) }];
+    for (const [m, n] of Object.entries(r.mats) as [MatId, number][]) items.push({ pic: productPic(m, 'gp'), text: `${n} ${MATERIALS[m].name}` });
+    return { day: k + 1, items };
+  });
+  play('chime', 0.4);
+  openGift(day, boxes, () => {
+    const r = claimGift(city);
+    if (!r) return;
+    floatIncome(r.money);
+    const mats = Object.entries(r.mats) as [MatId, number][];
+    toast(`🎁 Hediye alındı: 💰${fmt(r.money)}${mats.length ? ' ve ' + mats.map(([m, n]) => `${n} ${MATERIALS[m].name}`).join(', ') : ''}`);
+    play('grow', 0.6);
+    afterChange();
+  });
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) setTimeout(checkGift, 800);
+});
+
 // --- Kamera döndürme: iki parmakla serbestçe; pusulaya dokununca ilk açıya döner ---
 const needle = document.querySelector<HTMLElement>('#compass .needle')!;
 let shownYaw = NaN;
@@ -1489,6 +1650,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'q' || e.key === 'Q') rig.rotateBy(-Math.PI / 4);
   if (e.key === 'e' || e.key === 'E') rig.rotateBy(Math.PI / 4);
   if (e.key === 'Escape') {
+    closePhoto();
     pickTool('pan');
     catalog.close();
     openTile(null);
@@ -1616,9 +1778,15 @@ function frame() {
   updateTrees(clock.elapsedTime);
   followShadow();
   dayNight.dome.position.copy(camera.position);
-  fireworks.update(dt, phase(tod).night, showSpots);
-  dayNight.update(tod, dt, weather.amount);
-  setMusicNight(phase(tod).night);
+  const look = photoTod ?? tod;
+  fireworks.update(dt, phase(look).night, showSpots);
+  dayNight.update(look, dt, weather.amount);
+  setMusicNight(phase(look).night);
+  achTimer += dt;
+  if (achTimer > 2) {
+    achTimer = 0;
+    checkAchievements();
+  }
   // Depremde kamera sallansın (sadece çizim sırasında kaydırılır, sonra geri alınır)
   const jolt = new THREE.Vector3();
   if (shake > 0) {
@@ -1745,7 +1913,9 @@ function makeProductPictures() {
   } catch (err) {
     console.warn('Ürün resimleri çizilemedi', err);
   }
+  picsReady = true;
 }
+let picsReady = false; // ürün resimleri çizildi mi (hediye penceresi resimli açılsın)
 
 loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
   .then(() => {
@@ -1773,6 +1943,10 @@ loadModels(ALL_MODELS, (done, total) => setLoading(done / total))
       writePref(HELP_KEY, '1');
       openHelp();
     }
+    // Günlük hediye: yeni kurulan şehirde ilk gün yok (rehber açık), yarın 1. gün gelir
+    if (!city.hasZones && !city.gift) skipGiftToday(city);
+    else setTimeout(checkGift, 1500);
+    checkAchievements();
     renderer.setAnimationLoop(frame);
     // Geliştirirken performansı ölçebilmek için (yayında çalışmaz)
     if (import.meta.env.DEV) Object.assign(window, { __aksoy: { renderer, scene, camera, rig, city: () => city, weather, view, sky, highway, traffic, walkers, helis, open: openTile, pick: pickTool, refresh: afterChange, production: openProduction, prod, dayNight, frame, makeDecor } });

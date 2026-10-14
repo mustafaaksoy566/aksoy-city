@@ -44,6 +44,16 @@ export const ICONS = {
   gear: svg(`<path d="${gear(16, 16, 13.2, 10, 8)}" fill="#9fb0c2" ${S}/><circle cx="16" cy="16" r="4.4" fill="#e9eef3" ${S}/>`),
   soundOn: svg(`${SPEAKER}<path d="M20.8 11.5a6 6 0 0 1 0 9M24.4 8a11 11 0 0 1 0 16" fill="none" stroke="#1f2d3d" stroke-width="2.3" stroke-linecap="round"/>`),
   music: svg(`<path d="M12 23.5V8.5l13-3v15" fill="none" stroke="#1f2d3d" stroke-width="2.4" stroke-linejoin="round"/><ellipse cx="9" cy="23.5" rx="4" ry="3.2" fill="#ab47bc" stroke="#1f2d3d" stroke-width="2"/><ellipse cx="22" cy="20.5" rx="4" ry="3.2" fill="#ab47bc" stroke="#1f2d3d" stroke-width="2"/>`),
+  trophy: svg(`<path d="M9 5.5h14v6.5a7 7 0 0 1-14 0z" fill="#ffc928" ${S}/><path d="M9 8H5.2v2.2A4.6 4.6 0 0 0 9.6 15M23 8h3.8v2.2a4.6 4.6 0 0 1-4.4 4.8" fill="none" ${S}/>
+<path d="M14 18.4h4v4.6h-4z" fill="#e0a800" ${S}/><path d="M10 27.5h12v-2.2a2.2 2.2 0 0 0-2.2-2.2h-7.6a2.2 2.2 0 0 0-2.2 2.2z" fill="#a1683a" ${S}/>
+<path d="M12.2 8.2v3.6a3.8 3.8 0 0 0 1.6 3.1" fill="none" stroke="#fff3b0" stroke-width="1.8" stroke-linecap="round"/>`),
+  camera: svg(`<path d="M4.5 11.5a2.5 2.5 0 0 1 2.5-2.5h3.4l1.8-3h7.6l1.8 3H25a2.5 2.5 0 0 1 2.5 2.5v11.5A2.5 2.5 0 0 1 25 25.5H7a2.5 2.5 0 0 1-2.5-2.5z" fill="#5b8def" ${S}/>
+<circle cx="16" cy="17" r="5.6" fill="#bfe6ff" ${S}/><circle cx="16" cy="17" r="2.4" fill="#1f2d3d"/><circle cx="23.3" cy="12.4" r="1.3" fill="#ffd23f"/>`),
+  gift: svg(`<rect x="5" y="13" width="22" height="14" rx="2" fill="#ef5350" ${S}/><rect x="3.5" y="9" width="25" height="5.5" rx="1.6" fill="#ff7a70" ${S}/>
+<path d="M14 9h4v18h-4z" fill="#ffd23f" ${S}/><path d="M16 9c-2.6-4.6-8.2-4.4-7.4-1.4.5 1.8 4 1.6 7.4 1.4zM16 9c2.6-4.6 8.2-4.4 7.4-1.4-.5 1.8-4 1.6-7.4 1.4z" fill="#ffd23f" ${S}/>`),
+  sunset: svg(`<path d="M3.5 22.5h25" stroke="#1f2d3d" stroke-width="2.2" stroke-linecap="round"/><path d="M8.5 21.5a7.5 7.5 0 0 1 15 0z" fill="#ff9f43" ${S}/>
+<g stroke="#ff7043" stroke-width="2.2" stroke-linecap="round"><path d="M16 6.5v3.4M6.2 10.6l2.4 2.4M25.8 10.6l-2.4 2.4"/></g><path d="M7 26.5h18" stroke="#1f2d3d" stroke-width="2.2" stroke-linecap="round"/>`),
+  clock: svg(`<circle cx="16" cy="16" r="12.5" fill="#eef4fa" ${S}/><path d="M16 9v7.4l4.6 2.8" fill="none" stroke="#1f2d3d" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`),
   help: svg(`<circle cx="16" cy="16" r="12.5" fill="#4fc3f7" stroke="#1f2d3d" stroke-width="2"/><path d="M12.2 12.6a4 4 0 1 1 5.6 3.6c-1.2.6-1.8 1.4-1.8 2.7v.6" fill="none" stroke="#1f2d3d" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="23.6" r="1.7" fill="#1f2d3d"/>`),
   soundOff: svg(`${SPEAKER}<path d="M21 12l7 8M28 12l-7 8" stroke="#e53935" stroke-width="2.8" stroke-linecap="round"/>`),
   rotateRight: svg(ROTATE),

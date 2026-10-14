@@ -240,7 +240,7 @@ export type DecorKind =
   | 'fountain' | 'statue' | 'wheel' | 'stadium' | 'station' | 'busstop' | 'parking' | 'uni' | 'airport' | 'beach' | 'metro'
   | 'clocktower' | 'museum' | 'funfair' | 'lighthouse' | 'marina' | 'mosque'
   | 'eiffel' | 'liberty' | 'pisa' | 'colosseum' | 'galata' | 'pyramid' | 'zoo'
-  | 'maiden' | 'hagia' | 'taj' | 'bigben' | 'parthenon' | 'chichen' | 'opera' | 'stonehenge'
+  | 'maiden' | 'hagia' | 'taj' | 'bigben' | 'parthenon' | 'chichen' | 'opera' | 'stonehenge' | 'cappadocia' | 'ephesus'
   | 'lake' | 'biglake' | 'hill' | 'volley' | 'casino' | 'observatory';
 export interface DecorInfo { radius: number; happy: number; upkeep: number; covers?: ServiceKind; income?: number; road?: boolean }
 export const DECOR: Record<DecorKind, DecorInfo> = {
@@ -275,6 +275,8 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   chichen: { radius: 10, happy: 0.2, upkeep: 12, income: 400, road: true },
   opera: { radius: 11, happy: 0.22, upkeep: 18, income: 500, road: true },
   stonehenge: { radius: 7, happy: 0.14, upkeep: 4, income: 220, road: true },
+  cappadocia: { radius: 12, happy: 0.24, upkeep: 16, income: 520, road: true }, // peri bacaları, uçan balonlar
+  ephesus: { radius: 9, happy: 0.18, upkeep: 9, income: 330, road: true }, // Efes: Celsus Kütüphanesi
   museum: { radius: 9, happy: 0.15, upkeep: 15, income: 220, road: true }, // müze: turist getirir
   funfair: { radius: 10, happy: 0.22, upkeep: 14, income: 260, road: true }, // lunapark: atlıkarınca ve hız treni
   busstop: { radius: 4, happy: 0.05, upkeep: 1 }, // otobüs durağı: otobüsler dolaşır
@@ -328,7 +330,7 @@ export const COST: Record<BuildTool, number> = {
   bakery: 1500, fashion: 2000, garden: 2500, cafe: 3000, electro: 4000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
   fountain: 600, statue: 900, wheel: 2500, stadium: 5000, mosque: 5000,
   zoo: 11000, lake: 1500, biglake: 3500, hill: 1200, volley: 2500, casino: 15000, observatory: 9000, eiffel: 30000, liberty: 25000, pisa: 12000, colosseum: 32000, galata: 10000, pyramid: 28000,
-  maiden: 14000, hagia: 30000, taj: 34000, bigben: 16000, parthenon: 22000, chichen: 20000, opera: 30000, stonehenge: 9000,
+  maiden: 14000, hagia: 30000, taj: 34000, bigben: 16000, parthenon: 22000, chichen: 20000, opera: 30000, stonehenge: 9000, cappadocia: 26000, ephesus: 15000,
 };
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar, karakol, itfaiye ve depo 2x2:
@@ -336,7 +338,7 @@ export const COST: Record<BuildTool, number> = {
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
   store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
   health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
-  maiden: 2, hagia: 3, taj: 3, bigben: 2, parthenon: 2, chichen: 2, opera: 3, stonehenge: 2,
+  maiden: 2, hagia: 3, taj: 3, bigben: 2, parthenon: 2, chichen: 2, opera: 3, stonehenge: 2, cappadocia: 3, ephesus: 2,
 };
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
@@ -351,7 +353,7 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   beach: 6, bakery: 7, port: 8, fashion: 8, garden: 9, cafe: 10, electro: 12, metro: 10, clocktower: 4, museum: 8, funfair: 9, lighthouse: 5, marina: 7,
   boulevard: 4, avenue: 8, mosque: 6,
   zoo: 8, lake: 3, biglake: 6, hill: 3, volley: 6, casino: 10, observatory: 9, galata: 6, pisa: 7, liberty: 9, eiffel: 10, colosseum: 11, pyramid: 12,
-  stonehenge: 6, maiden: 7, bigben: 8, chichen: 9, parthenon: 10, hagia: 11, opera: 11, taj: 12,
+  stonehenge: 6, maiden: 7, ephesus: 7, bigben: 8, chichen: 9, parthenon: 10, cappadocia: 10, hagia: 11, opera: 11, taj: 12,
 };
 
 export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string }> = {
@@ -406,6 +408,8 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   parthenon: { icon: '🏛️', label: 'Parthenon', hint: 'Parthenon: Akropolis tepesinde yivli sütunlu antik tapınak kalıntısı ve Erekhtheion. Turist getirir.' },
   chichen: { icon: '🛕', label: 'Chichen Itza', hint: 'Chichen Itza: Maya basamak piramidi; dört yanında merdiven, tepesinde taş tapınak. Turist getirir.' },
   opera: { icon: '🎭', label: 'Sidney Opera Binası', hint: 'Sidney Opera Binası: su kıyısına kurulur. Beyaz karo kaplı yelken kabukları, gece yanan camlar. Çok turist getirir.' },
+  cappadocia: { icon: '🎈', label: 'Kapadokya', hint: 'Kapadokya (3x3): şapkalı peri bacaları, içine oyulmuş evler, gece pencereleri yanan mağara otelleri ve bağlar. Gündüz sıcak hava balonları sırayla kalkıp şehrin üstünde süzülür, akşam iner. Çok turist getirir.' },
+  ephesus: { icon: '📜', label: 'Efes', hint: 'Efes antik kenti: iki katlı sütunlu Celsus Kütüphanesi (nişlerinde dört heykel), mermer basamaklar ve meydan, yıkık okuma salonu, Kuretler Caddesi’nin kırık sütunları. Turist getirir.' },
   stonehenge: { icon: '🪨', label: 'Stonehenge', hint: 'Stonehenge: çember biçimli dev dikili taşlar ve lentolar, çevrede otlayan koyunlar. Turist getirir.' },
   pisa: { icon: '🏛️', label: 'Pisa Kulesi', hint: 'Pisa Kulesi: altı katlı sütunlu, ünlü eğik kule. Turist getirir.' },
   colosseum: { icon: '🏟️', label: 'Kolezyum', hint: 'Kolezyum: kemerli dev arena, bir yanı yıkık. Çok turist getirir.' },
@@ -438,7 +442,7 @@ export const BUILD_GROUPS: BuildGroup[] = [
   { group: 'services', icon: '🚒', label: 'Hizmetler', color: '#e53935', tools: ['police', 'fire', 'health', 'school', 'uni'] },
   { group: 'industry', icon: '🏭', label: 'Sanayi', color: '#8d6e63', tools: ['factory', 'depot', 'store', 'market', 'furniture', 'bakery', 'fashion', 'garden', 'cafe', 'electro'] },
   { group: 'decor', icon: '🎡', label: 'Eğlence', color: '#8e24aa', tools: ['park', 'fountain', 'statue', 'zoo', 'casino', 'observatory', 'wheel', 'museum', 'funfair', 'stadium'] },
-  { group: 'historic', icon: '🏛️', label: 'Tarihi', color: '#a1887f', tools: ['galata', 'stonehenge', 'maiden', 'pisa', 'bigben', 'liberty', 'chichen', 'eiffel', 'parthenon', 'colosseum', 'hagia', 'opera', 'pyramid', 'taj', 'clocktower', 'mosque'] },
+  { group: 'historic', icon: '🏛️', label: 'Tarihi', color: '#a1887f', tools: ['galata', 'stonehenge', 'maiden', 'ephesus', 'pisa', 'bigben', 'liberty', 'chichen', 'eiffel', 'parthenon', 'cappadocia', 'colosseum', 'hagia', 'opera', 'pyramid', 'taj', 'clocktower', 'mosque'] },
   { group: 'nature', icon: '🌄', label: 'Manzara', color: '#43a047', tools: ['lake', 'biglake', 'hill'] },
   { group: 'coast', icon: '🏖️', label: 'Sahil', color: '#0097a7', tools: ['beach', 'volley', 'lighthouse', 'port', 'marina'] },
 ];

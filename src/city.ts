@@ -5,7 +5,7 @@ import {
   BASE_STORAGE, DEPOT_STORAGE, MATERIALS, MAT_IDS, UPGRADE_COST, XP, LEVEL_XP, LEVEL_REWARD, UNLOCK,
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
-  ROWS, PLOT_ROWS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH, ON_SEA,
+  ROWS, PLOT_ROWS, DAY_STEPS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH, ON_SEA,
   HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
@@ -135,7 +135,11 @@ export interface SaveData {
   q: Quest[];
   o?: Order[]; // komşu şehir siparişleri
   m?: number[]; // metro tünellerinin kareleri
+  a?: Record<string, number>; // başarımların alınan kademe sayısı
+  h?: [number, number][]; // her günün sonunda nüfus ve para (grafik için)
+  g?: Gift; // günlük hediye: son alınan gün ve kaç gün üst üste
 }
+export interface Gift { d: string; s: number }
 // Eski kayıtlar: v1'de 'house' vardı, v2'de malzeme ve XP yoktu, v3'te belediye ve görev yoktu
 interface OldSaveData {
   v: 1 | 2 | 3 | 4;
@@ -167,6 +171,9 @@ export class City {
   treasury = 0; // belediyede toplanmayı bekleyen vergi
   stats: CityStats = emptyStats();
   quests: Quest[] = [];
+  achieved: Record<string, number> = {}; // başarımlardan alınan kademe sayısı (achievements.ts)
+  history: [number, number][] = []; // günlerin sonundaki nüfus ve para (şehir ve bütçe kartındaki grafik)
+  gift: Gift | null = null; // günlük hediye (main.ts)
   happy = new Float32Array(SIZE * ROWS); // her evin mutluluğu (0..1)
   traffic = new Float32Array(SIZE * ROWS); // her yol karesinden geçen araba
   transit = new Float32Array(SIZE * ROWS); // her karede toplu taşımaya binenlerin payı
@@ -1794,6 +1801,11 @@ export class City {
   // bazen olaylar (yangın, hırsızlık, deprem) olur. Konutlar malzemeyle yükseltilir.
   nextDay(): { income: number; changed: number[] } {
     this.day++;
+    // Ekrandaki gün değişti: grafik için nüfus ve parayı yaz (en fazla son 90 gün)
+    if ((this.day + 2) % DAY_STEPS === 0) {
+      this.history.push([this.population, Math.round(this.money)]);
+      if (this.history.length > 90) this.history.splice(0, this.history.length - 90);
+    }
     const income = this.dailyIncome;
     if (this.hall !== null) this.treasury += this.dailyTax;
     else this.money += this.dailyTax;
@@ -1899,7 +1911,7 @@ export class City {
     this.owned.forEach((v, p) => v && own.push(p));
     const m: number[] = [];
     this.metro.forEach((v, i) => v && m.push(i));
-    return { v: 5, sz: SIZE, rows: ROWS, rg: 2, own, m, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders };
+    return { v: 5, sz: SIZE, rows: ROWS, rg: 2, own, m, money: this.money, day: this.day, xp: this.xp, st, t, j, tr: this.treasury, ss: this.stats, q: this.quests, o: this.orders, a: this.achieved, h: this.history, ...(this.gift ? { g: this.gift } : {}) };
   }
 
   static readonly VERSION = 5;
@@ -1977,6 +1989,10 @@ export class City {
         c.stats = { ...emptyStats(), ...data.ss };
         c.quests = (data.q ?? []).filter(q => q && q.type);
         c.orders = ((data as SaveData).o ?? []).filter(o => o && o.items && Object.keys(o.items).every(m => m in MATERIALS));
+        const sd = data as SaveData;
+        c.achieved = { ...(sd.a ?? {}) };
+        c.history = (sd.h ?? []).filter(r => Array.isArray(r) && r.length === 2).slice(-90);
+        c.gift = sd.g && typeof sd.g.d === 'string' ? { d: sd.g.d, s: sd.g.s | 0 } : null;
       }
     } else {
       // Eski şehirler: mevcut binalar için XP verilsin ki seviye baştan başlamasın

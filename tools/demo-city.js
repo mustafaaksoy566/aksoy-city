@@ -358,6 +358,9 @@ place('bigben', 56, 22);
 place('parthenon', 59, 22);
 place('chichen', 62, 22);
 place('stonehenge', 56, 31);
+// Kapadokya (balonlarıyla) ve Efes, z = 33 bulvarının kuzeyinde
+if (!place('cappadocia', 52, 30)) errs.push('kapadokya');
+if (!place('ephesus', 58, 31)) errs.push('efes');
 place('biglake', 49, 27);
 place('lake', 60, 27);
 place('hill', 49, 37);

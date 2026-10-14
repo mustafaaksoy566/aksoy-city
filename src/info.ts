@@ -6,6 +6,7 @@ import {
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
 import { productPic } from './production';
+import { ACHIEVEMENTS, achievementState } from './achievements';
 
 // Bir binaya (ya da üstteki düğmelere) dokununca çıkan kartın içeriği
 export interface InfoCard {
@@ -19,7 +20,8 @@ export interface InfoCard {
   cost?: { text: string; ok: boolean; pic?: string }[]; // gereken malzemeler (resim, ad, eldeki/gereken)
   jobs?: { text: string; progress: number }[]; // üretimdeki malzemeler
   tiles?: { icon: string; name: string; sub: string; note?: string; section?: string; enabled: boolean; run: () => void }[];
-  quests?: { text: string; pics?: string; progress: number; count: string; reward: string; done: boolean; button?: string; run: () => void }[];
+  quests?: { text: string; pics?: string; progress: number; count: string; reward: string; done: boolean; claimed?: boolean; button?: string; run: () => void }[];
+  chart?: { label: string; color: string; values: number[] }[]; // çizgi grafik (her nokta bir günün sonu)
   actions?: { label: string; enabled: boolean; primary?: boolean; run: () => void }[];
 }
 
@@ -31,6 +33,7 @@ export interface CardActions {
   repair(i: number, buy?: boolean): void;
   sell(mat: MatId): void;
   claim(n: number): void;
+  achieve(id: string): void;
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
   upgradeUtil(i: number): void;
@@ -212,6 +215,7 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
       { icon: '💰', value: `${net >= 0 ? '+' : ''}${fmt(net)}`, label: 'Günlük kâr', good: net >= 0, bad: net < 0 },
     ],
     lines,
+    chart: [{ label: '💰 Kasadaki para', color: '#2e9d3a', values: [...city.history.map(h => h[1]), city.money] }],
     actions: city.hall !== null
       ? [{ label: `Vergiyi topla  💰${fmt(pending)}`, enabled: pending > 0, primary: true, run: () => act.collect() }]
       : [],
@@ -238,6 +242,40 @@ export function describeCity(city: City, name = 'Aksoy City'): InfoCard {
       { text: p.max ? '⭐ En yüksek seviyedesin!' : `⭐ Sonraki seviye için ${fmt(p.need - p.xp)} XP lazım (${fmt(LEVEL_XP[p.level])})` },
       { text: 'XP kazanmak için: bina yap, evleri yükselt, malzeme üret, görev bitir.' },
     ],
+    chart: [{ label: '👥 Nüfus', color: '#3d8bff', values: [...city.history.map(h => h[0]), city.population] }],
+  };
+}
+
+// Başarımlar: ödülü hazır olanlar üstte, bitenler en altta
+export function describeAchievements(city: City, act: CardActions): InfoCard {
+  const rows = ACHIEVEMENTS.map(a => ({ a, s: achievementState(city, a) }));
+  const rank = (r: (typeof rows)[number]) => (r.s.ready ? 0 : r.s.tier ? 1 : 2);
+  rows.sort((p, q) => rank(p) - rank(q));
+  const total = ACHIEVEMENTS.reduce((n, a) => n + a.tiers.length, 0);
+  const got = ACHIEVEMENTS.reduce((n, a) => n + (city.achieved[a.id] ?? 0), 0);
+  const ready = rows.filter(r => r.s.ready).length;
+  return {
+    title: 'Başarımlar',
+    subtitle: `${got}/${total} kademe tamamlandı`,
+    icon: '🏆',
+    tone: '#c98a00',
+    lines: [],
+    actions: ready > 1 ? [{ label: `🏆 Hazır ödüllerin hepsini al (${ready})`, enabled: true, primary: true, run: () => act.achieve('*') }] : [],
+    quests: rows.map(({ a, s }) => {
+      const tier = s.tier ?? a.tiers[a.tiers.length - 1];
+      const shown = (n: number) => (a.percent ? `%${fmt(n)}` : fmt(n));
+      const stars = '★'.repeat(s.got) + '☆'.repeat(a.tiers.length - s.got);
+      const prog = Math.max(0, Math.min(s.value, tier.target));
+      return {
+        text: `${a.icon} ${tier.name} ${stars} · ${a.text(shown(tier.target))}`,
+        progress: s.tier ? prog / tier.target : 1,
+        count: s.tier ? `${shown(Math.floor(prog))}/${shown(tier.target)}` : 'Hepsi tamam',
+        reward: s.tier ? [tier.money ? `💰${fmt(tier.money)}` : '', tier.xp ? `⭐${tier.xp}` : ''].filter(Boolean).join('\n') : '✓',
+        done: s.ready,
+        claimed: !s.tier,
+        run: () => act.achieve(a.id),
+      };
+    }),
   };
 }
 
