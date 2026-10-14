@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { FOOTPRINT, type ServiceKind } from './config';
-import { part } from './utilities';
+import { part, windowMat } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
 import { SITES, OLD_SITES, drawLot, lotLight, entrance } from './sites';
-import { makePolice2, makeFire2, addServiceTower } from './stations';
+import { makePolice2, makeFire2, serviceRise, riseRoof } from './stations';
 
 // Hizmet binaları gökdelenler gibi ayrıntılı çizilir: karakol, itfaiye, hastane, okul ve belediye.
 // Önlerinde kendi araçları park etmiş; karakol ve itfaiyenin çatısında yanıp sönen ışıklar var.
@@ -127,12 +127,19 @@ function hospital(level = 0) {
   box(st, 0.22, 0.07, 0.012, M.red, -0.4, 0.8, -0.296);
   box(st, 0.07, 0.22, 0.012, M.red, -0.4, 0.725, -0.296);
   box(st, 0.5, 0.08, 0.012, signMat('HASTANE', '#ffffff', '#c62828'), -0.4, 0.6, -0.295);
-  // Çatıda helikopter pisti
-  const py = 0.03 + H + 0.03;
-  add(st, new THREE.CylinderGeometry(0.24, 0.24, 0.016, 28), pm('#4b545e', 0.8), -0.4, py + 0.008, -0.6);
-  add(st, new THREE.CylinderGeometry(0.21, 0.21, 0.018, 28, 1, true), M.yellow, -0.4, py + 0.009, -0.6);
-  for (const dx of [-0.06, 0.06]) box(st, 0.028, 0.004, 0.16, M.white, -0.4 + dx, py + 0.016, -0.6);
-  box(st, 0.12, 0.004, 0.028, M.white, -0.4, py + 0.016, -0.6);
+  // Çatıda helikopter pisti; yükseltilince blok aynı cepheyle yükselir (pist tepeye çıkar)
+  const rise = serviceRise(st, {
+    kind: 'health', level, x: -0.4, z: -0.6, w: 0.86, d: 0.54, y0: 0.03 + H,
+    facade: KIT.BAND[0], band: pm('#d5dee6', 0.6), accent: M.red, spine: KIT.GLASS[3], spineW: 0.24, sign: ['HASTANE', '#c62828'],
+  });
+  if (rise) riseRoof(st, 'health', level, -0.4, rise);
+  else {
+    const py = 0.03 + H + 0.03;
+    add(st, new THREE.CylinderGeometry(0.24, 0.24, 0.016, 28), pm('#4b545e', 0.8), -0.4, py + 0.008, -0.6);
+    add(st, new THREE.CylinderGeometry(0.21, 0.21, 0.018, 28, 1, true), M.yellow, -0.4, py + 0.009, -0.6);
+    for (const dx of [-0.06, 0.06]) box(st, 0.028, 0.004, 0.16, M.white, -0.4 + dx, py + 0.016, -0.6);
+    box(st, 0.12, 0.004, 0.028, M.white, -0.4, py + 0.016, -0.6);
+  }
   // Acil kanadı (x 0.16..0.9, z -0.84..-0.28): camlı, üstünde ACİL tabelası
   st.add(part(KIT.facadeBox(0.74, 0.5, 0.56, 0.03), KIT.GLASS[3], 0.53, 0.28, -0.56));
   box(st, 0.76, 0.02, 0.58, M.white, 0.53, 0.53, -0.56);
@@ -155,7 +162,6 @@ function hospital(level = 0) {
   for (const x of [-0.65, -0.18]) for (const s of [-1, 1]) box(st, 0.008, 0.02, 0.025, M.dark, x + s * 0.05, 0.03, -0.02);
   lotLight(st, -0.935, 0.6);
   lotLight(st, 0.935, 0.6);
-  addServiceTower(st, 'health', level, -0.4, -0.62, 0.62, 0.44);
   return mergeStatic([st]);
 }
 
@@ -199,7 +205,12 @@ function school(level = 0) {
   for (const z of [-0.8, 0.8]) box(st, 0.16, 0.06, 0.008, M.white, 0.57, 0.04, z);
   tree(st, 0.1, 0.5, 1.1);
   tree(st, 0.12, 0.85, 1.0);
-  addServiceTower(st, 'school', level, -0.72, -0.72, 0.36, 0.34);
+  // Yükseltilince okul binası aynı tuğlayla girişin üstünden yükselir
+  const rise = serviceRise(st, {
+    kind: 'school', level, x: dx, z: cz, w: 0.8, d: D - 0.06, y0: 0.03 + H,
+    facade: KIT.BRICK[1], band: M.white, accent: pm('#ef6c00', 0.6), spine: windowMat, spineW: 0.22, sign: ['OKUL', '#ef6c00'],
+  });
+  if (rise) riseRoof(st, 'school', level, dx, rise);
   return mergeStatic([st]);
 }
 

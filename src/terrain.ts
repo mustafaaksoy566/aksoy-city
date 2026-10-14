@@ -194,20 +194,35 @@ function mouthAt(x: number, z: number) {
 }
 
 // --- Rıhtım havuzları: liman ve yat limanlarının önünde kumsal yok, derin su (main.ts setHarbors) ---
-export interface Harbor { x0: number; x1: number; z0: number; z1: number }
+// Havuz, yapının ön kenarından (ex, ez) baktığı yöne (dx, dz) len boyunca uzanan, side yarı genişlikli yuvarlak
+// köşeli bir koy: kenarlarda kumsal yumuşak bir eğimle suya iner, ucu açık denize kadar gider (kum dili kalmaz).
+// Yapının arkasına (rıhtım duvarına) doğru kenar keskin: bina eğimin üstünde kalmasın.
+// x0..z1: koyun kapladığı kutu (değişince yalnız oradaki köşeler yeniden hesaplanır).
+export interface Harbor { ex: number; ez: number; dx: number; dz: number; side: number; len: number; x0: number; x1: number; z0: number; z1: number }
 let harbors: Harbor[] = [];
-const inHarbor = (x: number, z: number) => harbors.some(h => x > h.x0 && x < h.x1 && z > h.z0 && z < h.z1);
-// Havuza yakınlık: içinde 1, kenarından 0.7 uzakta 0 (suyun rengi ve kıyı dalgaları için)
+const HARBOR_R = 0.7; // köşelerin yuvarlaklığı
+const HARBOR_SLOPE = 0.5; // kenardaki eğimin genişliği
+// Koyun derinliği: ortada 1, kıyısına doğru 0 (zeminin yüksekliği ve suyun rengi için)
 function harborW(x: number, z: number) {
   let w = 0;
-  for (const h of harbors) w = Math.max(w, 1 - smooth(Math.hypot(Math.max(h.x0 - x, x - h.x1, 0), Math.max(h.z0 - z, z - h.z1, 0)), 0, 0.7));
+  for (const h of harbors) {
+    if (x < h.x0 || x > h.x1 || z < h.z0 || z > h.z1) continue;
+    const u = (x - h.ex) * h.dx + (z - h.ez) * h.dz; // yapıdan denize doğru
+    if (u < 0) continue;
+    const v = Math.abs((x - h.ex) * -h.dz + (z - h.ez) * h.dx); // yana doğru
+    // Yuvarlak köşeli kutu (arkası yapının altına kadar uzatılır ki o taraf düz kalsın)
+    const hu = h.len / 2 + HARBOR_R, cu = h.len / 2 - HARBOR_R;
+    const qu = Math.abs(u - cu) - (hu - HARBOR_R), qv = v - (h.side - HARBOR_R);
+    const sd = Math.hypot(Math.max(qu, 0), Math.max(qv, 0)) + Math.min(Math.max(qu, qv), 0) - HARBOR_R;
+    w = Math.max(w, smooth(-sd, 0, HARBOR_SLOPE));
+  }
   return w;
 }
 // Zemin ve deniz ızgarası (havuz değişince yalnız o bölgedeki köşeler yeniden hesaplanır)
 let groundGeo: THREE.BufferGeometry | null = null;
 let groundXs: number[] = [], groundZs: number[] = [];
 let seaGeo: THREE.BufferGeometry | null = null;
-const harborKey = (list: Harbor[]) => list.map(h => [h.x0, h.x1, h.z0, h.z1].map(v => v.toFixed(2)).join(',')).join(';');
+const harborKey = (list: Harbor[]) => list.map(h => [h.ex, h.ez, h.dx, h.dz, h.side, h.len].map(v => v.toFixed(2)).join(',')).join(';');
 export function setHarbors(list: Harbor[]) {
   if (harborKey(list) === harborKey(harbors)) return;
   const changed = [...harbors, ...list];
@@ -264,7 +279,11 @@ export function heightAt(x: number, z: number) {
       return lerp(y, Math.min(y, RIVER_Y - 0.08), m);
     }
   }
-  if (inHarbor(x, z)) return Math.min(shore(coast(x, z)), SEA_Y - 0.3);
+  const hw = harbors.length ? harborW(x, z) : 0;
+  if (hw > 0) {
+    const y = shore(coast(x, z));
+    return lerp(y, Math.min(y, SEA_Y - 0.3), hw);
+  }
   const inner = bed ? RIVER_BED : shore(coast(clampX(x), clampZ(z)));
   if (d <= 0) return inner;
   const c = coast(x, z);
@@ -412,7 +431,7 @@ function buildGround() {
   // Tünel ağzında ve kayak pistlerinde sık ızgara (keskin kenarlar, net pistler); kuzeyde kıyı ve ada sık
   const bank = (lo: number, hi: number) => [lo + 0.03, hi - 0.03];
   // Nehrin ağzında da sık ızgara (kum dillerinin dalgalı kenarı görünsün)
-  const xs = withLines(refine(refine(refine(cityAxis(WEST, EAST), HW.portal - 3, HW.portal + 1, 0.5), -61, HW.portal - 3.5, 0.5), MOUTH_X - 3.5, MOUTH_X + 4, 0.25), bank(RIVER[0] - X0, RIVER[1] + 1 - X0));
+  const xs = withLines(refine(refine(refine(cityAxis(WEST, EAST, Infinity), HW.portal - 3, HW.portal + 1, 0.5), -61, HW.portal - 3.5, 0.5), MOUTH_X - 3.5, MOUTH_X + 4, 0.25), bank(RIVER[0] - X0, RIVER[1] + 1 - X0));
   const zs = withLines(refine(refine(cityAxis(ZN, ZS, -14), -18, -2, 0.5), MOUTH_Z - 2.5, MOUTH_Z - 0.125, 0.125), [...bank(RIVER_ROWS[0] - Z0, RIVER_ROWS[1] + 1 - Z0), COAST_Z + 0.25, COAST_Z - 0.25, COAST_Z - 0.75]);
   const geo = grid(xs, zs, (x, z, pos, colors, k) => {
     const y = heightAt(x, z);

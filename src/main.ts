@@ -38,7 +38,7 @@ import { MetroView } from './metro';
 import { RiverBoats } from './riverboats';
 import { tunnelThumb } from './places';
 import { makeModel } from './assets';
-import { buildSurroundings, heightAt, setHarbors, updateSurf, type Harbor } from './terrain';
+import { buildSurroundings, coast, heightAt, setHarbors, updateSurf, type Harbor } from './terrain';
 import { buildHighway, HighwayTraffic } from './highway';
 import { updateTrees } from './trees';
 import { setSignalTime, updateSignals } from './signals';
@@ -78,14 +78,17 @@ const writePref = (key: string, value: string) => {
 installSnow();
 const container = document.getElementById('app')!;
 // stencil: alt geçit hendeklerinde zemini delmek için (bkz. view.ts underHole)
-const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
+// Kenar yumuşatma (MSAA) sadece ekranı 3 kat keskin olmayan cihazlarda: iPhone'un 3 kat keskin ekranında
+// tırtıklar zaten görünmüyor, yumuşatma ise ekran kartına her karede 4 kat iş yüklüyordu
+const renderer = new THREE.WebGLRenderer({ antialias: (window.devicePixelRatio || 1) < 2.5, stencil: true });
 // Çözünürlük: grafik ayarına göre ekranın kendi keskinliği; telefon zorlanırsa kendiliğinden biraz düşürülür,
 // ama bulanıklaşmasın diye bir alt sınırın altına inmez (bkz. adaptQuality)
 let quality: Quality = (readPref(QUALITY_KEY) as Quality) || 'high';
 const dpr = () => window.devicePixelRatio || 1;
 const maxRatio = () => (quality === 'high' ? Math.min(dpr(), 3) : quality === 'mid' ? Math.min(dpr(), 2) : Math.min(dpr(), 1.25));
-// Yüksek grafikte ekranın kendi keskinliğinin altına hiç inilmez (telefonda bulanık görünmesin)
-const minRatio = () => (quality === 'high' ? Math.min(dpr(), 3) : quality === 'mid' ? Math.min(dpr(), 1.5) : 1);
+// Yüksek grafikte telefon zorlanırsa en fazla 2 kat keskinliğe iner (3 kat ekranda gözle fark edilmez, ekran
+// kartının işi yarıdan aza iner); daha aşağısı bulanık görünür
+const minRatio = () => (quality === 'high' ? Math.min(dpr(), 2) : quality === 'mid' ? Math.min(dpr(), 1.5) : 1);
 let pixelRatio = maxRatio();
 renderer.setPixelRatio(pixelRatio);
 renderer.shadowMap.enabled = quality !== 'low';
@@ -127,7 +130,10 @@ sun.shadow.normalBias = 0.02;
 scene.add(sun, sun.target);
 // Gölgeler kameranın baktığı bölgeyi kapsar (yakınken daha keskin); kamera epey kayınca yeniden çizilir
 let shadowKey = '';
+// Gölge en fazla saniyede üç kez yeniden çizilir (bkz. frame); kamera kayarken de
+let shadowWait = 0;
 function followShadow() {
+  if (shadowWait > 0) return;
   const half = THREE.MathUtils.clamp(Math.ceil((rig.distance * 0.95) / 4) * 4, 20, 48);
   const step = half / 4;
   const cx = Math.round(rig.target.x / step) * step, cz = Math.round(rig.target.z / step) * step;
@@ -140,6 +146,7 @@ function followShadow() {
   Object.assign(sun.shadow.camera, { left: -half, right: half, top: half, bottom: -half });
   sun.shadow.camera.updateProjectionMatrix();
   renderer.shadowMap.needsUpdate = true;
+  shadowWait = 0.33;
 }
 
 // Şehrin zemini çevre araziyle tek parça (terrain.ts); yolların asfaltı y=0'da, zemin biraz aşağıda
@@ -1084,11 +1091,20 @@ function harborRects(): Harbor[] {
     if (!front.some(([px, pz]) => isSeaXZ(px, pz))) return;
     if (front.some(([px, pz]) => px >= 0 && px < SIZE && city.tiles[pz * SIZE + px])) return;
     const c = tileCenter(x + (n - 1) / 2, z + (n - 1) / 2);
-    // Havuz yapının genişliğinden biraz geniş (iskelenin ucundaki tekneler de suda kalsın)
-    const h = n / 2, reach = 2.4, side = h + 0.12;
+    // Koy yapının genişliğinden biraz geniş (iskelenin ucundaki tekneler de suda kalsın); kumsal bitip deniz
+    // derinleşene kadar uzanır (adanın kumsalında arada kum dili kalmasın)
+    const h = n / 2, side = h + 0.55;
     const ex = c.x + dx * h, ez = c.z + dz * h;
-    if (dx) out.push({ x0: Math.min(ex, ex + dx * reach), x1: Math.max(ex, ex + dx * reach), z0: c.z - side, z1: c.z + side });
-    else out.push({ x0: c.x - side, x1: c.x + side, z0: Math.min(ez, ez + dz * reach), z1: Math.max(ez, ez + dz * reach) });
+    let len = 2.4;
+    const deep = (u: number) => [-1, 0, 1].every(k => coast(ex + dx * u - dz * k * h, ez + dz * u + dx * k * h) > 2.2);
+    while (len < 8 && !deep(len)) len += 0.25;
+    len += 0.8;
+    const fx0 = ex + dx * len, fz0 = ez + dz * len;
+    out.push({
+      ex, ez, dx, dz, side, len,
+      x0: Math.min(ex, fx0) - (dx ? 0 : side), x1: Math.max(ex, fx0) + (dx ? 0 : side),
+      z0: Math.min(ez, fz0) - (dz ? 0 : side), z1: Math.max(ez, fz0) + (dz ? 0 : side),
+    });
   });
   return out;
 }
@@ -1950,7 +1966,6 @@ let prodTimer = 0;
 let lastReady = 0;
 let fpsAvg = 60;
 
-let shadowWait = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.25);
   if (dt > 0) fpsAvg += (1 / dt - fpsAvg) * 0.05;
@@ -2047,18 +2062,48 @@ let edgeHex = '';
 const EDGE_DAY = new THREE.Color().setRGB(133 / 255, 209 / 255, 96 / 255, THREE.SRGBColorSpace);
 const EDGE_NIGHT = new THREE.Color().setRGB(34 / 255, 62 / 255, 38 / 255, THREE.SRGBColorSpace);
 const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+// Satır ekran kartından beklemeden okunur: readPixels doğrudan çağrılınca işlemci ekran kartının o kareyi
+// bitirmesini bekliyordu (telefonda her okumada küçük bir takılma). Şimdi okuma bir arabelleğe istenir, birkaç
+// kare sonra hazır olunca alınır.
+let edgeRead: { buf: WebGLBuffer; sync: WebGLSync; w: number } | null = null;
 function syncEdgeColor(dt: number) {
+  const gl = renderer.getContext() as WebGL2RenderingContext;
+  if (edgeRead) {
+    if (gl.getSyncParameter(edgeRead.sync, gl.SYNC_STATUS) !== gl.SIGNALED) return;
+    const px = new Uint8Array(edgeRead.w * 4);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, edgeRead.buf);
+    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.deleteSync(edgeRead.sync);
+    gl.deleteBuffer(edgeRead.buf);
+    const w = edgeRead.w;
+    edgeRead = null;
+    applyEdgeColor(px, w);
+    return;
+  }
   edgeTimer -= dt;
   if (edgeTimer > 0) return;
-  edgeTimer = 0.8;
-  const gl = renderer.getContext();
+  edgeTimer = 2;
   const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
   if (!w || !h) return;
   // Tuval ekranın üstünden taşıyorsa görünen ilk satırı oku (WebGL'de satırlar alttan sayılır)
   const over = Math.max(0, -renderer.domElement.getBoundingClientRect().top) * renderer.getPixelRatio();
   const y = Math.max(0, Math.min(h - 1, Math.round(h - 2 - over)));
-  const px = new Uint8Array(w * 4);
-  gl.readPixels(0, y, w, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  const buf = gl.createBuffer();
+  if (!buf) return;
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+  gl.bufferData(gl.PIXEL_PACK_BUFFER, w * 4, gl.STREAM_READ);
+  gl.readPixels(0, y, w, 1, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  if (!sync) {
+    gl.deleteBuffer(buf);
+    return;
+  }
+  gl.flush();
+  edgeRead = { buf, sync, w };
+}
+function applyEdgeColor(px: Uint8Array, w: number) {
   // Sadece arazinin (çimenin) pikselleri: yeşili kırmızı ve maviden belirgin fazla olanlar. Tepede çimen yoksa
   // (şehir, deniz) son yeşil kalır; gece çimen koyulaştıkça şerit de koyulaşır.
   let r = 0, g = 0, b = 0, n = 0;

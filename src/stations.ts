@@ -8,16 +8,118 @@ import { pm, M, add, box, cyl, rod, item, tree, planter, bench } from './parts';
 import { SITES, drawLot, lotLight, entrance } from './sites';
 import { person } from './shops';
 import { flatRoof, hvac } from './stores';
-import { serviceTower } from './skyline';
+import { glowSign, RED_LIGHT } from './skyline';
 
-// Yükseltilmiş hizmet binasının kulesi (gökdelen gibi): seviyeye göre boy
-export const TOWER_H = { police: [0, 1.1, 1.8, 2.6], fire: [0, 1.0, 1.7, 2.4], health: [0, 1.5, 2.1, 2.8], school: [0, 0.95, 1.5, 2.2] };
-export function addServiceTower(st: THREE.Object3D, kind: keyof typeof TOWER_H, level: number, x: number, z: number, w: number, d: number) {
-  if (level < 1) return;
-  const t = serviceTower(kind, level, w, d, TOWER_H[kind][Math.min(3, level)]);
-  t.position.set(x, 0.03, z);
-  st.add(t);
+// =====================================================================================================
+// Yükseltilen hizmet binası gökdelen gibi büyür: kule ayrı bir parça gibi köşeye eklenmez, binanın kendisi
+// yükselir. Alttaki bloğun aynı cephe dokusu (katlar hizalı), aynı renk bantları ve girişin üstünden tepeye
+// çıkan camlı şerit (giriş holünün devamı) tek parça bir bina gibi görünür. 2. seviyede üst kısım geri çekilir
+// (ışıklı teras), tepede renkli taç ve ışıklı tabela; çatıda binaya özgü: polis pisti ve telsiz direği,
+// itfaiyenin kırmızı fenerli gözetleme odası, hastanenin kızıl haçı ve pisti, okulun bahçesi ve gözlemevi.
+// =====================================================================================================
+export type RiseKind = 'police' | 'fire' | 'health' | 'school';
+// Alttaki bloğun üstüne eklenen boy (seviye 0..3)
+export const RISE: Record<RiseKind, number[]> = { police: [0, 0.66, 1.3, 2.0], fire: [0, 0.66, 1.21, 1.87], health: [0, 0.55, 1.1, 1.76], school: [0, 0.55, 0.99, 1.54] };
+const FLOOR = 0.11; // towers.ts ile aynı kat yüksekliği (pencereler alttaki blokla hizalı kalsın)
+const BLUE_GLOW = new THREE.MeshStandardMaterial({ color: '#3d7bff', emissive: '#2a66ff', emissiveIntensity: 1.1 });
+const STEEL_DOME = pm('#c3ccd3', 0.3, 0.7);
+interface Rise {
+  kind: RiseKind; level: number;
+  x: number; z: number; w: number; d: number; y0: number; // gövdenin ortası, ölçüsü ve alttaki bloğun üstü
+  facade: THREE.Material; band: THREE.Material; accent: THREE.Material; spine: THREE.Material; spineW: number;
+  sign: [string, string];
 }
+// Çatının ortası ve ölçüsü (çatıdaki eşyalar için) ya da seviye 0'da null
+export function serviceRise(st: THREE.Object3D, o: Rise): { top: number; w: number; d: number; z: number } | null {
+  const lv = Math.min(3, o.level);
+  if (lv < 1) return null;
+  const h = RISE[o.kind][lv];
+  const F3 = FLOOR * 3;
+  const body = (w: number, d: number, z: number, y: number, hh: number) => {
+    st.add(part(KIT.facadeBox(w, hh, d, y), o.facade, o.x, y + hh / 2, z));
+    // Üç katta bir kat hizasında bant (alttaki bloğun bandıyla aynı renk)
+    for (let yy = Math.ceil((y + 0.08) / F3) * F3; yy < y + hh - 0.12; yy += F3) box(st, w + 0.014, 0.02, d + 0.014, o.band, o.x, yy - 0.01, z);
+    // Ön yüzde girişin üstünden yükselen camlı şerit ve çerçevesi
+    box(st, o.spineW, hh - 0.03, 0.012, o.spine, o.x, y + 0.015, z + d / 2 + 0.004);
+    for (const sd of [-1, 1]) box(st, 0.014, hh - 0.03, 0.02, M.white, o.x + sd * (o.spineW / 2 + 0.007), y + 0.015, z + d / 2 + 0.006);
+    // Camın kat çizgileri ve ortadaki dikey kayıt (cam cephe gibi görünsün)
+    for (let yy = Math.ceil((y + 0.03) / FLOOR) * FLOOR; yy < y + hh - 0.03; yy += FLOOR) box(st, o.spineW, 0.007, 0.008, M.white, o.x, yy - 0.0035, z + d / 2 + 0.008);
+    box(st, 0.006, hh - 0.03, 0.008, M.white, o.x, y + 0.015, z + d / 2 + 0.008);
+  };
+  let w = o.w, d = o.d, z = o.z;
+  const low = lv >= 2 ? Math.round((h * 0.62) / FLOOR) * FLOOR : h;
+  body(w, d, z, o.y0, low);
+  if (lv >= 2) {
+    // Kademe: alt gövdenin çatısı teras (cam korkuluk, gece yanan ışık şeridi), üst gövde daha dar; önü hizalı
+    const ty = o.y0 + low;
+    box(st, w + 0.02, 0.026, d + 0.02, M.white, o.x, ty, z);
+    box(st, w + 0.024, 0.008, d + 0.024, BLUE_GLOW_OF[o.kind], o.x, ty + 0.009, z);
+    const w2 = w * 0.78, d2 = d * 0.82;
+    z = z + (d - d2) / 2 - 0.0;
+    for (const sd of [-1, 1]) box(st, 0.006, 0.035, d2, KIT.GLASS[0], o.x + sd * (w / 2 - 0.02), ty + 0.026, z - 0.01);
+    w = w2;
+    d = d2;
+    body(w, d, z, ty + 0.026, h - low - 0.026);
+  }
+  // Taç: tepede renkli bant, ışıklı tabela ve düz çatı
+  const top = o.y0 + h;
+  box(st, w + 0.02, 0.075, d + 0.02, o.accent, o.x, top - 0.075, z);
+  box(st, Math.min(w * 0.8, 0.52), 0.06, 0.008, glowSign(o.sign[0], o.sign[1]), o.x, top - 0.07, z + d / 2 + 0.014);
+  flatRoof(st, o.x, z, w, d, top, M.white);
+  return { top: top + 0.006, w, d, z };
+}
+// Yükselen binanın çatısı: binaya özgü eşyalar (r: serviceRise'ın döndürdüğü çatı)
+export function riseRoof(st: THREE.Object3D, kind: RiseKind, level: number, x: number, r: { top: number; w: number; d: number; z: number }) {
+  const { top, w, d, z } = r;
+  const pr = Math.min(w, d) * 0.36;
+  if (kind === 'police') {
+    // Tacın altında gece gündüz yanan mavi şerit, pist (2. seviyeden), telsiz direği
+    box(st, w + 0.026, 0.014, d + 0.026, BLUE_GLOW, x, top - 0.1, z);
+    if (level >= 2) helipad(st, x - w * 0.1, z, top, pr);
+    else for (const dx of [-0.1, 0.06]) hvac(st, x + dx, z, top);
+    mast(st, x + w / 2 - 0.07, z - d / 2 + 0.07, top, 0.28 + level * 0.1, 0.035);
+  } else if (kind === 'fire') {
+    // Arka köşede gözetleme odası: beyaz gövde, kırmızı yanan camlar, sivri çatı; 2. seviyeden pist
+    const fx = x + w / 2 - 0.09, fz = z - d / 2 + 0.09, fh = 0.08 + level * 0.04;
+    box(st, 0.12, fh, 0.12, M.white, fx, top, fz);
+    box(st, 0.13, 0.055, 0.13, RED_LIGHT, fx, top + fh, fz);
+    box(st, 0.15, 0.012, 0.15, M.white, fx, top + fh + 0.055, fz);
+    add(st, new THREE.ConeGeometry(0.11, 0.08, 4).rotateY(Math.PI / 4), DARK, fx, top + fh + 0.107, fz);
+    if (level >= 2) helipad(st, x - w * 0.12, z + 0.01, top, pr * 0.9);
+    else hvac(st, x - w * 0.15, z, top);
+  } else if (kind === 'health') {
+    // Ön ve arka yüzde parlayan kızıl haç, çatıda ambulans helikopteri pisti
+    for (const sd of [1, -1]) {
+      const fz = z + sd * (d / 2 + 0.02);
+      box(st, 0.15, 0.045, 0.01, RED_LIGHT, x + w * 0.3, top - 0.27, fz);
+      box(st, 0.045, 0.15, 0.01, RED_LIGHT, x + w * 0.3, top - 0.322, fz);
+    }
+    helipad(st, x, z, top, pr);
+  } else {
+    // Okul: çatı bahçesi (çimen, çalılar, ağaçlar), ön yüzde saat, 3. seviyede gözlemevi kubbesi
+    box(st, w - 0.05, 0.018, d - 0.05, M.lawn, x, top, z);
+    const garden = new THREE.Group();
+    garden.position.y = top + 0.018 - 0.03;
+    st.add(garden);
+    tree(garden, PROPS.treeSmall, x - w / 2 + 0.08, z - d / 2 + 0.08, 0.22);
+    tree(garden, PROPS.treeLarge, x - w / 2 + 0.1, z + d / 2 - 0.1, 0.2);
+    tree(garden, PROPS.bush, x - 0.05, z + d / 2 - 0.07, 0.35);
+    const cz = z + d / 2 + 0.012;
+    add(st, new THREE.CylinderGeometry(0.055, 0.055, 0.01, 24).rotateX(Math.PI / 2), M.white, x + w * 0.32, top - 0.2, cz);
+    box(st, 0.006, 0.04, 0.004, DARK, x + w * 0.32, top - 0.205, cz + 0.007);
+    box(st, 0.03, 0.006, 0.004, DARK, x + w * 0.32 + 0.012, top - 0.203, cz + 0.007);
+    if (level >= 3) {
+      const R = Math.min(w, d) * 0.24, dx = x + w / 2 - R - 0.04;
+      cyl(st, R, R, 0.06, M.white, dx, top, z, 20);
+      add(st, new THREE.SphereGeometry(R, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), STEEL_DOME, dx, top + 0.06, z);
+      box(st, 0.03, R * 0.9, 0.02, DARK, dx, top + 0.06, z + R * 0.7);
+    }
+  }
+}
+
+// Teras ışık şeridinin rengi: polis mavi, diğerleri sıcak beyaz
+const WARM_GLOW = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#ffe6a0', emissiveIntensity: 0.9 });
+const BLUE_GLOW_OF: Record<RiseKind, THREE.Material> = { police: BLUE_GLOW, fire: WARM_GLOW, health: WARM_GLOW, school: WARM_GLOW };
 
 // Otoparklı 2x2 karakol, itfaiye ve depo (SimCity'deki gibi): arkada bina, önünde kendi otoparkı ve kapısı.
 // Dünya ölçüsünde çizilir (alan -0.96..0.96, ön yüz +z yola bakar); şehirdeki arabalar ve insanlar aynı boyda
@@ -145,13 +247,24 @@ export function makePolice2(level = 0) {
   flatRoof(st, gx, gz, gW, gD, 0.03 + gH, M.white);
   for (const x of [0.55, 0.77]) rollDoor(st, x, gf, 0.17, 0.15);
   mast(st, 0.78, -0.76, 0.03 + gH + 0.006, 0.9, 0.06);
-  // Çatı: helikopter pisti, uydu çanağı, klimalar
+  // Çatı: helikopter pisti, uydu çanağı, klimalar. Yükseltilince bina girişin üstünden yükselir (pist tepeye
+  // çıkar, alçak kanatta klimalar ve çanak kalır)
   const roofY = 0.03 + H + 0.006;
-  helipad(st, -0.6, -0.64, roofY, 0.17);
-  dish(st, 0.18, -0.5, roofY, 0.035);
-  hvac(st, -0.12, -0.78, roofY);
-  hvac(st, 0.04, -0.78, roofY);
-  cyl(st, 0.003, 0.004, 0.22, M.gray, 0.28, roofY, -0.8, 4);
+  const rise = serviceRise(st, {
+    kind: 'police', level, x: dx, z: cz, w: 0.84, d: D - 0.06, y0: 0.03 + H,
+    facade: KIT.BAND[1], band: BLUE, accent: BLUE, spine: windowMat, spineW: 0.26, sign: ['POLİS', '#1e4fa3'],
+  });
+  if (rise) {
+    riseRoof(st, 'police', level, dx, rise);
+    hvac(st, -0.78, -0.74, roofY);
+    dish(st, -0.72, -0.52, roofY, 0.035);
+  } else {
+    helipad(st, -0.6, -0.64, roofY, 0.17);
+    dish(st, 0.18, -0.5, roofY, 0.035);
+    hvac(st, -0.12, -0.78, roofY);
+    hvac(st, 0.04, -0.78, roofY);
+    cyl(st, 0.003, 0.004, 0.22, M.gray, 0.28, roofY, -0.8, 4);
+  }
   // Meydan: bayraklar, ağaçlar, banklar, çiçeklikler, bisiklet parkı
   flag(st, dx - 0.3, -0.13, 0.5, '#e53935');
   flag(st, dx + 0.3, -0.13, 0.5, '#1e4fa3', false);
@@ -170,9 +283,8 @@ export function makePolice2(level = 0) {
   person(st, dx - 0.2, -0.04, Math.PI * 0.8, 5, 'stand', 0.03, 1.05);
   lotLight(st, -0.935, 0.6);
   lotLight(st, 0.935, 0.6);
-  addServiceTower(st, 'police', level, -0.52, -0.64, 0.5, 0.42);
   g.add(mergeStatic([st]));
-  blinkers(g, [[cx + 0.3, 0.03 + H + 0.045, front - 0.05]]);
+  blinkers(g, rise ? [[dx - 0.2, rise.top + 0.04, rise.z + rise.d / 2 - 0.05]] : [[cx + 0.3, 0.03 + H + 0.045, front - 0.05]]);
   return g;
 }
 
@@ -224,8 +336,16 @@ export function makeFire2(level = 0) {
   entrance(st, dx, dz, 0.1, 0.15, M.white);
   box(st, 0.22, 0.014, 0.14, RED, dx, 0.21, of + 0.07);
   box(st, 0.18, 0.012, 0.06, M.stone, dx, 0.03, of + 0.03);
-  hvac(st, 0.38, -0.8, 0.03 + oH + 0.006);
-  hvac(st, 0.76, -0.8, 0.03 + oH + 0.006);
+  // Yükseltilince ofis bloğu aynı tuğlayla kat kat yükselir (kapısının üstünden camlı şerit)
+  const rise = serviceRise(st, {
+    kind: 'fire', level, x: ox, z: oz, w: oW - 0.06, d: oD - 0.06, y0: 0.03 + oH,
+    facade: KIT.BRICK[1], band: M.white, accent: RED, spine: windowMat, spineW: 0.2, sign: ['İTFAİYE', '#c62828'],
+  });
+  if (rise) riseRoof(st, 'fire', level, ox, rise);
+  else {
+    hvac(st, 0.38, -0.8, 0.03 + oH + 0.006);
+    hvac(st, 0.76, -0.8, 0.03 + oH + 0.006);
+  }
   // Çatıda siren
   cyl(st, 0.004, 0.004, 0.08, M.gray, -0.1, 0.03 + H + 0.006, -0.8, 6);
   add(st, new THREE.CylinderGeometry(0.025, 0.03, 0.03, 10), RED, -0.1, 0.03 + H + 0.1, -0.8);
@@ -237,7 +357,6 @@ export function makeFire2(level = 0) {
   person(st, 0.28, -0.14, 0.4, 1, 'stand', 0.03, 1.05, pm('#263238', 0.7));
   person(st, 0.36, -0.12, -2.6, 6, 'stand', 0.03, 1.05, pm('#263238', 0.7));
   lotLight(st, 0.935, 0.6);
-  addServiceTower(st, 'fire', level, 0.55, -0.66, 0.5, 0.42);
   g.add(mergeStatic([st]));
   blinkers(g, [[cx, 0.03 + H + 0.045, front - 0.05]]);
   return g;
