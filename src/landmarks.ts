@@ -992,7 +992,7 @@ function minaret(g: THREE.Object3D, x: number, z: number) {
 }
 function mosque() {
   const st = new THREE.Group();
-  const s = 1 / (2 * 0.96);
+  const s = 1 / (3 * 0.96);
   // --- Zemin ve bahçe ---
   box(st, 0.98, 0.03, 0.98, MQ.paving, 0, 0, 0);
   for (const sx of [-1, 1]) box(st, 0.18, 0.006, 0.94, PM.lawn, sx * 0.395, 0.03, 0);

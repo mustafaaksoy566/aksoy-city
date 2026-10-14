@@ -5,7 +5,7 @@ import { SIZE, X0, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
-import { parkingGarage, metro } from './places';
+import { parkingGarage, metro, bigAirport } from './places';
 import { SIGNAL_MATS, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
@@ -1665,7 +1665,7 @@ export class CityView {
       o = makeService(t.kind, t.fp ?? 1);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isDecor(t.kind)) {
-      o = t.kind === 'parking' && t.level > 0 ? parkingGarage(t.level) : t.kind === 'metro' ? metro(t.level) : makeDecor(t.kind);
+      o = t.kind === 'parking' && t.level > 0 ? parkingGarage(t.level) : t.kind === 'metro' ? metro(t.level) : t.kind === 'airport' && t.level > 0 ? bigAirport() : makeDecor(t.kind);
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
       if ((t.kind === 'parking' || t.kind === 'metro') && t.level > 0) o.add(starSign(t.level, 1));
     } else if (isIndustry(t.kind)) {

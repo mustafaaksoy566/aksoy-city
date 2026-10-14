@@ -335,6 +335,102 @@ export function airport() {
   return mergeStatic([st]);
 }
 
+// ======================= Büyük Havalimanı (6x6, havaalanının yükseltilmiş hâli) =======================
+// İki paralel pist (ana pist uzun), aralarında ve önlerinde taksi yolları; geniş apron ve önünde körüklü kapılarda
+// dört yolcu uçağı; uzun, kavisli çatılı cam terminal ve tabelası; yüksek kontrol kulesi; iki büyük hangar ve kargo
+// alanı (konteynerler); yakıt tankları; terminalin önünde gidiş-geliş yolu, otopark ve ağaçlar. Pistlerin yeri sky.ts'te (RUNWAYS) uçakların kalkıp indiği yer.
+export const RUNWAYS = [
+  [RUNWAY],
+  [{ x0: -0.47, x1: 0.47, z: -0.37 }, { x0: -0.42, x1: 0.42, z: -0.225 }],
+];
+function runwayStrip(st: THREE.Object3D, x0: number, x1: number, z: number, w: number, lights: boolean) {
+  const len = x1 - x0, cx = (x0 + x1) / 2;
+  box(st, len, 0.004, w, ASPHALT, cx, 0.03, z);
+  for (const dz of [-w / 2 + 0.004, w / 2 - 0.004]) box(st, len - 0.01, 0.002, 0.002, M.white, cx, 0.034, z + dz);
+  for (let k = 0; k < Math.floor(len / 0.045); k++) box(st, 0.02, 0.002, 0.0025, M.white, x0 + 0.06 + k * 0.045, 0.034, z);
+  for (const end of [-1, 1]) {
+    const ex = end > 0 ? x1 - 0.015 : x0 + 0.015;
+    for (let k = 0; k < 6; k++) box(st, 0.02, 0.002, 0.005, M.white, ex, 0.034, z - w / 2 + 0.012 + k * ((w - 0.024) / 5));
+    for (const dz of [-0.016, 0.016]) box(st, 0.03, 0.002, 0.008, M.white, ex - end * 0.06, 0.034, z + dz);
+  }
+  if (lights) for (let k = 0; k <= 16; k++) for (const dz of [-w / 2 - 0.004, w / 2 + 0.004]) add(st, BULB_GEO, BULB, x0 + (k * len) / 16, 0.034, z + dz);
+}
+export function bigAirport() {
+  const st = new THREE.Group();
+  const s = 1 / (6 * 0.96);
+  box(st, 0.98, 0.03, 0.98, pm('#8bc96b', 1), 0, 0, 0);
+  // Pistler ve taksi yolları (sarı orta çizgili)
+  const [r1, r2] = RUNWAYS[1];
+  runwayStrip(st, r1.x0, r1.x1, r1.z, 0.075, true);
+  runwayStrip(st, r2.x0, r2.x1, r2.z, 0.06, true);
+  const taxi = (x0: number, z0: number, x1: number, z1: number) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), w = 0.022;
+    const along = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+    box(st, along ? len : w, 0.004, along ? w : len, ASPHALT, (x0 + x1) / 2, 0.03, (z0 + z1) / 2);
+    box(st, along ? len : 0.002, 0.002, along ? 0.002 : len, M.yellow, (x0 + x1) / 2, 0.034, (z0 + z1) / 2);
+  };
+  taxi(-0.42, -0.135, 0.42, -0.135);
+  taxi(-0.42, -0.3, 0.42, -0.3);
+  for (const x of [-0.42, -0.12, 0.18, 0.42]) {
+    taxi(x, r1.z + 0.04, x, r2.z - 0.03);
+    taxi(x, r2.z + 0.03, x, -0.135);
+  }
+  // Apron (beton) ve uçak park yerleri
+  box(st, 0.86, 0.005, 0.27, CONCRETE, -0.04, 0.03, -0.01);
+  const stands = [-0.36, -0.14, 0.08];
+  const PLANE = 0.4 / (6 * 0.96); // uçan uçaklarla aynı boy
+  stands.forEach((x, k) => {
+    box(st, 0.002, 0.002, 0.22, M.yellow, x, 0.036, 0.0);
+    const p = makeAirliner([0, 2, 1][k]);
+    p.scale.setScalar(PLANE);
+    p.position.set(x, 0.03 + PLANE * 0.31, 0.01);
+    st.add(p);
+    // Körük: terminalden uçağın kapısına
+    box(st, 0.016, 0.018, 0.075, M.white, x - 0.03, 0.05, 0.17);
+    box(st, 0.02, 0.026, 0.016, M.gray, x - 0.03, 0.044, 0.13);
+    rod(st, [x - 0.03, 0.03, 0.14], [x - 0.03, 0.05, 0.14], 0.003, M.gray, 4);
+  });
+  // Terminal: uzun cam cephe, kavisli çatı, tabela, gidiş katı saçağı
+  const TX = -0.12, TW = 0.62, TZ = 0.25;
+  st.add(part(KIT.facadeBox(TW, 0.07, 0.13, 0.03), KIT.GLASS[2], TX, 0.03 + 0.035, TZ));
+  const vault = new THREE.CylinderGeometry(0.34, 0.34, TW + 0.04, 32, 1, true, -0.2, 0.4).rotateX(-Math.PI / 2).rotateY(Math.PI / 2);
+  add(st, vault, M.steel, TX, 0.1 - 0.34 * Math.cos(0.2), TZ);
+  box(st, TW + 0.04, 0.006, 0.15, M.white, TX, 0.1, TZ);
+  box(st, 0.34, 0.03, 0.004, signMat('AKSOY HAVALİMANI', '#0d47a1'), TX, 0.065, TZ + 0.068);
+  box(st, TW - 0.06, 0.006, 0.04, M.white, TX, 0.06, TZ + 0.085);
+  for (let k = 0; k < 8; k++) box(st, 0.004, 0.03, 0.004, M.steel, TX - TW / 2 + 0.05 + k * ((TW - 0.1) / 7), 0.03, TZ + 0.1);
+  // Kontrol kulesi (yüksek)
+  const kx = 0.43, kz = 0.25;
+  cyl(st, 0.018, 0.026, 0.36, M.white, kx, 0.03, kz, 12);
+  add(st, new THREE.CylinderGeometry(0.046, 0.032, 0.04, 10), windowMat, kx, 0.41, kz);
+  cyl(st, 0.05, 0.05, 0.008, M.iron, kx, 0.43, kz, 10);
+  rod(st, [kx, 0.438, kz], [kx, 0.49, kz], 0.003, M.iron, 4);
+  add(st, new THREE.SphereGeometry(0.006, 6, 4), PAINT[0], kx, 0.493, kz);
+  box(st, 0.1, 0.05, 0.07, M.white, kx, 0.03, kz + 0.03);
+  // Hangarlar ve kargo alanı
+  for (const [hx, hz] of [[0.36, -0.03], [0.36, 0.09]] as [number, number][]) {
+    add(st, new THREE.CylinderGeometry(0.055, 0.055, 0.17, 18, 1, false, -Math.PI / 2, Math.PI).rotateX(-Math.PI / 2).rotateZ(Math.PI / 2), M.gray, hx, 0.03, hz);
+    box(st, 0.004, 0.045, 0.09, M.iron, hx - 0.086, 0.03, hz);
+  }
+  for (let k = 0; k < 10; k++) box(st, 0.03, 0.018, 0.014, PAINT[k % PAINT.length], 0.27 + (k % 5) * 0.034, 0.03, 0.155 + Math.floor(k / 5) * 0.018);
+  // Yakıt tankları
+  for (const [x, z] of [[0.45, -0.12], [0.45, -0.07], [0.41, -0.12]] as [number, number][]) cyl(st, 0.018, 0.018, 0.026, M.white, x, 0.03, z, 14);
+  // Gidiş-geliş yolu, kaldırım ve otopark
+  box(st, 0.98, 0.004, 0.06, ASPHALT, 0, 0.03, 0.375);
+  for (let k = 0; k < 20; k++) box(st, 0.022, 0.002, 0.002, M.white, -0.46 + k * 0.048, 0.034, 0.375);
+  box(st, TW, 0.008, 0.02, CONCRETE, TX, 0.03, 0.336);
+  box(st, 0.5, 0.004, 0.07, ASPHALT, -0.2, 0.03, 0.44);
+  for (let k = 0; k < 11; k++) box(st, 0.002, 0.002, 0.05, M.white, -0.44 + k * 0.048, 0.034, 0.44);
+  const kinds = ['sedan', 'suv', 'hatch', 'taxi', 'sedan', 'van', 'suv'] as const;
+  kinds.forEach((kind, k) => parked(st, kind, -0.42 + k * 0.07, 0.44, 0, s));
+  for (const x of [-0.46, -0.3, -0.14, 0.02]) tree(st, PROPS.treeSmall, x, 0.48, 0.6 * s, x * 7);
+  for (const x of [-0.47, 0.47]) tree(st, PROPS.treeLarge, x, 0.3, 0.7 * s, x * 3);
+  // Rüzgâr çorabı
+  rod(st, [-0.47, 0.03, -0.1], [-0.47, 0.1, -0.1], 0.003, M.iron, 4);
+  add(st, new THREE.ConeGeometry(0.01, 0.04, 8).rotateZ(Math.PI / 2), PAINT[5], -0.45, 0.096, -0.1);
+  return mergeStatic([st]);
+}
+
 // ======================= Üniversite (3x3) =======================
 // Arkada kubbeli, sütunlu taş rektörlük; solda camlı kütüphane, sağda tuğla fakülte binası,
 // arada çan kulesi; ortada ağaçlı çimen avlu, çeşme ve heykel; önde kapı ve tabela.

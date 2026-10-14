@@ -12,6 +12,8 @@ const c = new City();
 // Hazır şehir eski 48x64'lük alanda ve doğudaki yeni arazide (Dünya Harikaları) kurulur; güneydeki yeni
 // araziler satın alınmamış kalır
 c.owned.forEach((_, p) => (c.owned[p] = Math.floor(p / cfg.PLOTS) < 8 ? 1 : 0));
+// Büyük havalimanı (6x6) için şehrin güneyinde iki parça arazi daha (z 64-71, x 8-23)
+for (const px of [1, 2]) c.owned[8 * cfg.PLOTS + px] = 1;
 c.xp = 99999;
 c.money = 5e8;
 const errs = [];
@@ -84,13 +86,8 @@ place('beach', 25, 18);
 place('beach', 31, 18);
 place('marina', 36, 18);
 place('lighthouse', 39, 18);
-// Eyfel parkı (doğu, 30-34 sıraları)
+// Eyfel parkı (doğu, 30-34 sıraları): Eyfel gerçek boyuna yakın 5x5, bloğun tamamı
 place('eiffel', 30, 30);
-place('lake', 33, 30);
-place('liberty', 33, 33);
-place('statue', 31, 33);
-place('fountain', 31, 34);
-for (const [x, z] of [[33, 32], [34, 32], [30, 33], [32, 33], [30, 34], [32, 34]]) place('park', x, z);
 // Lunapark (batı, 30-34 sıraları)
 place('funfair', 12, 30);
 place('wheel', 15, 30);
@@ -111,10 +108,8 @@ place('zoo', 2, 47);
 place('hill', 0, 48);
 place('uni', 6, 47);
 place('stadium', 12, 47);
-for (const [x, z] of [[15, 47], [16, 47], [16, 48]]) place('parking', x, z);
 place('colosseum', 30, 47);
-place('mosque', 33, 47);
-place('pyramid', 36, 47);
+place('mosque', 36, 47);
 // Diğer simgeler
 place('museum', 30, 21);
 place('galata', 36, 21);
@@ -307,10 +302,16 @@ for (; k < free.length; k++) {
   const [x, z] = free[k];
   if (place('solar', x, z)) for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, z));
 }
-// Güneyde havalimanı, güneş tarlaları ve rüzgâr türbinleri
-place('airport', 14, 59);
-for (const x of [1, 4, 7, 20, 24, 28, 31, 38, 41]) if (place('solar', x, 61)) for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, 61));
+// Güneyde büyük havalimanı (yeni arazide, 6x6), güneş tarlaları ve rüzgâr türbinleri
+if (place('airport', 13, 64)) {
+  const up = c.upgradeAirport(I(13, 64));
+  if (up) errs.push('havalimanı yükseltme: ' + up);
+}
+for (const x of [1, 4, 7, 14, 16, 20, 24, 28, 31, 38, 41]) if (place('solar', x, 61)) for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, 61));
 for (const x of [0, 3, 6, 9, 13, 19, 22, 26, 30, 33, 37, 40, 43]) if (!c.tiles[I(x, 62)]) place('wind', x, 62);
+// Eski havaalanının yeri: gölet ve çimenli tepe
+place('lake', 14, 59);
+place('hill', 16, 59);
 c.refresh();
 
 // --- Ulaşım: otobüs durakları, katlı otoparklar, metro yükseltmesi, alt geçit ---
@@ -346,34 +347,43 @@ for (let pass = 0; pass < 4; pass++) {
 
 // --- Doğudaki yeni arazide Dünya Harikaları parkı, denizde Kız Kulesi ---
 // Sanayi yolundan (x=45) doğuya yollar: z=21 ve z=45 yol, z=33 bulvar; x=55 bulvarı kuzeyden güneye
-for (const [z, gr] of [[21, 0], [33, 1], [45, 0]]) {
+// Yollar: z = 33 bulvar ve z = 45 yol sanayi yolundan (x = 45) doğuya; z = 21 yolu yalnızca x = 53'ten doğuya
+// (batısında kıyıda 5x5 Opera var); x = 55 bulvarı kuzeyden güneye
+for (const [z, gr] of [[33, 1], [45, 0]]) {
   if (c.tiles[I(46, z)] || c.tiles[I(47, z)]) errs.push('doğu yolu dolu ' + z);
   road(46, z, 63, z, gr);
 }
+road(53, 21, 63, 21);
 road(55, 21, 55, 45, 1);
-place('opera', 49, 18);
-place('hagia', 48, 22);
-place('taj', 52, 22);
-place('bigben', 56, 22);
-place('parthenon', 59, 22);
-place('chichen', 62, 22);
-place('stonehenge', 56, 31);
-// Kapadokya (balonlarıyla) ve Efes, z = 33 bulvarının kuzeyinde
-if (!place('cappadocia', 52, 30)) errs.push('kapadokya');
-if (!place('ephesus', 58, 31)) errs.push('efes');
-// Pamukkale ve Truva Atı, z = 45 yolunun kuzeyinde
-if (!place('pamukkale', 52, 42)) errs.push('pamukkale');
-if (!place('troy', 60, 43)) errs.push('truva');
-place('biglake', 49, 27);
-place('lake', 60, 27);
+// Kuzey bloklar (z 18-32): kıyıda Opera, yanında Tac Mahal ve Ayasofya; doğuda Gize Piramitleri, Parthenon,
+// Big Ben ve Stonehenge; Kapadokya bulvarın kuzeyinde
+const wonder = (kind, x, z) => place(kind, x, z) || errs.push(kind);
+wonder('opera', 48, 18);
+wonder('taj', 50, 23);
+wonder('hagia', 51, 28);
+wonder('cappadocia', 48, 30);
+place('lake', 48, 23);
+place('hill', 48, 26);
+wonder('pyramid', 56, 22);
+wonder('stonehenge', 62, 22);
+place('lake', 62, 24);
+wonder('parthenon', 56, 29);
+wonder('bigben', 60, 30);
+// Güney bloklar (z 34-44): Özgürlük Anıtı, Chichen Itza, Efes, Pamukkale ve Truva Atı
+wonder('liberty', 52, 34);
+wonder('chichen', 48, 34);
+wonder('ephesus', 53, 37);
+wonder('pamukkale', 52, 42);
+wonder('troy', 60, 43);
 place('hill', 49, 37);
 place('lake', 57, 37);
-place('fountain', 52, 34);
 place('statue', 60, 34);
-place('maiden', 8, 13);
-for (let x = 48; x <= 63; x++) {
-  for (const z of [31, 32, 34, 44]) {
-    if (x === 55 || c.tiles[I(x, z)]) continue;
+place('fountain', 58, 34);
+wonder('maiden', 8, 13);
+// Aralarda kalan boş yerler park
+for (let z = 18; z <= 44; z++) {
+  for (let x = 46; x <= 63; x++) {
+    if (x === 55 || c.tiles[I(x, z)] || cityMod.isSea(I(x, z))) continue;
     place('park', x, z);
   }
 }

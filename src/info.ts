@@ -1,7 +1,7 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
   MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
-  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, DAY_SECONDS, perDay, dayNumber, type MatId, type BuildTool,
+  INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, DAY_SECONDS, perDay, dayNumber, AIRPORT_LEVELS, FOOTPRINT, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
 import { questProgress, questDone, questText } from './quests';
@@ -41,6 +41,8 @@ export interface CardActions {
   upgradeUtil(i: number): void;
   upgradeParking(i: number): void;
   upgradeMetro(i: number): void;
+  upgradeAirport(i: number): void;
+  grow(i: number): void; // eski kayıttan kalan küçük yapıyı yerinde gerçek boyuna büyüt
   showMetro(): void;
   openCatalog(group: string): void;
   ship(n: number): void;
@@ -696,20 +698,53 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     };
   }
 
+  if (t.kind === 'airport') {
+    const lv = AIRPORT_LEVELS[t.level] ?? AIRPORT_LEVELS[0];
+    const next = AIRPORT_LEVELS[t.level + 1];
+    const blocker = city.airportUpgradeBlocker(i);
+    const lines: InfoCard['lines'] = [
+      { text: t.level ? '✈️ İki pistten sırayla uçaklar kalkıp iner; körüklü kapılarda yolcu uçakları bekler.' : '✈️ Uçaklar kalkıp iner; turistler her gün para getirir.' },
+      road,
+    ];
+    if (next) {
+      lines.push({ text: `⬆️ Yükseltince ${next.fp}x${next.fp} büyük havalimanı olur: iki pist, uzun terminal, ${next.income} kat turist. Çevresinde ${next.fp}x${next.fp} boş yer olmalı.` });
+      if (blocker && blocker !== 'Yeterli para yok') lines.push({ ok: false, text: blocker });
+    } else lines.push({ text: '⭐ En üst seviyede: büyük havalimanı.' });
+    return {
+      title: lv.name,
+      subtitle: `${t.fp ?? lv.fp}x${t.fp ?? lv.fp} · Simge yapı`,
+      thumb: 'airport',
+      tone: groupColor('airport'),
+      stats: [
+        { icon: '✈️', value: `+${fmt(Math.round(perDay((DECOR.airport.income ?? 0) * lv.income)))}`, label: 'Turist/gün', good: true },
+        { icon: '😊', value: `+${pct(DECOR.airport.happy)}`, label: `${city.decorRadius(i)} kare çevre` },
+        { icon: '⭐', value: `${t.level + 1}/${AIRPORT_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
+      ],
+      lines,
+      actions: next ? [{ label: `✈️ Büyük havalimanına yükselt  💰${fmt(next.cost)}`, enabled: blocker === null, primary: true, run: () => act.upgradeAirport(i) }] : undefined,
+    };
+  }
+
   if (isDecor(t.kind)) {
     const d = DECOR[t.kind];
     const lines: InfoCard['lines'] = [];
     if (t.kind === 'station') lines.push({ text: '🚆 Trenler bu istasyondan sefer yapar.' });
     if (t.kind === 'busstop') lines.push({ text: '🚌 Her durak için şehirde bir otobüs dolaşır.' });
     if (t.kind === 'uni') lines.push({ text: '🎓 Çevresindeki geniş alanda okul hizmeti verir.' });
-    if (t.kind === 'airport') lines.push({ text: '✈️ Uçaklar kalkıp iner; turistler her gün para getirir.' });
     if (d.road) lines.push(road);
     const stats: NonNullable<InfoCard['stats']> = [
       { icon: '😊', value: `+${pct(d.happy)}`, label: `${d.radius} kare çevre` },
       { icon: '🔧', value: `−${fmt(perDay(d.upkeep))}`, label: 'Günlük bakım' },
     ];
     if (d.income) stats.unshift({ icon: '✈️', value: `+${fmt(perDay(d.income))}`, label: 'Turist/gün', good: true });
-    return { title: TOOL_INFO[t.kind].label, subtitle: 'Simge yapı', thumb: t.kind, tone: groupColor(t.kind), stats, lines };
+    // Eski kayıttan kalan küçük hâli: gerçek boyuna büyütülebilir
+    const real = FOOTPRINT[t.kind] ?? 1;
+    const actions: NonNullable<InfoCard['actions']> = [];
+    if ((t.fp ?? 1) < real) {
+      lines.push({ text: `🔍 Gerçek boyu ${real}x${real} kare. Çevresinde yer varsa yerinde büyür, yoksa Taşı ile boş bir yere götür.` });
+      actions.push({ label: `🔍 Gerçek boyuna büyüt (${real}x${real})`, enabled: true, primary: true, run: () => act.grow(i) });
+    }
+    return { title: TOOL_INFO[t.kind].label, subtitle: `${t.fp ?? 1}x${t.fp ?? 1} · Simge yapı`, thumb: t.kind, tone: groupColor(t.kind), stats, lines, actions };
   }
 
   if (isUtility(t.kind)) {

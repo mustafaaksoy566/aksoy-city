@@ -293,7 +293,7 @@ function libertyFigure() {
   return f;
 }
 function liberty() {
-  const n = 2, s = small(n);
+  const n = 3, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, LIB.lawn, 0, 0, 0);
@@ -373,7 +373,7 @@ const KK = {
   gold: shiny('#e0b84c', 0.7, 0.3),
 };
 function maiden() {
-  const n = 2, s = small(n);
+  const n = 3, s = small(n);
   const ys = SEA_Y / (n * 0.96);
   const g = new THREE.Group();
   const st = new THREE.Group();
@@ -517,7 +517,7 @@ function crescent(g: THREE.Object3D, x: number, y: number, z: number, k = 1, m: 
   c.rotation.z = -1.15 * Math.PI;
 }
 function hagia() {
-  const n = 3, s = small(n);
+  const n = 4, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, AS.paving, 0, 0, 0);
@@ -682,7 +682,7 @@ function tajMinaret(g: THREE.Object3D, x: number, z: number, y0: number) {
   chhatri(g, x, y0 + H + 0.004, z, 0.016);
 }
 function taj() {
-  const n = 3, s = small(n);
+  const n = 5, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, TJ.paving, 0, 0, 0);
@@ -886,7 +886,7 @@ function pinnacle(g: THREE.Object3D, x: number, y: number, z: number, h: number,
   add(g, new THREE.ConeGeometry(r * 1.2, h * 0.4, 4), cap, x, y + h * 0.8, z).rotation.y = Math.PI / 4;
 }
 function bigBen() {
-  const n = 2, s = small(n);
+  const n = 3, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, BB.paving, 0, 0, 0);
@@ -1004,7 +1004,7 @@ function taperPrism(pts: [number, number][], y0: number, h: number, k: number) {
   return geo;
 }
 function parthenon() {
-  const n = 2, s = small(n);
+  const n = 4, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, PT.dry, 0, 0, 0);
@@ -1113,7 +1113,7 @@ const CI = {
   snake: pm('#8e8572', 0.9),
 };
 function chichen() {
-  const n = 2, s = small(n);
+  const n = 3, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, CI.grass, 0, 0, 0);
@@ -1262,7 +1262,7 @@ function shell(w: number, h: number, d: number, lean: number) {
   return grp;
 }
 function opera() {
-  const n = 3, s = small(n);
+  const n = 5, s = small(n);
   const g = new THREE.Group();
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, OP.paving, 0, 0, 0);
@@ -1350,10 +1350,10 @@ function stonehenge() {
   const st = new THREE.Group();
   box(st, 0.98, 0.03, 0.98, SH.grass, 0, 0, 0);
   // Toprak set, ziyaretçi yolu, yola uzanan patika ve geçit (avenue)
-  const bank = add(st, new THREE.TorusGeometry(0.42, 0.024, 6, 56).rotateX(Math.PI / 2), SH.bank, 0, 0.03, 0);
+  const bank = add(st, new THREE.TorusGeometry(0.455, 0.022, 6, 64).rotateX(Math.PI / 2), SH.bank, 0, 0.03, 0);
   bank.scale.y = 0.35;
-  add(st, flat(new THREE.RingGeometry(0.315, 0.335, 56)), SH.path, 0, 0.032, 0);
-  box(st, 0.02, 0.002, 0.16, SH.path, 0.12, 0.03, 0.41);
+  add(st, flat(new THREE.RingGeometry(0.395, 0.415, 64)), SH.path, 0, 0.032, 0);
+  box(st, 0.02, 0.002, 0.07, SH.path, 0.14, 0.03, 0.455);
   const stone = (w: number, h: number, d: number, seed: number, x: number, z: number, a: number, lying = false) => {
     const o = add(st, sarsen(w, h, d, seed), SH.stone, x, 0.03 + (lying ? d / 2 : h / 2), z);
     o.rotation.y = a;
@@ -1362,13 +1362,13 @@ function stonehenge() {
     return o;
   };
   // Dış sarsen çemberi (açıklığı önde, +z yönünde)
-  const R = 0.2, H = 0.08;
+  const R = 0.32, H = 0.08;
   const standing = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 14, 15, 16, 20, 21, 22, 26, 27, 28, 29]);
   for (let k = 0; k < 30; k++) {
     const a = (k / 30) * Math.PI * 2 + Math.PI / 30;
     const x = Math.sin(a) * R, z = Math.cos(a) * R;
-    if (standing.has(k)) stone(0.036, H, 0.022, k + 1, x, z, a);
-    else if (k === 9 || k === 18) stone(0.036, H, 0.022, k + 1, Math.sin(a) * (R + 0.04), Math.cos(a) * (R + 0.04), a, true);
+    if (standing.has(k)) stone(0.046, H, 0.024, k + 1, x, z, a);
+    else if (k === 9 || k === 18) stone(0.046, H, 0.024, k + 1, Math.sin(a) * (R + 0.05), Math.cos(a) * (R + 0.05), a, true);
   }
   const chord = 2 * R * Math.sin(Math.PI / 30);
   for (const k of [26, 27, 28, 29, 0, 1, 2, 3, 4, 5, 6, 7, 14, 15, 20, 21]) {
@@ -1380,7 +1380,7 @@ function stonehenge() {
   // At nalı: beş üçlü taş (en büyüğü arkada, yarısı yıkık)
   const tri: [number, number][] = [[Math.PI, 0.125], [Math.PI - 0.75, 0.1], [Math.PI + 0.75, 0.1], [Math.PI - 1.45, 0.09], [Math.PI + 1.45, 0.09]];
   tri.forEach(([a, h], k) => {
-    const r = 0.115, cx = Math.sin(a) * r, cz = Math.cos(a) * r;
+    const r = 0.19, cx = Math.sin(a) * r, cz = Math.cos(a) * r;
     const tx = Math.cos(a), tz = -Math.sin(a);
     if (k === 0) {
       stone(0.032, h, 0.026, 300, cx - tx * 0.02, cz - tz * 0.02, a);
@@ -1396,18 +1396,18 @@ function stonehenge() {
   for (let k = 0; k < 22; k++) {
     if (k % 7 === 3) continue;
     const a = (k / 22) * Math.PI * 2;
-    stone(0.016, 0.034 + hash(k + 50) * 0.012, 0.014, 400 + k, Math.sin(a) * 0.158, Math.cos(a) * 0.158, a);
+    stone(0.018, 0.034 + hash(k + 50) * 0.012, 0.014, 400 + k, Math.sin(a) * 0.255, Math.cos(a) * 0.255, a);
   }
   for (let k = 0; k < 9; k++) {
     const a = Math.PI + (-1 + k / 4) * 1.2;
-    stone(0.014, 0.045, 0.012, 450 + k, Math.sin(a) * 0.07, Math.cos(a) * 0.07, a);
+    stone(0.014, 0.045, 0.012, 450 + k, Math.sin(a) * 0.12, Math.cos(a) * 0.12, a);
   }
-  stone(0.07, 0.016, 0.026, 470, 0, -0.04, 0.3, true);
-  const heel = stone(0.04, 0.07, 0.034, 480, 0.12, 0.36, 0.2);
+  stone(0.07, 0.016, 0.026, 470, 0, -0.07, 0.3, true);
+  const heel = stone(0.04, 0.07, 0.034, 480, 0.14, 0.43, 0.2);
   heel.rotation.x = 0.15;
   // Koyunlar
   for (let k = 0; k < 7; k++) {
-    const a = hash(k + 90) * Math.PI * 2, r = 0.36 + hash(k + 91) * 0.08;
+    const a = hash(k + 90) * Math.PI * 2, r = 0.37 + hash(k + 91) * 0.05;
     const x = Math.sin(a) * r, z = Math.cos(a) * r;
     if (z > 0.3 && x > 0.05) continue;
     const b = item(st, x, z, a, 1, 0.03);
@@ -1972,45 +1972,49 @@ function troy() {
   const tw = add(st, uvBox(0.12, 0.17, 0.1, 0.08, 0.08), TR.wall, -0.3, 0.03 + 0.085, -0.4);
   tw.rotation.y = 0.35;
   for (let k = 0; k < 6; k++) rock(st, -0.15 + hash(k + 40) * 0.5, 0.04, -0.3 + hash(k + 41) * 0.08, 0.012 + hash(k) * 0.01, 1.3, 0.7, 1, PT.rock);
-  // Atın platformu
-  const ax = 0.0, az = 0.08;
-  add(st, plank(0.44, 0.03, 0.2), TR.wood, ax, 0.045, az);
+  // At ve platformu ayrı grupta: gerçek boyuna (yaklaşık 12 metre) küçültülür, platformun altı zemine oturur
+  const hg = new THREE.Group();
+  hg.position.set(0, 0.03 * 0.35, 0.1);
+  hg.scale.setScalar(0.65);
+  st.add(hg);
+  const ax = 0, az = 0;
+  add(hg, plank(0.44, 0.03, 0.2), TR.wood, ax, 0.045, az);
   const y0 = 0.06;
   // Bacaklar (hafif açık), toynaklar
   for (const [lx, lz] of [[-0.12, -0.045], [-0.12, 0.045], [0.11, -0.045], [0.11, 0.045]]) {
-    add(st, plank(0.036, 0.14, 0.036), TR.wood, ax + lx, y0 + 0.07, az + lz);
-    box(st, 0.042, 0.012, 0.042, TR.dark, ax + lx, y0, az + lz);
+    add(hg, plank(0.036, 0.14, 0.036), TR.wood, ax + lx, y0 + 0.07, az + lz);
+    box(hg, 0.042, 0.012, 0.042, TR.dark, ax + lx, y0, az + lz);
   }
   // Gövde: kalaslı kutu, göğüs ve sağrı biraz daha geniş
   const by = y0 + 0.14;
-  add(st, plank(0.32, 0.12, 0.13), TR.wood, ax, by + 0.06, az);
-  add(st, plank(0.06, 0.13, 0.14), TR.wood, ax - 0.135, by + 0.065, az);
-  add(st, plank(0.06, 0.13, 0.14), TR.wood, ax + 0.135, by + 0.065, az);
-  box(st, 0.33, 0.008, 0.135, TR.dark, ax, by + 0.12, az);
+  add(hg, plank(0.32, 0.12, 0.13), TR.wood, ax, by + 0.06, az);
+  add(hg, plank(0.06, 0.13, 0.14), TR.wood, ax - 0.135, by + 0.065, az);
+  add(hg, plank(0.06, 0.13, 0.14), TR.wood, ax + 0.135, by + 0.065, az);
+  box(hg, 0.33, 0.008, 0.135, TR.dark, ax, by + 0.12, az);
   // Yan pencereler (iki yanda üçer)
-  for (const sz of [-1, 1]) for (let k = 0; k < 3; k++) box(st, 0.03, 0.03, 0.004, TR.hole, ax - 0.07 + k * 0.07, by + 0.04, az + sz * 0.0665);
+  for (const sz of [-1, 1]) for (let k = 0; k < 3; k++) box(hg, 0.03, 0.03, 0.004, TR.hole, ax - 0.07 + k * 0.07, by + 0.04, az + sz * 0.0665);
   // Boyun (öne eğik), baş, kulaklar, gözler, yele
-  const neck = add(st, plank(0.075, 0.22, 0.085), TR.wood, ax + 0.18, by + 0.17, az);
+  const neck = add(hg, plank(0.075, 0.22, 0.085), TR.wood, ax + 0.18, by + 0.17, az);
   neck.rotation.z = -0.5;
-  const head = add(st, plank(0.16, 0.065, 0.07), TR.wood, ax + 0.27, by + 0.27, az);
+  const head = add(hg, plank(0.16, 0.065, 0.07), TR.wood, ax + 0.27, by + 0.27, az);
   head.rotation.z = -0.35;
-  box(st, 0.05, 0.03, 0.06, TR.dark, ax + 0.34, by + 0.225, az).rotation.z = -0.35;
+  box(hg, 0.05, 0.03, 0.06, TR.dark, ax + 0.34, by + 0.225, az).rotation.z = -0.35;
   for (const sz of [-1, 1]) {
-    const ear = add(st, new THREE.ConeGeometry(0.012, 0.04, 4), TR.wood, ax + 0.215, by + 0.32, az + sz * 0.022);
+    const ear = add(hg, new THREE.ConeGeometry(0.012, 0.04, 4), TR.wood, ax + 0.215, by + 0.32, az + sz * 0.022);
     ear.rotation.z = -0.3;
-    add(st, new THREE.SphereGeometry(0.007, 8, 6), TR.hole, ax + 0.275, by + 0.29, az + sz * 0.036);
+    add(hg, new THREE.SphereGeometry(0.007, 8, 6), TR.hole, ax + 0.275, by + 0.29, az + sz * 0.036);
   }
-  const mane = box(st, 0.02, 0.22, 0.02, TR.dark, ax + 0.155, by + 0.08, az);
+  const mane = box(hg, 0.02, 0.22, 0.02, TR.dark, ax + 0.155, by + 0.08, az);
   mane.rotation.z = -0.5;
   mane.position.set(ax + 0.138, by + 0.193, az);
   // Kuyruk
-  const tail = box(st, 0.02, 0.12, 0.016, TR.dark, ax - 0.18, by - 0.04, az);
+  const tail = box(hg, 0.02, 0.12, 0.016, TR.dark, ax - 0.18, by - 0.04, az);
   tail.rotation.z = -0.35;
   // Arka bacakların arasından karna çıkan merdiven
-  for (const sz of [-1, 1]) rod(st, [ax - 0.06, y0 + 0.01, az + sz * 0.018], [ax - 0.03, by, az + sz * 0.018], 0.003, TR.dark, 4);
+  for (const sz of [-1, 1]) rod(hg, [ax - 0.06, y0 + 0.01, az + sz * 0.018], [ax - 0.03, by, az + sz * 0.018], 0.003, TR.dark, 4);
   for (let k = 1; k < 7; k++) {
     const t = k / 7;
-    rod(st, [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az - 0.018], [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az + 0.018], 0.0025, TR.dark, 4);
+    rod(hg, [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az - 0.018], [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az + 0.018], 0.0025, TR.dark, 4);
   }
   // Meydanda sütun parçaları, ağaçlar, lambalar, banklar
   for (let k = 0; k < 5; k++) {

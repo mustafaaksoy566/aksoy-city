@@ -712,6 +712,8 @@ const HELP: [string, string, string[]][] = [
     '3. seviyeden sonra kenardaki + işaretlerine dokunup yeni arazi satın alabilirsin.',
     'Harita doğuda ve güneyde nehrin ötesine kadar uzanır; kuzeyde deniz ve ada var.',
     'Kız Kulesi denizin içine, Opera Binası su kıyısına kurulur. Kapadokya’da gündüz sıcak hava balonları uçar.',
+    'Tarihi yapılar gerçek boylarına göre büyük (Eyfel ve Kolezyum 5x5, Piramitler 6x6). Eski küçük hâli varsa kartından büyütebilirsin.',
+    'Havaalanını kartından Büyük Havalimanı’na yükselt: 6x6, iki pist, daha çok uçuş ve turist (çevresinde boş yer olmalı).',
   ]],
   ['🔥', 'Olaylar', [
     'İtfaiyenin kapsamadığı evlerde yangın çıkabilir; karttan söndür.',

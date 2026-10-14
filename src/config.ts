@@ -232,7 +232,9 @@ export const POLLUTION_RADIUS = 3;
 // Felaketler ve olaylar
 export const FIRE = { chance: 0.05, days: 4, cost: 150 }; // itfaiye kapsamayan evlerde yangın
 export const CRIME = { chance: 0.06, minPop: 60 }; // polis kapsamayan mahallelerde hırsızlık
-export const QUAKE = { chance: 0.006, minLevel: 4, damaged: 2, repair: { metal: 2, wood: 1 } as Partial<Record<MatId, number>> };
+// Deprem seyrek: adım başına küçük bir şans (ortalama bir yılda bir kez), bir depremden sonra en az 'rest' adım
+// (yaklaşık 5 gün) hiç olmaz, hasarlı evler onarılmadan yenisi olmaz
+export const QUAKE = { chance: 0.0012, rest: 150, minLevel: 4, damaged: 2, repair: { metal: 2, wood: 1 } as Partial<Record<MatId, number>> };
 
 // Simge yapılar: çevrelerindeki evlerin mutluluğunu artırır
 // covers: bu hizmetin alanını da kapsar (üniversite = okul), income: günlük turist geliri, road: yol kenarına kurulur
@@ -257,23 +259,23 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   volley: { radius: 6, happy: 0.12, upkeep: 3, road: true }, // plaj voleybolu
   casino: { radius: 8, happy: 0.16, upkeep: 10, income: 400, road: true }, // kumarhane kulesi: gece neonları yanar
   observatory: { radius: 8, happy: 0.12, upkeep: 8, income: 150, road: true }, // gözlemevi
-  mosque: { radius: 9, happy: 0.16, upkeep: 6 }, // cami: kubbe ve iki minare
+  mosque: { radius: 10, happy: 0.16, upkeep: 6 }, // cami: kubbe ve iki minare
   zoo: { radius: 10, happy: 0.2, upkeep: 14, income: 300, road: true }, // hayvanat bahçesi: hayvanlar dolaşır
   // Tarihi yapılar: çok turist getirir, geniş bir alanı mutlu eder
-  eiffel: { radius: 12, happy: 0.25, upkeep: 20, income: 600, road: true },
-  liberty: { radius: 11, happy: 0.22, upkeep: 18, income: 500, road: true },
+  eiffel: { radius: 14, happy: 0.25, upkeep: 20, income: 900, road: true },
+  liberty: { radius: 12, happy: 0.22, upkeep: 18, income: 620, road: true },
   pisa: { radius: 8, happy: 0.16, upkeep: 8, income: 250, road: true },
-  colosseum: { radius: 12, happy: 0.24, upkeep: 22, income: 550, road: true },
+  colosseum: { radius: 14, happy: 0.24, upkeep: 22, income: 820, road: true },
   galata: { radius: 8, happy: 0.16, upkeep: 8, income: 260, road: true },
-  pyramid: { radius: 11, happy: 0.2, upkeep: 12, income: 450, road: true },
+  pyramid: { radius: 13, happy: 0.2, upkeep: 12, income: 670, road: true },
   // Dünya harikaları (wonders.ts). Kız Kulesi denizin içine kurulur; turistler tekneyle gelir (yol gerekmez)
-  maiden: { radius: 9, happy: 0.18, upkeep: 6, income: 320 },
-  hagia: { radius: 12, happy: 0.24, upkeep: 20, income: 560, road: true },
-  taj: { radius: 12, happy: 0.25, upkeep: 22, income: 600, road: true },
-  bigben: { radius: 9, happy: 0.18, upkeep: 10, income: 340, road: true },
-  parthenon: { radius: 10, happy: 0.2, upkeep: 12, income: 420, road: true },
-  chichen: { radius: 10, happy: 0.2, upkeep: 12, income: 400, road: true },
-  opera: { radius: 11, happy: 0.22, upkeep: 18, income: 500, road: true },
+  maiden: { radius: 10, happy: 0.18, upkeep: 6, income: 400 },
+  hagia: { radius: 13, happy: 0.24, upkeep: 20, income: 700, road: true },
+  taj: { radius: 14, happy: 0.25, upkeep: 22, income: 900, road: true },
+  bigben: { radius: 10, happy: 0.18, upkeep: 10, income: 430, road: true },
+  parthenon: { radius: 12, happy: 0.2, upkeep: 12, income: 630, road: true },
+  chichen: { radius: 11, happy: 0.2, upkeep: 12, income: 500, road: true },
+  opera: { radius: 13, happy: 0.22, upkeep: 18, income: 750, road: true },
   stonehenge: { radius: 7, happy: 0.14, upkeep: 4, income: 220, road: true },
   cappadocia: { radius: 12, happy: 0.24, upkeep: 16, income: 520, road: true }, // peri bacaları, uçan balonlar
   ephesus: { radius: 9, happy: 0.18, upkeep: 9, income: 330, road: true }, // Efes: Celsus Kütüphanesi
@@ -287,7 +289,7 @@ export const DECOR: Record<DecorKind, DecorInfo> = {
   fountain: { radius: 4, happy: 0.1, upkeep: 1 },
   statue: { radius: 5, happy: 0.12, upkeep: 1 },
   wheel: { radius: 7, happy: 0.18, upkeep: 6 },
-  stadium: { radius: 9, happy: 0.22, upkeep: 12 },
+  stadium: { radius: 11, happy: 0.22, upkeep: 12 },
 };
 export const DECOR_KINDS = Object.keys(DECOR) as DecorKind[];
 export const DECOR_MAX = 0.3; // simgelerden gelen toplam mutluluk en fazla bu kadar
@@ -336,12 +338,21 @@ export const COST: Record<BuildTool, number> = {
 };
 
 // Büyük binalar kaç kare x kaç kare yer kaplar (yazmayanlar 1x1). Dükkânlar, karakol, itfaiye ve depo 2x2:
-// önlerinde kendi otoparkları var (eski kayıtlardaki 1x1 olanlar yanında yer varsa ya da taşınınca 2x2 olur)
+// önlerinde kendi otoparkları var (eski kayıtlardaki 1x1 olanlar yanında yer varsa ya da taşınınca 2x2 olur).
+// Simge yapılar gerçek boyutlarına göre (bir kare yaklaşık 20 metre; Eyfel, piramit gibi çok büyükler biraz
+// küçültülmüş): eski kayıtlardaki küçük hâlleri yüklenince yanlarında yer varsa yerinde büyür (city.growBuildings),
+// yoksa taşınınca büyür.
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
   store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 3, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 2, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 2, colosseum: 3, pyramid: 4,
-  maiden: 2, hagia: 3, taj: 3, bigben: 2, parthenon: 2, chichen: 2, opera: 3, stonehenge: 2, cappadocia: 3, ephesus: 2, pamukkale: 3, troy: 2,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 5, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 3, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 5, liberty: 3, colosseum: 5, pyramid: 6,
+  maiden: 3, hagia: 4, taj: 5, bigben: 3, parthenon: 4, chichen: 3, opera: 5, stonehenge: 2, cappadocia: 3, ephesus: 2, pamukkale: 3, troy: 2,
 };
+// Havalimanı yükseltilir: küçük havaalanı (4x4) → büyük havalimanı (6x6: iki pist, uzun terminal, körüklü kapılar).
+// Büyürken çevresinde boş yer olmalı; turist geliri, alanı ve uçuş sıklığı artar.
+export const AIRPORT_LEVELS = [
+  { fp: 4, cost: 0, level: 0, income: 1, radius: 0, name: 'Havaalanı' },
+  { fp: 6, cost: 35000, level: 12, income: 2.2, radius: 3, name: 'Büyük Havalimanı' },
+];
 
 // Hangi araç hangi şehir seviyesinde açılır (yazmayanlar baştan açık)
 export const UNLOCK: Partial<Record<BuildTool, number>> = {

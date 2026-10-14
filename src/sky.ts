@@ -3,7 +3,7 @@ import { SIZE, X0 } from './config';
 import { makeBoat, SEA_BOATS } from './boats';
 import { makeAirliner } from './planes';
 import { busModel } from './vehicles';
-import { RUNWAY } from './landmarks';
+import { RUNWAYS } from './places';
 import { SEA_Y } from './water';
 import { FACING_TURNS, tileCenter } from './view';
 import type { City } from './city';
@@ -62,8 +62,10 @@ const PLANE_SCALE = 0.4; // pistteki uçak boyu ~1.2 kare
 const CRUISE = 15; // uçuş yüksekliği
 
 // Havalimanının pisti (dünya koordinatında): baş, yön ve uzunluk
-export function runwayOf(city: City, i: number) {
+export function runwayOf(city: City, i: number, k = 0) {
   const t = city.tiles[i]!;
+  const list = RUNWAYS[t.level] ?? RUNWAYS[0];
+  const RUNWAY = list[k % list.length];
   const n = t.fp ?? 4;
   const x = i % SIZE, z = Math.floor(i / SIZE);
   const center = tileCenter(x + (n - 1) / 2, z + (n - 1) / 2);
@@ -84,6 +86,7 @@ export class Sky {
   private time = 0;
   private flights = new Map<number, Flight | null>(); // havalimanı karesi -> şu anki uçuş
   private airportWait = new Map<number, number>();
+  private runwayPick = new Map<number, number>(); // büyük havalimanında sıradaki pist
   private nextKind = new Map<number, 'takeoff' | 'landing'>();
   private livery = 0;
   private pool: THREE.Object3D[] = []; // biten uçuşların uçakları tekrar kullanılır (bellek dolmasın)
@@ -156,7 +159,9 @@ export class Sky {
         const wait = (this.airportWait.get(i) ?? 3) - dt;
         this.airportWait.set(i, wait);
         if (wait > 0) continue;
-        const { a, dir, len } = runwayOf(this.city, i);
+        const pick = (this.runwayPick.get(i) ?? 0) + 1;
+        this.runwayPick.set(i, pick);
+        const { a, dir, len } = runwayOf(this.city, i, pick);
         const kind = this.nextKind.get(i) ?? 'takeoff';
         this.nextKind.set(i, kind === 'takeoff' ? 'landing' : 'takeoff');
         f = { obj: this.takePlane(PLANE_SCALE), kind, a, dir, len, s: kind === 'takeoff' ? 0.4 : -70, v: kind === 'takeoff' ? 0 : 6, wait: 0 };
@@ -165,7 +170,8 @@ export class Sky {
       if (this.stepFlight(f, dt)) {
         this.release(f.obj);
         this.flights.set(i, null);
-        this.airportWait.set(i, 6 + Math.random() * 8);
+        const big = (this.city.tiles[i]?.level ?? 0) > 0;
+        this.airportWait.set(i, big ? 2 + Math.random() * 3 : 6 + Math.random() * 8);
       }
     }
   }

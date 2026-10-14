@@ -733,7 +733,7 @@ function footballerStatue(g: THREE.Object3D, x: number, z: number, s: number) {
 
 function stadium() {
   const st = new THREE.Group();
-  const s = 1 / (3 * 0.96);
+  const s = 1 / (5 * 0.96); // 5x5: taraftar, otobüs ve arabalar gerçek boyunda
   const W = SC.white;
   // Birikmiş yüzeyler: köşe renkli parçalar, camlar, ışıklar, saydam çatı, cephe, LED panolar, fileler
   const q = new Quads(), glass = new Quads(), lights = new Quads(), clear = new Quads(), skin = new Quads(), led = new Quads(), nets = new Quads();

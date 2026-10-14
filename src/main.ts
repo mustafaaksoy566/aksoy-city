@@ -533,6 +533,39 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  upgradeAirport(i) {
+    const t = city.tiles[i];
+    const old = city.cellsOf(i);
+    const err = city.upgradeAirport(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      const a = city.tiles.indexOf(t);
+      view.refresh([...old, ...city.cellsOf(a)], true);
+      play('grow', 0.6);
+      toast('✈️ Büyük havalimanı açıldı: iki pist, uzun terminal, daha çok turist!');
+      openTile(a);
+    }
+    afterChange();
+  },
+  grow(i) {
+    const t = city.tiles[i];
+    if (!t) return;
+    const old = city.cellsOf(i);
+    const err = city.growBuilding(i, sizeOf(t.kind));
+    if (err) {
+      toast(`${err}. Taşı ile boş bir yere götürünce büyür.`, 'error');
+      play('error', 0.3);
+    } else {
+      const a = city.tiles.indexOf(t);
+      view.refresh([...old, ...city.cellsOf(a)], true);
+      play('grow', 0.6);
+      toast(`🔍 ${TOOL_INFO[t.kind as BuildTool].label} gerçek boyuna büyüdü.`);
+      openTile(a);
+    }
+    afterChange();
+  },
   underpassSwitch(i) {
     const err = city.switchUnderpass(i);
     if (err) {
@@ -570,7 +603,9 @@ function renderCard() {
   // otoparklı 2x2 dükkân olur.
   if (card && typeof openCard === 'number' && tool === 'pan' && city.tiles[openCard] && city.canMove(openCard)) {
     const i = openCard;
-    const label = grows(city.anchorOf(i)) ? '🅿️ Taşı · otoparklı 2x2 olsun' : '✋ Taşı';
+    const a = city.anchorOf(i);
+    const n = sizeOf(city.tiles[a]!.kind);
+    const label = !grows(a) ? '✋ Taşı' : isDecor(city.tiles[a]!.kind) ? `✋ Taşı · ${n}x${n} gerçek boyunda` : '🅿️ Taşı · otoparklı 2x2 olsun';
     card.actions = [...(card.actions ?? []), { label, enabled: true, run: () => startMove(i) }];
   }
   showInfo(card);

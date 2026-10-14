@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, DAY_STEPS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH, ON_SEA,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS, AIRPORT_LEVELS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -174,6 +174,7 @@ export class City {
   achieved: Record<string, number> = {}; // başarımlardan alınan kademe sayısı (achievements.ts)
   history: [number, number][] = []; // günlerin sonundaki nüfus ve para (şehir ve bütçe kartındaki grafik)
   gift: Gift | null = null; // günlük hediye (main.ts)
+  lastQuake = -1000; // son depremin olduğu ekonomi adımı (kaydedilmez)
   happy = new Float32Array(SIZE * ROWS); // her evin mutluluğu (0..1)
   traffic = new Float32Array(SIZE * ROWS); // her yol karesinden geçen araba
   transit = new Float32Array(SIZE * ROWS); // her karede toplu taşımaya binenlerin payı
@@ -930,7 +931,9 @@ export class City {
     let sum = 0;
     this.tiles.forEach((t, i) => {
       // Denizdeki yapılara turistler tekneyle gelir (yola bağlı olmaları gerekmez)
-      if (t && isDecor(t.kind) && DECOR[t.kind].income && (this.isConnected(i) || ON_SEA.includes(t.kind as BuildTool))) sum += DECOR[t.kind].income!;
+      if (t && isDecor(t.kind) && DECOR[t.kind].income && (this.isConnected(i) || ON_SEA.includes(t.kind as BuildTool))) {
+        sum += DECOR[t.kind].income! * (t.kind === 'airport' ? AIRPORT_LEVELS[t.level]?.income ?? 1 : 1);
+      }
     });
     return sum;
   }
@@ -1211,6 +1214,7 @@ export class City {
     const t = this.tiles[i];
     if (!t || !isDecor(t.kind)) return 0;
     if (t.kind === 'metro') return (METRO_LEVELS[t.level]?.radius ?? DECOR.metro.radius) + (this.metroActive(i) ? METRO_LINE.radius : 0);
+    if (t.kind === 'airport') return DECOR.airport.radius + (AIRPORT_LEVELS[t.level]?.radius ?? 0);
     return DECOR[t.kind].radius;
   }
   decorHappy(i: number) {
@@ -1544,7 +1548,7 @@ export class City {
   // --- Yapma ve yıkma ---
 
   // null: buraya yapılabilir, metin: neden yapılamadığı
-  check(tool: BuildTool, x: number, z: number): string | null {
+  check(tool: BuildTool, x: number, z: number, size?: number): string | null {
     const t = this.get(x, z);
     if (tool === 'bulldoze') {
       if (!t) return 'Burada yıkılacak bir şey yok';
@@ -1563,7 +1567,7 @@ export class City {
       if (isSea(i)) return 'Denizin altından metro geçmez';
       return this.metro[i] ? 'Burada zaten metro hattı var' : null;
     }
-    const n = sizeOf(tool);
+    const n = size ?? sizeOf(tool);
     const cells = block(x, z, n);
     if (!cells) return 'Harita dışına taşıyor';
     if (cells.some(c => !this.isOwned(c))) return 'Bu arazi henüz senin değil';
@@ -1662,26 +1666,27 @@ export class City {
   }
 
   // Bina sol üst karesi (x, z) olacak şekilde taşınabilir mi? Kendi eski yeri boş sayılır.
-  moveCheck(from: number, x: number, z: number): string | null {
+  moveCheck(from: number, x: number, z: number, size?: number): string | null {
     const a = this.anchorOf(from);
     const t = this.tiles[a];
     if (!t || !this.canMove(a)) return 'Bu yapı taşınamaz';
     const old = this.cellsOf(a);
     const saved = old.map(c => this.tiles[c]);
     for (const c of old) this.tiles[c] = null;
-    const err = this.check(t.kind as BuildTool, x, z);
+    const err = this.check(t.kind as BuildTool, x, z, size ?? Math.max(t.fp ?? 1, sizeOf(t.kind)));
     old.forEach((c, k) => (this.tiles[c] = saved[k]));
     return err;
   }
 
   // Binayı taşı ve/veya döndür (seviyesi, modeli ve üretimleri aynı kalır). facing: yeni kapı yönü (verilmezse yola bakar).
   // Değişen kareleri döndürür.
-  moveBuilding(from: number, x: number, z: number, facing?: number): { error: string | null; cells: number[] } {
+  moveBuilding(from: number, x: number, z: number, facing?: number, size?: number): { error: string | null; cells: number[] } {
     const a = this.anchorOf(from);
     const to = idx(x, z);
     // Eski kayıttan kalan küçük bina (1x1 dükkân) taşınınca yeni boyuna (otoparklı 2x2) büyür
+    // Büyüyecekse (eski küçük bina ya da yükseltilen havalimanı) yerinde de büyür
     const t0 = this.tiles[a];
-    const grow = !!t0 && (t0.fp ?? 1) < sizeOf(t0.kind);
+    const grow = !!t0 && (t0.fp ?? 1) < (size ?? sizeOf(t0.kind));
     if (to === a && !grow) {
       // Yerinde döndürme
       if (facing === undefined || !this.canMove(a)) return { error: null, cells: [] };
@@ -1689,12 +1694,12 @@ export class City {
       this.refresh();
       return { error: null, cells: this.cellsOf(a) };
     }
-    const err = this.moveCheck(a, x, z);
+    const err = this.moveCheck(a, x, z, size);
     if (err) return { error: err, cells: [] };
     const t = this.tiles[a]!;
     // Eski kareler büyümeden önce alınır (yoksa 1x1 dükkânın yanındaki binalar da silinirdi)
     const old = this.cellsOf(a);
-    const n = Math.max(t.fp ?? 1, sizeOf(t.kind));
+    const n = size ?? Math.max(t.fp ?? 1, sizeOf(t.kind));
     if (n > 1) t.fp = n;
     const jobs = this.jobs.get(a);
     for (const c of old) {
@@ -1879,9 +1884,11 @@ export class City {
         this.events.push({ type: 'crime', amount });
       }
     }
-    // Deprem: nadiren, birkaç bina hasar görür
+    // Deprem: nadiren, birkaç bina hasar görür (bir depremden sonra uzun süre yok; hasarlı ev varken yeni deprem yok)
     const standing = built.filter(i => this.tiles[i]!.level > 0);
-    if (this.level >= QUAKE.minLevel && standing.length && Math.random() < QUAKE.chance) {
+    const calm = this.day - this.lastQuake < QUAKE.rest || built.some(i => this.tiles[i]!.damaged);
+    if (this.level >= QUAKE.minLevel && standing.length && !calm && Math.random() < QUAKE.chance) {
+      this.lastQuake = this.day;
       const hit = [...standing].sort(() => Math.random() - 0.5).slice(0, QUAKE.damaged);
       for (const i of hit) this.tiles[i]!.damaged = true;
       this.events.push({ type: 'quake', tiles: hit });
@@ -2041,13 +2048,58 @@ export class City {
   // (yer yoksa eski haliyle kalır; kartındaki "Taşı" ile boş bir yere taşınınca büyür)
   growShops() {
     this.tiles.forEach((t, i) => {
-      if (!t || t.kind === 'part' || t.locked || (t.fp ?? 1) >= sizeOf(t.kind)) return;
-      const x = i % SIZE, z = Math.floor(i / SIZE);
-      for (const [ax, az] of [[x, z], [x - 1, z], [x, z - 1], [x - 1, z - 1]]) {
-        if (!block(ax, az, 2) || this.moveCheck(i, ax, az)) continue;
-        this.moveBuilding(i, ax, az);
-        break;
-      }
+      if (!t || t.kind === 'part' || t.locked) return;
+      // Yükseltilmiş havalimanı kendi seviyesinin boyunda olmalı
+      const n = t.kind === 'airport' ? Math.max(sizeOf(t.kind), AIRPORT_LEVELS[t.level]?.fp ?? 0) : sizeOf(t.kind);
+      if ((t.fp ?? 1) < n) this.growBuilding(i, n);
     });
+  }
+
+  // Binayı yerinde n x n'e büyüt: yeni alan eskisini içine alır (önce ortalı yerleşim denenir). Olmazsa hata.
+  growBuilding(i: number, n: number, facing?: number): string | null {
+    const t = this.tiles[i];
+    if (!t) return 'Burada bina yok';
+    const old = t.fp ?? 1, d = n - old;
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const offs = Array.from({ length: d + 1 }, (_, k) => k).sort((p, q) => Math.abs(p - d / 2) - Math.abs(q - d / 2));
+    let first: string | null = null;
+    for (const oz of offs) {
+      for (const ox of offs) {
+        const ax = x - ox, az = z - oz;
+        if (!block(ax, az, n)) continue;
+        const err = this.moveCheck(i, ax, az, n);
+        if (err) {
+          first ??= err;
+          continue;
+        }
+        this.moveBuilding(i, ax, az, facing, n);
+        return null;
+      }
+    }
+    return first && first !== 'Harita dışına taşıyor' ? `Çevresinde ${n}x${n} boş yer yok` : 'Burada büyüyecek yer yok';
+  }
+
+  // --- Havalimanı: küçük havaalanı → büyük havalimanı (yerinde 6x6'ya büyür) ---
+  airportUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (t?.kind !== 'airport') return 'Burada havalimanı yok';
+    const next = AIRPORT_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} gerekir`;
+    if (this.money < next.cost) return 'Yeterli para yok';
+    return null;
+  }
+  upgradeAirport(i: number): string | null {
+    const err = this.airportUpgradeBlocker(i);
+    if (err) return err;
+    const t = this.tiles[i]!;
+    const next = AIRPORT_LEVELS[t.level + 1];
+    const grow = this.growBuilding(i, next.fp);
+    if (grow) return grow;
+    t.level++;
+    this.money -= next.cost;
+    this.addXp(XP.build * 8);
+    this.refresh();
+    return null;
   }
 }
