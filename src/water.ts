@@ -4,8 +4,9 @@ import { noSnow } from './season';
 // Su yüzeyi: nehir ve deniz aynı dalga dokusunu paylaşır; doku yavaşça kayınca su ışıldar.
 // Dokunun yeri dünya koordinatından hesaplanır, böylece nehir parçaları ve deniz birbirine dikişsiz bağlanır.
 
-export const SEA_Y = -0.12; // deniz seviyesi
-export const RIVER_Y = -0.008; // şehirdeki nehrin yüzeyi
+// Kara (şehrin zemini y = -0.03) sudan belirgin yüksekte: kıyıda kumlu şev, şehirdeki nehirde taş rıhtım duvarları
+export const SEA_Y = -0.28; // deniz seviyesi
+export const RIVER_Y = -0.24; // şehirdeki nehrin yüzeyi (denize akarken biraz iner)
 const UV_SCALE = 7; // dalga dokusu kaç birimde bir tekrar etsin
 
 // Kendini tekrar eden dalga yüksekliğinden normal doku üret (tam sayı frekanslı sinüsler = dikişsiz)

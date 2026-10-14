@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { noSnow } from './season';
+import { BULB } from './parts';
 import { SIZE, X0, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
@@ -911,11 +912,49 @@ function park(variant: number, x: number, z: number) {
   return makePark(variant, hash(x, z, 9));
 }
 
-// Nehir: iki uzun su şeridi ve kıyılarda toprak/kum şeritleri
-const bankMat = new THREE.MeshStandardMaterial({ color: '#cdb98a', roughness: 1 });
+// Nehir: iki uzun su şeridi ve iki yanında taş rıhtım duvarları
 // Nehrin denize karıştığı yer: nehir suyuyla aynı, denize doğru saydamlaşıp denize karışır
 const mouthMat = riverMat.clone();
 Object.assign(mouthMat, { vertexColors: true, transparent: true, depthWrite: false });
+noSnow(mouthMat); // kopyalanınca kar tutmama işareti kaybolur: kışın ağız bembeyaz bir üçgen olurdu
+
+// Rıhtım duvarı: sıra sıra kesme taş; doku duvarın gerçek boyuna göre tekrar eder (bir taş 0.12 x 0.06)
+const QUAY_TEX = (() => {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#7d766a';
+  g.fillRect(0, 0, 128, 64);
+  for (let row = 0; row < 4; row++) {
+    for (let k = -1; k < 5; k++) {
+      const v = 142 + ((row * 5 + k * 3) % 7) * 7;
+      g.fillStyle = `rgb(${v}, ${v - 7}, ${v - 20})`;
+      g.fillRect(k * 32 + (row % 2) * 16 + 1, row * 16 + 1, 30, 14);
+    }
+  }
+  // Su hattının hemen üstü yosunlu ve koyu
+  const grad = g.createLinearGradient(0, 64, 0, 40);
+  grad.addColorStop(0, 'rgba(60, 80, 55, 0.55)');
+  grad.addColorStop(1, 'rgba(60, 80, 55, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 40, 128, 24);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+})();
+const quayMat = new THREE.MeshStandardMaterial({ map: QUAY_TEX, roughness: 0.95 });
+const copingMat = new THREE.MeshStandardMaterial({ color: '#d9d3c5', roughness: 0.85 });
+// Kutu: yan yüzlerde doku yatayda gerçek uzunluğa göre tekrar eder, dikeyde duvarın boyunu bir kez kaplar
+function quayBox(w: number, h: number, d: number) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  const span = [d, d, w, w, w, w]; // +x, -x, +y, -y, +z, -z yüzlerinin yatay uzunluğu
+  for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) uv.setX(f * 4 + k, (uv.getX(f * 4 + k) * span[f]) / 0.48);
+  return geo;
+}
 
 // Şehirdeki nehrin kıyıları (dünya koordinatında doğru parçaları): suyun rengi kıyıya uzaklığa göre
 function riverBanks(): [number, number, number, number][] {
@@ -940,12 +979,6 @@ function river() {
   const g = new THREE.Group();
   const [a, b] = RIVER;
   const [ra, rb] = RIVER_ROWS;
-  const add = (w: number, d: number, x: number, z: number, m: THREE.Material, y: number) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), m);
-    mesh.position.set(wx(x), y, wz(z));
-    mesh.receiveShadow = true;
-    g.add(mesh);
-  };
   // Su: doğu kolu (denizden köşeye) ve güney kolu (batıdan köşeye), şehir dışındaki nehirle aynı yükseklikte
   const banks = riverBanks();
   const water = (geo: THREE.BufferGeometry) => {
@@ -988,18 +1021,32 @@ function river() {
   const mouthMesh = new THREE.Mesh(worldUV(mouth), mouthMat);
   mouthMesh.renderOrder = 0;
   g.add(mouthMesh);
-  // Kıyı şeritleri
-  add(0.12, ra - s, a + 0.06, (ra + s) / 2, bankMat, -0.004);
-  add(0.12, rb + 1 - s, b + 0.94, (rb + 1 + s) / 2, bankMat, -0.004);
-  add(a, 0.12, a / 2, ra + 0.06, bankMat, -0.004);
-  add(b + 1, 0.12, (b + 1) / 2, rb + 0.94, bankMat, -0.004);
+  // Rıhtım duvarları: nehrin iki yanında sudan karaya taş duvar, üstünde bordür (köprüler üstünden geçer)
+  const bottom = RIVER_Y - 0.1, top = -0.012;
+  const walls = new THREE.Group();
+  banks.forEach(([ax, az, bx, bz], k) => {
+    // Kanalın hangi yanda olduğu: doğu kolunun batı kıyısı +x, doğu kıyısı -x; güney kolunun güneyi -z, kuzeyi +z
+    const inward = [[1, 0], [-1, 0], [0, -1], [0, 1]][k];
+    const len = Math.hypot(bx - ax, bz - az);
+    const alongZ = ax === bx;
+    const cx = (ax + bx) / 2, cz = (az + bz) / 2;
+    const wall = new THREE.Mesh(alongZ ? quayBox(0.06, top - bottom, len) : quayBox(len, top - bottom, 0.06), quayMat);
+    wall.position.set(cx + inward[0] * 0.03, (top + bottom) / 2, cz + inward[1] * 0.03);
+    walls.add(wall);
+    const cap = new THREE.Mesh(alongZ ? new THREE.BoxGeometry(0.1, 0.022, len) : new THREE.BoxGeometry(len, 0.022, 0.1), copingMat);
+    cap.position.set(cx + inward[0] * 0.02, top + 0.011, cz + inward[1] * 0.02);
+    walls.add(cap);
+  });
+  g.add(mergeStatic([walls]));
   return g;
 }
 
 // Köprü: yol/rayın kenarlarına korkuluk, altına ayak
 const railMat = new THREE.MeshStandardMaterial({ color: '#e8e4dc' });
 const pillarMat = new THREE.MeshStandardMaterial({ color: '#9a9690' });
-export function bridge(mask: number) {
+const girderMat = new THREE.MeshStandardMaterial({ color: '#7d8894', roughness: 0.55, metalness: 0.3 });
+// waterY: suyun yüzeyi (ayaklar oraya kadar iner); hung: asma köprünün kabloyla taşınan tabliyesi (ayaksız)
+export function bridge(mask: number, waterY = RIVER_Y, hung = false) {
   const g = new THREE.Group();
   const add = (w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -1013,66 +1060,135 @@ export function bridge(mask: number) {
   if (!(mask & 4)) add(1, 0.08, 0.04, 0, 0.09, 0.48, railMat);
   if (!(mask & 2)) add(0.04, 0.08, 1, 0.48, 0.09, 0, railMat);
   if (!(mask & 8)) add(0.04, 0.08, 1, -0.48, 0.09, 0, railMat);
-  // Köprü ayağı ve gövde
+  // Tabliye; yol hangi doğrultuda (x ya da z) gidiyor
   add(0.98, 0.04, 0.98, 0, -0.01, 0, pillarMat);
-  add(0.16, 0.12, 0.16, 0, -0.06, 0, pillarMat);
+  const alongX = (mask & 0b1010) !== 0;
+  const [w, d] = alongX ? [1, 0.84] : [0.84, 1];
+  if (hung) {
+    // Asma köprü: tabliyenin altında aerodinamik çelik kutu kiriş, ayak yok
+    add(w, 0.06, d, 0, -0.06, 0, girderMat);
+    add(alongX ? 1 : 0.6, 0.02, alongX ? 0.6 : 1, 0, -0.1, 0, girderMat);
+    return g;
+  }
+  // Ayak: yolun altında başlık kirişi, iki yuvarlak kolon suyun içine iner, dipte beton temel
+  add(alongX ? 0.16 : 0.86, 0.05, alongX ? 0.86 : 0.16, 0, -0.055, 0, pillarMat);
+  const h = -0.08 - (waterY - 0.08);
+  for (const sgn of [-1, 1]) {
+    const px = alongX ? 0 : sgn * 0.27, pz = alongX ? sgn * 0.27 : 0;
+    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, h, 10), pillarMat);
+    col.position.set(px, -0.08 - h / 2, pz);
+    col.castShadow = true;
+    g.add(col);
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.075, 0.05, 12), pillarMat);
+    foot.position.set(px, waterY + 0.005, pz);
+    g.add(foot);
+  }
   return g;
 }
 
-// Asma köprü: denizin üstündeki düz yolun iki ucunda kuleler, kulelerin tepesinden sarkan ana kablolar
-// ve kablodan yola inen askı telleri. a, b: köprünün iki ucundaki karelerin ortası; along: köprünün yönü
-const suspMat = new THREE.MeshStandardMaterial({ color: '#d0462f', roughness: 0.55, metalness: 0.2 });
+// Asma köprü (Boğaziçi gibi): denizdeki beton temellerden yükselen, yukarı doğru incelen iki ayaklı kuleler ve
+// kiriş kuşakları; kulelerin tepesindeki eyerlerden sarkan kalın ana kablolar, kablodan tabliyeye zikzak inen eğik
+// askılar, iki uçta kabloların bağlandığı beton ankraj blokları. Gece kablolar ve
+// kuleler boyunca dizili ışıklar renk değiştirir (updateBridgeLights). a, b: köprünün iki ucu; along: yönü
+const suspMat = new THREE.MeshStandardMaterial({ color: '#ecebe6', roughness: 0.5, metalness: 0.15 });
+const cableMat = new THREE.MeshStandardMaterial({ color: '#d9dde2', roughness: 0.4, metalness: 0.4 });
+const footMat = new THREE.MeshStandardMaterial({ color: '#a9a49a', roughness: 0.95 });
 // Kule tepesindeki uyarı ışığı (gece yanar)
 const beaconMat = new THREE.MeshStandardMaterial({ color: '#ff5252', emissive: '#ff5252', emissiveIntensity: 0 });
 beaconMat.name = 'lamp';
+// Gece ışık gösterisi: bütün köprülerin ışıkları birlikte renk değiştirir (saydam: birleştirilince ayrı kalır)
+const LED = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, fog: false });
+LED.name = 'led';
+const LED_GEO = new THREE.SphereGeometry(0.018, 6, 4);
+export function updateBridgeLights(time: number) {
+  const night = Math.min(1, BULB.emissiveIntensity / 2);
+  LED.opacity = night;
+  LED.visible = night > 0.03;
+  if (LED.visible) LED.color.setHSL((time * 0.03) % 1, 0.85, 0.62);
+}
 function suspension(a: THREE.Vector3, b: THREE.Vector3, tiles: number) {
   const g = new THREE.Group();
   const dir = b.clone().sub(a);
   const len = dir.length();
   dir.normalize();
   const side = new THREE.Vector3(-dir.z, 0, dir.x);
-  const add = (geo: THREE.BufferGeometry, m: THREE.Material, p: THREE.Vector3, rotY = 0) => {
+  const ang = Math.atan2(dir.x, dir.z);
+  const add = (geo: THREE.BufferGeometry, m: THREE.Material, p: THREE.Vector3, rotY = ang) => {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.copy(p);
     mesh.rotation.y = rotY;
     mesh.castShadow = true;
     g.add(mesh);
+    return mesh;
   };
-  const ang = Math.atan2(dir.x, dir.z);
-  const height = 1.1 + tiles * 0.07;
+  // İki nokta arasında ince çubuk (askılar)
+  const rod = (p: THREE.Vector3, q: THREE.Vector3, r: number, m: THREE.Material) => {
+    const d = q.clone().sub(p);
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 4), m);
+    mesh.position.copy(p).addScaledVector(d, 0.5);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    g.add(mesh);
+  };
+  const at = (d: number, s = 0, y = 0) => a.clone().addScaledVector(dir, d).addScaledVector(side, s).setY(y);
+  const height = 1.25 + tiles * 0.08;
   const inset = tiles >= 5 ? 1 : 0.3;
   const towerAt = [inset, len - inset];
-  // Kuleler: iki ayak, iki kat kiriş, tepede gece yanan uyarı ışığı
+  const W = 0.58; // ayakların yoldan uzaklığı (tabliyenin iki yanında)
+  const base = SEA_Y - 0.06;
   for (const d of towerAt) {
-    const c = a.clone().addScaledVector(dir, d);
-    for (const s of [-1, 1]) {
-      add(new THREE.BoxGeometry(0.07, height, 0.09), suspMat, c.clone().addScaledVector(side, s * 0.5).setY(height / 2 - 0.12), ang);
-      add(new THREE.SphereGeometry(0.03, 8, 6), beaconMat, c.clone().addScaledVector(side, s * 0.5).setY(height - 0.08));
+    // Denizdeki beton temel (iki ayağı birlikte taşır)
+    add(new THREE.BoxGeometry(1.5, 0.12, 0.34), footMat, at(d, 0, SEA_Y));
+    for (const sgn of [-1, 1]) {
+      // Yukarı doğru incelen ayak
+      const legH = height - base;
+      const leg = add(frustumGeo(0.13, 0.11, legH, 0.08, 0.07), suspMat, at(d, sgn * W, base + legH / 2));
+      leg.rotation.y = ang;
+      // Eyer ve uyarı ışığı
+      add(new THREE.BoxGeometry(0.1, 0.05, 0.12), cableMat, at(d, sgn * W, height + 0.02));
+      add(new THREE.SphereGeometry(0.028, 8, 6), beaconMat, at(d, sgn * W, height + 0.07));
+      // Ayağın dış yüzünde gece yanan ışık dizisi
+      for (let y = 0.15; y < height - 0.05; y += 0.12) add(LED_GEO, LED, at(d, sgn * (W + 0.05), y));
     }
-    for (const y of [0.55, 0.93]) add(new THREE.BoxGeometry(1.07, 0.07, 0.07), suspMat, c.clone().setY(height * y - 0.12), ang + Math.PI / 2);
+    // Kiriş kuşakları: tabliyenin altında, ortada ve tepede
+    for (const [y, t] of [[-0.14, 0.09], [height * 0.52, 0.07], [height * 0.94, 0.08]] as [number, number][]) add(new THREE.BoxGeometry(W * 2 + 0.08, t, 0.08), suspMat, at(d, 0, y));
   }
-  // Ana kablolar ve askılar
-  const top = height - 0.16;
+  // Ana kablolar: ankrajdan kule tepesine, aradaki açıklıkta aşağı sarkar, öbür kuleden öbür ankraja
+  const top = height + 0.03;
+  const anchorY = 0.16;
   const cableY = (d: number) => {
-    if (d <= towerAt[0]) return THREE.MathUtils.lerp(0.06, top, d / Math.max(0.01, towerAt[0]));
-    if (d >= towerAt[1]) return THREE.MathUtils.lerp(top, 0.06, (d - towerAt[1]) / Math.max(0.01, len - towerAt[1]));
+    if (d <= towerAt[0]) return THREE.MathUtils.lerp(anchorY, top, (d - 0.12) / Math.max(0.01, towerAt[0] - 0.12));
+    if (d >= towerAt[1]) return THREE.MathUtils.lerp(top, anchorY, (d - towerAt[1]) / Math.max(0.01, len - 0.12 - towerAt[1]));
     const t = (d - towerAt[0]) / (towerAt[1] - towerAt[0]);
-    return 0.16 + (top - 0.16) * (2 * t - 1) ** 2; // aşağı sarkan eğri
+    return 0.2 + (top - 0.2) * (2 * t - 1) ** 2;
   };
-  for (const s of [-1, 1]) {
+  for (const sgn of [-1, 1]) {
     const pts: THREE.Vector3[] = [];
-    for (let k = 0; k <= 48; k++) {
-      const d = (k / 48) * len;
-      pts.push(a.clone().addScaledVector(dir, d).addScaledVector(side, s * 0.5).setY(cableY(d)));
+    for (let k = 0; k <= 64; k++) {
+      const d = 0.12 + (k / 64) * (len - 0.24);
+      pts.push(at(d, sgn * W, cableY(d)));
     }
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, 0.014, 5), suspMat));
-    for (let d = towerAt[0] + 0.25; d < towerAt[1] - 0.1; d += 0.25) {
-      const h = cableY(d) - 0.06;
-      if (h < 0.03) continue;
-      add(new THREE.CylinderGeometry(0.004, 0.004, h, 4), suspMat, a.clone().addScaledVector(dir, d).addScaledVector(side, s * 0.5).setY(0.06 + h / 2));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 96, 0.02, 6), cableMat));
+    // Ankraj blokları (kabloların bağlandığı beton kütle, sudan yükselir)
+    for (const d of [0.12, len - 0.12]) add(new THREE.BoxGeometry(0.16, anchorY - SEA_Y + 0.05, 0.3), footMat, at(d, sgn * (W + 0.02), (anchorY + SEA_Y - 0.05) / 2));
+    // Eğik askılar: kablodan tabliyenin kenarına zikzak iner
+    let k = 0;
+    for (let d = towerAt[0] + 0.2; d < towerAt[1] - 0.1; d += 0.2, k++) {
+      const off = k % 2 ? 0.1 : -0.1;
+      if (cableY(d + off) - 0.05 < 0.06) continue;
+      rod(at(d, sgn * 0.5, 0.11), at(d + off, sgn * W, cableY(d + off)), 0.004, cableMat);
     }
+    // Kablo boyunca gece ışıkları
+    for (let d = 0.4; d < len - 0.3; d += 0.3) add(LED_GEO, LED, at(d, sgn * W, cableY(d) + 0.02));
   }
   return g;
+}
+// Yukarı doğru incelen kutu (alt w x d, üst tw x td)
+function frustumGeo(w: number, d: number, h: number, tw: number, td: number) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const p = geo.attributes.position as THREE.BufferAttribute;
+  for (let k = 0; k < p.count; k++) if (p.getY(k) > 0) p.setXYZ(k, (p.getX(k) * tw) / w, p.getY(k), (p.getZ(k) * td) / d);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 // Yükseltilmiş fabrika ve dükkanların önündeki tabela: seviyesi kadar altın yıldız
@@ -1399,6 +1515,21 @@ export class CityView {
     if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }
 
+  // Bu deniz yolu bir asma köprünün parçası mı? (yönünde en az 3 düz deniz yolu karesi)
+  private inSpan(x: number, z: number) {
+    const ok = (px: number, pz: number, alongZ: boolean) =>
+      inBounds(px, pz) && isSeaXZ(px, pz) && this.city.isRoad(px, pz) && (this.city.roadMask(px, pz) & (alongZ ? 0b1010 : 0b0101)) === 0;
+    for (const alongZ of [true, false]) {
+      if (!ok(x, z, alongZ)) continue;
+      const [dx, dz] = alongZ ? [0, 1] : [1, 0];
+      let n = 1;
+      for (let k = 1; ok(x + dx * k, z + dz * k, alongZ); k++) n++;
+      for (let k = 1; ok(x - dx * k, z - dz * k, alongZ); k++) n++;
+      if (n >= 3) return true;
+    }
+    return false;
+  }
+
   // Denizdeki düz yolları bul (en az 3 kare), her birine asma köprü kur
   updateSpans() {
     for (const c of this.spans.children) disposeMerged(c as THREE.Group);
@@ -1501,7 +1632,10 @@ export class CityView {
     let o: THREE.Object3D;
     if (t.kind === 'road') {
       o = this.road(x, z);
-      if (isWaterXZ(x, z)) o.add(bridge(this.city.roadMask(x, z)));
+      if (isWaterXZ(x, z)) {
+        const sea = isSeaXZ(x, z);
+        o.add(bridge(this.city.roadMask(x, z), sea ? SEA_Y : RIVER_Y, sea && this.inSpan(x, z)));
+      }
       // Hemzemin geçit: yolun üstünden yola dik raylar geçer
       if (t.level === 1) {
         const across = railPiece(this.city.roadMask(x, z) === 0b0101 ? 0b1010 : 0b0101, false);
@@ -1510,7 +1644,7 @@ export class CityView {
       }
     } else if (t.kind === 'rail') {
       o = railPiece(this.city.railMask(x, z));
-      if (isWaterXZ(x, z)) o.add(bridge(this.city.railMask(x, z)));
+      if (isWaterXZ(x, z)) o.add(bridge(this.city.railMask(x, z), isSeaXZ(x, z) ? SEA_Y : RIVER_Y));
     } else if (t.kind === 'park') {
       o = park(t.variant, x, z);
     } else if (isUtility(t.kind)) {
@@ -2127,6 +2261,7 @@ export class CityView {
   update(dt: number) {
     this.time += dt;
     this.stepMapJob();
+    updateBridgeLights(this.time);
     // Hizmet haritasında kaynak binaların halkası yanıp söner
     for (const ring of (this.mapOverlay.userData.rings as THREE.Mesh[] | undefined) ?? []) {
       const p = (this.time * 0.8) % 1;

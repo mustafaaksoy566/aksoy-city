@@ -34,6 +34,7 @@ import { makeDecor } from './landmarks';
 import { WONDER_KINDS } from './wonders'; // dünya harikaları kendilerini makeDecor'a kaydeder
 import { makePark } from './fun';
 import { MetroView } from './metro';
+import { RiverBoats } from './riverboats';
 import { tunnelThumb } from './places';
 import { makeModel } from './assets';
 import { buildSurroundings, heightAt } from './terrain';
@@ -202,6 +203,9 @@ traffic.link(walkers);
 walkers.cars = () => traffic.boxes;
 const trains = new Trains(city);
 scene.add(trains.root);
+// Nehirde köprülerin altından geçen gezi tekneleri
+const riverBoats = new RiverBoats();
+scene.add(riverBoats.root);
 const sky = new Sky(city);
 scene.add(sky.root);
 const helis = new Helicopters(city);
@@ -1812,6 +1816,7 @@ function frame() {
   traffic.update(dt, tod);
   walkers.update(dt, weather.amount);
   trains.update(dt);
+  riverBoats.update(dt, clock.elapsedTime);
   highway.update(dt);
   sky.update(dt);
   helis.update(dt);

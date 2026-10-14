@@ -3,6 +3,7 @@ import { FOOTPRINT, type IndustryKind } from './config';
 import { STORES2 } from './stores';
 import { SITES, OLD_SITES, drawLot, lotLight, entrance } from './sites';
 import { makeBoat } from './boats';
+import { SEA_Y } from './water';
 import { part, windowMat, showcaseMat } from './utilities';
 import { mergeStatic } from './batcher';
 import { KIT } from './towers';
@@ -281,6 +282,10 @@ function port() {
   const k = 1 / (2 * 0.96);
   box(st, 0.98, 0.05, 0.98, pm('#a9afb6', 0.9), 0, 0, 0);
   box(st, 0.98, 0.006, 0.025, M.yellow, 0, 0.05, 0.47);
+  // Rıhtım duvarı: kenardan suya iner (su karadan aşağıda)
+  const water = SEA_Y * k;
+  box(st, 0.98, 0.05 - (water - 0.04), 0.03, pm('#8d8a84', 0.95), 0, water - 0.04, 0.475);
+  for (let b = 0; b < 7; b++) box(st, 0.012, 0.06, 0.012, M.dark, -0.45 + b * 0.15, water - 0.01, 0.493);
   for (let b = 0; b < 6; b++) add(st, new THREE.CylinderGeometry(0.011, 0.013, 0.03, 8), M.dark, -0.42 + b * 0.17, 0.065, 0.455);
   // Liman binası
   st.add(part(KIT.facadeBox(0.36, 0.18, 0.2, 0.05), KIT.BAND[1], -0.28, 0.14, -0.36));
@@ -311,7 +316,7 @@ function port() {
   const hull = makeBoat('container', 2.6 * k, false);
   hull.rotation.y = Math.PI / 2;
   ship.add(hull);
-  ship.position.set(0, -0.045, 0.5 + k);
+  ship.position.set(0, SEA_Y * k - 0.04, 0.5 + k); // su hattı deniz seviyesinde
   g.add(ship);
   g.userData.ship = { obj: ship, x: ship.position.x, y: ship.position.y };
   return g;

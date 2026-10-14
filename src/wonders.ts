@@ -456,7 +456,9 @@ function maiden() {
     add(st, new THREE.ConeGeometry(0.026, 0.012, 8), KK.cloth, x, deck + 0.045, z);
     cyl(st, 0.01, 0.01, 0.012, KK.wood, x + 0.012, deck, z + 0.008, 8);
   }
-  for (const [x, z] of [[-0.22, 0.12], [0.22, 0.12], [-0.22, -0.12], [0.22, -0.12]] as [number, number][]) lamp(st, x, z, s, 0.14);
+  // Rıhtımın dört köşesinde lamba (rıhtımın döşemesinde dururlar; deniz seviyesi değişse de)
+  const onDeck = item(st, 0, 0, 0, 1, deck - 0.03);
+  for (const [x, z] of [[-0.22, 0.12], [0.22, 0.12], [-0.22, -0.12], [0.22, -0.12]] as [number, number][]) lamp(onDeck, x, z, s, 0.14);
   // İskele: ahşap döşeme ve denize inen kazıklar
   box(st, 0.05, 0.006, 0.11, KK.wood, 0.03, deck - 0.006, 0.2);
   for (const [x, z] of [[0.008, 0.16], [0.052, 0.16], [0.008, 0.25], [0.052, 0.25]] as [number, number][]) cyl(st, 0.003, 0.003, 0.06, KK.wood, x, ys - 0.03, z, 6);
