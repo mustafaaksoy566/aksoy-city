@@ -113,14 +113,14 @@ function fireStation() {
 // --- Hastane (2x2, dünya ölçüsünde): beş katlı ana blok (kırmızı haç, tabela, çatıda helikopter pisti), camlı
 // acil kanadı, ana girişte kırmızı saçak; önde meydan (ağaçlar, banklar, çiçeklikler) ve otopark: ziyaretçi yerleri,
 // acil girişinin önünde iki ambulans yeri ---
-function hospital() {
+function hospital(level = 0) {
   const st = new THREE.Group();
   st.scale.setScalar(1 / 1.92);
   const site = SITES.health;
   box(st, 1.92, 0.03, 1.92, M.paving, 0, 0, 0);
   drawLot(st, site, -0.94, 0.94, 0.1, 0.96);
-  // Ana blok (x -0.9..0.1, z -0.9..-0.3)
-  const H = 0.95;
+  // Ana blok (x -0.9..0.1, z -0.9..-0.3); yükseltildikçe bir kat daha
+  const H = 0.95 + level * 0.16;
   st.add(part(KIT.facadeBox(1.0, H, 0.6, 0.03), KIT.BAND[0], -0.4, 0.03 + H / 2, -0.6));
   box(st, 1.02, 0.03, 0.62, M.white, -0.4, 0.03 + H, -0.6);
   // Kırmızı haç ve tabela (ön yüzde)
@@ -160,7 +160,7 @@ function hospital() {
 
 // --- Okul (2x2, dünya ölçüsünde): iki katlı tuğla bina (sütunlu giriş, saat, tabela), önünde okul bahçesi
 // (basketbol sahası, bayrak direği, banklar), sağda koşu pisti ve futbol sahası, önde öğretmenlerin otoparkı ---
-function school() {
+function school(level = 0) {
   const st = new THREE.Group();
   st.scale.setScalar(1 / 1.92);
   const site = SITES.school;
@@ -169,7 +169,7 @@ function school() {
   box(st, 1.1, 0.004, 0.62, M.paving, -0.37, 0.03, -0.17);
   drawLot(st, site, -0.94, 0.14, 0.1, 0.96);
   // Bina (x -0.92..0.18, z -0.92..-0.48)
-  const W = 1.1, D = 0.44, H = 0.36, cx = -0.37, cz = -0.7, front = cz + D / 2;
+  const W = 1.1, D = 0.44, H = 0.36 + level * 0.13, cx = -0.37, cz = -0.7, front = cz + D / 2; // yükseldikçe kat çıkar
   st.add(part(KIT.facadeBox(W, H, D, 0.03), KIT.BRICK[1], cx, 0.03 + H / 2, cz));
   box(st, W + 0.02, 0.025, D + 0.02, M.white, cx, 0.03 + H, cz);
   // Giriş: beyaz sütunlar ve alınlık, saat, tabela, kapı
@@ -233,11 +233,12 @@ export function makeHall(): THREE.Object3D {
 }
 
 // fp: kapladığı alan (karakol ve itfaiye 2x2 ve otoparklı; eski kayıtlarda kalan 1x1 olanlar eski çizimiyle)
-export function makeService(kind: ServiceKind, fp = FOOTPRINT[kind] ?? 1): THREE.Object3D {
-  if (kind === 'police') return fp === 2 ? makePolice2() : police();
-  if (kind === 'fire') return fp === 2 ? makeFire2() : fireStation();
-  if (kind === 'health') return hospital();
-  return school();
+// level: yükseltme seviyesi (bina kat çıkar)
+export function makeService(kind: ServiceKind, fp = FOOTPRINT[kind] ?? 1, level = 0): THREE.Object3D {
+  if (kind === 'police') return fp === 2 ? makePolice2(level) : police();
+  if (kind === 'fire') return fp === 2 ? makeFire2(level) : fireStation();
+  if (kind === 'health') return hospital(level);
+  return school(level);
 }
 
 // Polis ve itfaiye ışıkları sırayla yanıp sönsün

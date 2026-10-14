@@ -1669,7 +1669,15 @@ export class CityView {
       o = makeHall();
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isService(t.kind)) {
-      o = makeService(t.kind, t.fp ?? 1);
+      // Yükseltilmiş hizmet binası: katları artmış model ve yıldızlı tabela
+      o = makeService(t.kind, t.fp ?? 1, t.level);
+      if (t.level > 0) {
+        const w = new THREE.Group();
+        w.add(o);
+        w.add(starSign(t.level, 1 / ((t.fp ?? 1) * 0.96)));
+        w.userData = o.userData;
+        o = w;
+      }
       o.rotation.y = (FACING_TURNS[t.facing] * Math.PI) / 2;
     } else if (isDecor(t.kind)) {
       o = t.kind === 'parking' && t.level > 0 ? parkingGarage(t.level) : t.kind === 'metro' ? metro(t.level) : t.kind === 'airport' && t.level > 0 ? bigAirport() : makeDecor(t.kind);

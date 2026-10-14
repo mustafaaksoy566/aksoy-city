@@ -1,6 +1,6 @@
 import {
   RES_LEVELS, COM_LEVELS, UTILITIES, SERVICES, SERVICE_KINDS, TOOL_INFO, POP_PER_COM_LEVEL, PARK_RADIUS,
-  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
+  MATERIALS, MAT_IDS, MAKER_LEVELS, UTIL_LEVELS, SERVICE_LEVELS, serviceRadius, serviceUpkeep, utilUpkeep, PARKING_LEVELS, METRO_LEVELS, DEPOT_STORAGE, FIRE, QUAKE, HALL_INFO, DECOR, PLOT, PLOTS, NORTH, LEVEL_XP,
   INDUSTRY, TAX_PER_JOB, BUILD_GROUPS, MAKERS, ROAD_GRADES, TRAFFIC, COST, UNLOCK, UNDERPASS, SIZE, DAY_SECONDS, perDay, dayNumber, AIRPORT_LEVELS, FOOTPRINT, type MatId, type BuildTool,
 } from './config';
 import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './city';
@@ -39,6 +39,7 @@ export interface CardActions {
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
   upgradeUtil(i: number): void;
+  upgradeService(i: number): void;
   upgradeParking(i: number): void;
   upgradeMetro(i: number): void;
   upgradeAirport(i: number): void;
@@ -235,11 +236,11 @@ function citizenWants(city: City): Want[] {
     fire: ['🔥', '"Yangın var, itfaiye yetişsin!"', n => `${fmt(n)} binada yangın · kartından söndür`, 1000],
     damaged: ['🏚️', '"Depremde evimiz hasar gördü"', n => `${fmt(n)} ev · kartından onar`, 900],
     road: ['🛣️', '"Evimizin yolu şehre bağlı değil"', n => `${fmt(n)} ev · yolu şehir girişine bağla`, 800],
-    utility: ['⚡', '"Elektrik ve su yetmiyor"', n => `${fmt(n)} ev bekliyor · santral ya da su pompası kur`, 700],
+    utility: ['⚡', '"Elektrik ve su yetmiyor"', n => `${fmt(n)} ev bekliyor · santral ya da su pompasını yükselt (yoksa kur)`, 700],
     traffic: ['🚗', '"Trafik çok sıkışık"', n => `${fmt(n)} kare yol tıkalı · cadde, alt geçit, metro`, 3],
     park: ['🌳', '"Evimizin yakınında park olsun"', n => `${fmt(n)} ev · büyümek için yakında park`, 1],
     shop: ['🛍️', '"Alışveriş yapacak dükkân yok"', n => `${fmt(n)} ev · büyümek için dükkân`, 1],
-    service: ['🚒', '"Hizmetler mahallemize ulaşmıyor"', n => `${fmt(n)} ev · eksik: ${svcText}`, 1],
+    service: ['🚒', '"Hizmetler mahallemize ulaşmıyor"', n => `${fmt(n)} ev · eksik: ${svcText} · yakındakini yükselt ya da yenisini kur`, 1],
     decor: ['🗽', '"Mahallemize bir simge yapı"', n => `${fmt(n)} ev · 6. seviye için yakında simge yapı`, 1],
     boulevard: ['🌷', '"Önümüzdeki yol bulvar ya da cadde olsun"', n => `${fmt(n)} ev · 7. seviye için`, 1],
     metro: ['🚇', '"Yakına metro ya da tren istasyonu"', n => `${fmt(n)} ev · 8. seviye için`, 1],
@@ -258,8 +259,8 @@ export function describeBudget(city: City, act: CardActions): InfoCard {
   const upkeep = { util: 0, service: 0, industry: 0, decor: 0 };
   for (const t of city.tiles) {
     if (!t) continue;
-    if (isUtility(t.kind)) upkeep.util += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
-    else if (isService(t.kind)) upkeep.service += SERVICES[t.kind].upkeep;
+    if (isUtility(t.kind)) upkeep.util += utilUpkeep(t.kind, t.level);
+    else if (isService(t.kind)) upkeep.service += serviceUpkeep(t.kind, t.level);
     else if (isIndustry(t.kind)) upkeep.industry += INDUSTRY[t.kind].upkeep;
     else if (isDecor(t.kind)) upkeep.decor += DECOR[t.kind].upkeep;
   }
@@ -749,22 +750,32 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
 
   if (isUtility(t.kind)) {
     const u = UTILITIES[t.kind];
-    const mult = UTIL_LEVELS[t.level]?.mult ?? 1;
-    const next = UTIL_LEVELS[t.level + 1];
+    const list = UTIL_LEVELS[t.kind];
+    const mult = list[t.level]?.mult ?? 1;
+    const next = list[t.level + 1];
     const cost = city.utilUpgradeCost(i);
     const blocker = city.utilUpgradeBlocker(i);
+    const base = u.power || u.water;
+    const what = u.power ? 'elektrik' : 'su';
     const lines: InfoCard['lines'] = [road];
-    if (next) lines.push({ text: `⬆️ Yükseltince bina büyür, aynı yerde ${next.mult} kat ${u.power ? 'elektrik' : 'su'} verir.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
+    if (next) lines.push({ text: `⬆️ Yükseltince bina büyür, aynı yerde ${fmt(base * next.mult)} ${what} verir (şimdi ${fmt(base * mult)}).${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
     else lines.push({ text: '⭐ En üst seviyede: en çok üretim.' });
+    // Küçük yapılar başlangıç için: daha çoğu için bir üst yapıyı göster (şehir santralle dolmasın)
+    const bigger: Partial<Record<string, [BuildTool, string]>> = { wind: ['solar', 'güneş tarlası'], solar: ['plant', 'santral'], tower: ['pump', 'su pompası'] };
+    const up = bigger[t.kind];
+    const big = t.kind === 'plant' ? 'santral' : 'su pompası';
+    if (up) lines.push({ text: `💡 Şehir büyüyünce bunlardan çok kurmak yerine ${up[1]} kur ve yükselt: ${up[0] === 'solar' ? '4' : '10'} kata kadar üretir (şehir seviyesi ${UNLOCK[up[0]] ?? 1}'te açılır).` });
+    else if (next) lines.push({ text: `💡 Yeni ${big} kurmak yerine bunu yükselt: en üst seviyede ${fmt(base * list[list.length - 1].mult)} ${what} verir.` });
+    else lines.push({ text: `💡 Bu da yetmezse bir ${big} daha kur; iki tanesi koca bir şehre yeter.` });
     return {
       title: TOOL_INFO[t.kind].label,
       subtitle: u.power ? 'Elektrik üretir' : 'Su verir',
       thumb: t.kind,
       tone: groupColor(t.kind),
       stats: [
-        { icon: u.power ? '⚡' : '💧', value: `+${(u.power || u.water) * mult}`, label: u.power ? 'Elektrik' : 'Su' },
-        { icon: '⭐', value: `${t.level + 1}/${UTIL_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
-        { icon: '🔧', value: `−${fmt(Math.round(perDay(u.upkeep * (1 + t.level * 0.5))))}`, label: 'Günlük bakım' },
+        { icon: u.power ? '⚡' : '💧', value: `+${fmt(base * mult)}`, label: u.power ? 'Elektrik' : 'Su' },
+        { icon: '⭐', value: `${t.level + 1}/${list.length}`, label: 'Seviye', good: t.level > 0 },
+        { icon: '🔧', value: `−${fmt(Math.round(perDay(utilUpkeep(t.kind, t.level))))}`, label: 'Günlük bakım' },
       ],
       lines,
       actions: next && cost !== null
@@ -775,18 +786,28 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
 
   if (isService(t.kind)) {
     const s = SERVICES[t.kind];
-    const homes = serviceArea(i, t.kind, t.fp ?? 1).filter(c => city.tiles[c]?.kind === 'res' && city.tiles[c]!.level > 0).length;
+    const homes = serviceArea(i, t.kind, t.fp ?? 1, t.level).filter(c => city.tiles[c]?.kind === 'res' && city.tiles[c]!.level > 0).length;
+    const next = SERVICE_LEVELS[t.level + 1];
+    const cost = city.serviceUpgradeCost(i);
+    const blocker = city.serviceUpgradeBlocker(i);
+    const lines: InfoCard['lines'] = [road];
+    if (next) lines.push({ text: `⬆️ Yükseltince kat çıkar, alanı ${serviceRadius(t.kind, t.level + 1)} kareye büyür. Şehir büyüyünce yenisini kurmak yerine yükselt.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
+    else lines.push({ text: '⭐ En üst seviyede: en geniş alan.' });
     return {
       title: TOOL_INFO[t.kind].label,
       subtitle: 'Hizmet binası',
       thumb: t.kind,
       tone: s.color,
       stats: [
-        { icon: '📏', value: `${s.radius} kare`, label: 'Kapsama' },
+        { icon: '📏', value: `${serviceRadius(t.kind, t.level)} kare`, label: 'Kapsama' },
         { icon: '🏠', value: fmt(homes), label: 'Konut' },
-        { icon: '🔧', value: `−${fmt(perDay(s.upkeep))}`, label: 'Günlük bakım' },
+        { icon: '⭐', value: `${t.level + 1}/${SERVICE_LEVELS.length}`, label: 'Seviye', good: t.level > 0 },
+        { icon: '🔧', value: `−${fmt(Math.round(perDay(serviceUpkeep(t.kind, t.level))))}`, label: 'Günlük bakım' },
       ],
-      lines: [road],
+      lines,
+      actions: next && cost !== null
+        ? [{ label: `Yükselt ⭐${t.level + 2}  💰${fmt(cost)}`, enabled: blocker === null, primary: true, run: () => act.upgradeService(i) }]
+        : undefined,
     };
   }
   return null;

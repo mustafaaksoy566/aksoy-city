@@ -3,6 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import {
   SIZE, ROWS, X0, Z0, PLOT, PLOTS, DAY_SECONDS, dayNumber, ON_SEA, COST, TOOL_INFO, SERVICES, DECOR, UTILITIES, ALL_MODELS, ENTRANCE_Z, ENTRANCE_LEN, MATERIALS, MAT_IDS, UNLOCK,
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
+  UTIL_LEVELS, serviceRadius, type UtilKind,
 } from './config';
 import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block, isSeaXZ } from './city';
 import {
@@ -402,6 +403,19 @@ const cardActions: CardActions = {
     }
     afterChange();
   },
+  upgradeService(i) {
+    const err = city.upgradeService(i);
+    if (err) {
+      toast(err, 'error');
+      play('error', 0.3);
+    } else {
+      const t = city.tiles[i]!;
+      view.refresh([i], true);
+      play('grow', 0.6);
+      toast(`⭐ ${TOOL_INFO[t.kind as BuildTool].label} ${t.level + 1}. seviyeye yükseldi: alanı ${serviceRadius(t.kind as ServiceKind, t.level)} kareye büyüdü!`);
+    }
+    afterChange();
+  },
   upgradeUtil(i) {
     const err = city.upgradeUtility(i);
     if (err) {
@@ -411,7 +425,8 @@ const cardActions: CardActions = {
       const t = city.tiles[i]!;
       view.refresh([i], true);
       play('grow', 0.6);
-      toast(`⭐ ${TOOL_INFO[t.kind as BuildTool].label} ${t.level + 1}. seviyeye yükseldi: ${t.level + 1} kat üretiyor!`);
+      const u = UTILITIES[t.kind as UtilKind];
+      toast(`⭐ ${TOOL_INFO[t.kind as BuildTool].label} ${t.level + 1}. seviyeye yükseldi: ${fmt((u.power || u.water) * UTIL_LEVELS[t.kind as UtilKind][t.level].mult)} ${u.power ? 'elektrik' : 'su'} üretiyor!`);
     }
     afterChange();
   },

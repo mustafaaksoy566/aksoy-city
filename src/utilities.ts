@@ -109,6 +109,21 @@ function steamTexture() {
 }
 // Soğutma kulesi yerleri [x, z, yarıçap]: birbirine, bacaya, binaya ve trafo sahasına değmez (seviyeyle biri daha)
 const COOLERS: [number, number, number][] = [[0.22, -0.22, 0.2], [-0.16, -0.29, 0.15], [0.3, 0.17, 0.13]];
+// Kabuğun içi: aynı yüzey biraz küçük, yüzleri ve normalleri içe dönük (mergeStatic malzemenin side ayarını
+// korumaz; arka yüze güvenmeden iç duvar ayrı yüzey olarak çizilir)
+function insideOf(geo: THREE.BufferGeometry) {
+  const g = geo.clone().scale(0.985, 1, 0.985);
+  const idx = g.index!.array;
+  for (let k = 0; k < idx.length; k += 3) [idx[k + 1], idx[k + 2]] = [idx[k + 2], idx[k + 1]];
+  const n = g.attributes.normal as THREE.BufferAttribute;
+  for (let k = 0; k < n.count; k++) n.setXYZ(k, -n.getX(k), -n.getY(k), -n.getZ(k));
+  return g;
+}
+const COOLER = {
+  shell: new THREE.MeshStandardMaterial({ color: '#dedbd4', roughness: 0.95 }),
+  inside: new THREE.MeshStandardMaterial({ color: '#6f6b64', roughness: 1 }),
+  steam: new THREE.MeshStandardMaterial({ color: '#f7f8fa', roughness: 1 }),
+};
 function powerPlant(level: number) {
   const g = new THREE.Group();
   const st = new THREE.Group();
@@ -126,20 +141,30 @@ function powerPlant(level: number) {
     add(st, new THREE.SphereGeometry(0.012, 8, 6), lamp(), x, 0.04 + ch, z);
   };
   chimney(-0.38, -0.06, 0.95 + level * 0.12, 0.045);
-  if (level >= 3) chimney(-0.27, -0.06, 0.8, 0.036);
-  // Soğutma kuleleri: seviye arttıkça bir tane daha (en çok üç; yerleri birbirine değmez)
+  if (level >= 4) chimney(-0.27, -0.06, 0.8 + (level - 4) * 0.12, 0.036);
+  // Soğutma kuleleri: seviye arttıkça bir tane daha (en çok üç; yerleri birbirine değmez). Dışı açık beton,
+  // içi koyu; ağzı yoğun buharla dolu (yukarıdan bakınca içi boş bir kâse gibi görünmesin)
   const n = Math.min(COOLERS.length, 1 + level);
   const tops: [THREE.Vector3, number][] = [];
-  const shell = new THREE.MeshStandardMaterial({ color: '#dedbd4', roughness: 0.95, side: THREE.DoubleSide });
   for (let k = 0; k < n; k++) {
     const [x, z, r] = COOLERS[k];
     const h = r * 3.4;
-    add(st, hyperboloid(r, h), shell, x, 0.03, z);
+    const body = hyperboloid(r, h);
+    add(st, body, COOLER.shell, x, 0.03, z);
+    add(st, insideOf(body), COOLER.inside, x, 0.03, z);
     add(st, new THREE.CylinderGeometry(r * 0.7, r * 0.7, 0.012, 24, 1, true), M.darkConcrete, x, 0.03 + h - 0.006, z);
     add(st, new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.02, 24, 1, true), M.darkConcrete, x, 0.04, z);
+    // Ağızdan taşan buhar: içi kapatan beyaz yüzey ve üstünde hafif kabarık buhar tümseği
+    add(st, new THREE.CircleGeometry(r * 0.69, 24).rotateX(-Math.PI / 2), COOLER.steam, x, 0.03 + h - 0.04, z);
+    const mound = add(st, new THREE.SphereGeometry(r * 0.66, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2), COOLER.steam, x, 0.03 + h - 0.035, z);
+    mound.scale.y = 0.42;
     tops.push([new THREE.Vector3(x, 0.03 + h, z), r]);
   }
-  // En üst seviyede kömür siloları (sol arka köşe)
+  // Yüksek seviyelerde kömür siloları (sol arka köşe), en üstte türbin binasına bir kat daha
+  if (level >= 5) {
+    st.add(part(KIT.facadeBox(0.4, 0.1, 0.24, 0.03), KIT.METAL[0], -0.24, 0.335, 0.22));
+    box(st, 0.42, 0.016, 0.26, M.darkSteel, -0.24, 0.385, 0.22);
+  }
   if (level >= 3) {
     for (const z of [-0.42, -0.31]) {
       add(st, new THREE.CylinderGeometry(0.042, 0.042, 0.26, 14), M.concrete, -0.42, 0.16, z);
@@ -164,7 +189,7 @@ function powerPlant(level: number) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTexture(), transparent: true, depthWrite: false, opacity: 0 }));
       s.userData.phase = p / 4 + k * 0.13;
       s.userData.base = top;
-      s.userData.size = r * 2.4; // kulenin ağzı kadar başlar, yükseldikçe büyür
+      s.userData.size = r * (2.3 + level * 0.12); // kulenin ağzı kadar başlar, yükseldikçe büyür
       s.userData.steam = true;
       puffs.push(s);
       g.add(s);
@@ -318,26 +343,35 @@ function waterTower(level: number) {
 function waterPump(level: number) {
   const st = new THREE.Group();
   box(st, 0.96, 0.03, 0.96, M.concrete, 0, 0, 0);
-  // Pompa binası
-  st.add(part(KIT.facadeBox(0.4, 0.2, 0.26, 0.03), KIT.BAND[1], -0.24, 0.13, 0.26));
-  box(st, 0.42, 0.02, 0.28, M.blue, -0.24, 0.23, 0.26);
+  // Pompa binası (yüksek seviyelerde bir kat daha)
+  const bh = level >= 4 ? 0.32 : 0.2;
+  st.add(part(KIT.facadeBox(0.4, bh, 0.26, 0.03), KIT.BAND[1], -0.24, 0.03 + bh / 2, 0.26));
+  box(st, 0.42, 0.02, 0.28, M.blue, -0.24, 0.03 + bh, 0.26);
   box(st, 0.1, 0.09, 0.012, M.darkSteel, -0.24, 0.03, 0.395);
-  // Yuvarlak havuzlar (seviyeyle artar)
-  const tanks: [number, number][] = [[0.22, -0.22], [-0.2, -0.24], [0.26, 0.2], [-0.02, 0.0]];
+  // Arıtma havuzları (seviyeyle artar; birbirine, binaya ve borulara değmez)
+  const tanks: [number, number][] = [[0.27, -0.27], [-0.06, -0.27], [0.27, 0.06], [-0.3, -0.08]];
   const n = Math.min(tanks.length, 2 + level);
   for (let k = 0; k < n; k++) {
     const [x, z] = tanks[k];
-    add(st, new THREE.CylinderGeometry(0.17, 0.17, 0.08, 28, 1, true), M.darkConcrete, x, 0.07, z);
-    add(st, new THREE.CylinderGeometry(0.165, 0.165, 0.02, 28), M.water, x, 0.09, z);
+    add(st, new THREE.CylinderGeometry(0.15, 0.15, 0.08, 28, 1, true), M.darkConcrete, x, 0.07, z);
+    add(st, new THREE.CylinderGeometry(0.145, 0.145, 0.02, 28), M.water, x, 0.09, z);
     add(st, new THREE.CylinderGeometry(0.02, 0.02, 0.06, 8), M.steel, x, 0.12, z);
-    const bridge = add(st, new THREE.BoxGeometry(0.34, 0.012, 0.02), M.yellow, x, 0.12, z);
+    const bridge = add(st, new THREE.BoxGeometry(0.3, 0.012, 0.02), M.yellow, x, 0.12, z);
     bridge.rotation.y = k * 0.7;
   }
-  // Borular
+  // Temiz su depoları: 3. seviyeden biri, en üstte ikincisi (mavi bantlı, kubbeli)
+  const reservoir = (x: number, z: number, r: number, h: number) => {
+    add(st, new THREE.CylinderGeometry(r, r, h, 24), M.white, x, 0.03 + h / 2, z);
+    add(st, new THREE.CylinderGeometry(r + 0.003, r + 0.003, 0.03, 24, 1, true), M.blue, x, 0.03 + h * 0.7, z);
+    add(st, new THREE.SphereGeometry(r, 24, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.35, 1), M.white, x, 0.03 + h, z);
+  };
+  if (level >= 3) reservoir(-0.03, 0.0, 0.08, 0.26);
+  if (level >= 5) reservoir(0.1, 0.32, 0.07, 0.22);
+  // Borular: binadan havuzların arasına
   const blue = pm('#2f7fc1', 0.4, 0.3);
-  const p1 = add(st, new THREE.CylinderGeometry(0.016, 0.016, 0.5, 8), blue, 0, 0.06, 0.12);
+  const p1 = add(st, new THREE.CylinderGeometry(0.016, 0.016, 0.14, 8), blue, 0.03, 0.06, 0.2);
   p1.rotation.z = Math.PI / 2;
-  const p2 = add(st, new THREE.CylinderGeometry(0.016, 0.016, 0.4, 8), blue, 0.05, 0.06, -0.05);
+  const p2 = add(st, new THREE.CylinderGeometry(0.016, 0.016, 0.32, 8), blue, 0.1, 0.06, 0.04);
   p2.rotation.x = Math.PI / 2;
   // Çimler ve çit
   box(st, 0.2, 0.01, 0.2, M.grass, 0.33, 0.03, 0.38);

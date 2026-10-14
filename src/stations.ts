@@ -102,7 +102,7 @@ function hydrant(st: THREE.Object3D, x: number, z: number) {
 // helikopter pisti, uydu çanağı, klimalar ve yanıp sönen ışıklar. Önde meydan (ağaçlar, banklar) ve otopark:
 // solda ziyaretçi yerleri, sağda polis arabalarının yerleri.
 // =====================================================================================================
-export function makePolice2() {
+export function makePolice2(level = 0) {
   const site = SITES.police;
   const g = new THREE.Group();
   const st = new THREE.Group();
@@ -111,8 +111,8 @@ export function makePolice2() {
   drawLot(st, site, -0.94, 0.94, 0.1, 0.96);
   const [dx, dz] = site.door;
   walkway(st, -0.94, 0.94, dx);
-  // Ana bina (x -0.88..0.36, z -0.88..-0.38)
-  const W = 1.24, D = 0.5, H = 0.42, cx = -0.26, cz = -0.63, front = cz + D / 2;
+  // Ana bina (x -0.88..0.36, z -0.88..-0.38); yükseltildikçe bir kat daha
+  const W = 1.24, D = 0.5, H = 0.42 + level * 0.13, cx = -0.26, cz = -0.63, front = cz + D / 2;
   st.add(part(KIT.facadeBox(W, H, D, 0.03), KIT.BAND[1], cx, 0.03 + H / 2, cz));
   box(st, W + 0.012, 0.04, D + 0.012, BLUE, cx, 0.4, cz);
   flatRoof(st, cx, cz, W, D, 0.03 + H, M.white);
@@ -170,7 +170,7 @@ export function makePolice2() {
 // kepenkler), büyük İTFAİYE tabelası, hortum kulesi; önlerinde sarı çizgili çıkış alanı. Sağda iki katlı ofis ve
 // yatakhane (kırmızı saçaklı kapı), önünde çalışanların otoparkı. Çatıda siren ve yanıp sönen ışıklar.
 // =====================================================================================================
-export function makeFire2() {
+export function makeFire2(level = 0) {
   const site = SITES.fire;
   const g = new THREE.Group();
   const st = new THREE.Group();
@@ -205,8 +205,8 @@ export function makeFire2() {
   st.add(part(KIT.facadeBox(0.16, 0.98, 0.16, 0.03), KIT.BRICK[0], -0.8, 0.03 + 0.49, -0.78));
   box(st, 0.18, 0.03, 0.18, M.white, -0.8, 1.0, -0.78);
   add(st, new THREE.ConeGeometry(0.14, 0.12, 4).rotateY(Math.PI / 4), DARK, -0.8, 1.09, -0.78);
-  // Ofis ve yatakhane (x 0.18..0.92, z -0.92..-0.4)
-  const oW = 0.74, oD = 0.52, oH = 0.34, ox = 0.55, oz = -0.66, of = oz + oD / 2;
+  // Ofis ve yatakhane (x 0.18..0.92, z -0.92..-0.4); yükseltildikçe yatakhaneye kat çıkar
+  const oW = 0.74, oD = 0.52, oH = 0.34 + level * 0.12, ox = 0.55, oz = -0.66, of = oz + oD / 2;
   st.add(part(KIT.facadeBox(oW, oH, oD, 0.03), KIT.BRICK[1], ox, 0.03 + oH / 2, oz));
   box(st, oW + 0.012, 0.025, oD + 0.012, M.white, ox, 0.03 + oH - 0.025, oz);
   flatRoof(st, ox, oz, oW, oD, 0.03 + oH, M.white);

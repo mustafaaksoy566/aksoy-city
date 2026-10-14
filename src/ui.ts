@@ -1,5 +1,5 @@
 import {
-  BUILD_GROUPS, TOOL_INFO, COST, FOOTPRINT, UTILITIES, SERVICES, DECOR, MATERIALS, MAT_IDS, DEPOT_STORAGE,
+  BUILD_GROUPS, TOOL_INFO, COST, FOOTPRINT, UTILITIES, SERVICES, SERVICE_LEVELS, serviceRadius, UTIL_LEVELS, DECOR, MATERIALS, MAT_IDS, DEPOT_STORAGE,
   RES_LEVELS, HOUSE_PRICE, houseName, perDay,
   type Tool, type BuildTool, type BuildGroup,
 } from './config';
@@ -42,9 +42,10 @@ export function setThumbs(map: Map<string, string>) {
 function effectOf(t: BuildTool): string {
   if (isUtility(t)) {
     const u = UTILITIES[t];
-    return u.power ? `⚡ +${u.power} elektrik` : `💧 +${u.water} su`;
+    const top = UTIL_LEVELS[t][UTIL_LEVELS[t].length - 1].mult;
+    return u.power ? `⚡ +${u.power} elektrik · en çok ${u.power * top}` : `💧 +${u.water} su · en çok ${u.water * top}`;
   }
-  if (isService(t)) return `📏 ${SERVICES[t].radius} kare alan`;
+  if (isService(t)) return `📏 ${SERVICES[t].radius} kare alan · yükseltince ${serviceRadius(t, SERVICE_LEVELS.length - 1)}`;
   if (isDecor(t)) {
     const d = DECOR[t];
     if (t === 'station') return '🚆 Tren seferleri';
@@ -687,9 +688,13 @@ const HELP: [string, string, string[]][] = [
     'Belediye vergileri biriktirir; belediyeye dokunup parayı topla.',
   ]],
   ['⚡', 'Elektrik ve su', [
-    'Rüzgâr türbini, güneş paneli ya da santral elektrik; su kulesi ya da pompa su verir.',
+    'Başta rüzgâr türbini ve su kulesi yeter. Şehir büyüyünce güneş tarlası, sonra santral ve su pompası açılır.',
     'Üstteki ⚡ ve 💧 göstergeleri ihtiyacı ve üretimi gösterir; yetmezse evler boşalır.',
-    'Bu binalar yükseltilince aynı yerde daha çok üretir.',
+    'Yenisini kurmak yerine yükselt: santral ve pompa en üst seviyede 10 kat üretir, iki tanesi koca şehre yeter.',
+  ]],
+  ['🚒', 'Hizmet binaları', [
+    'İtfaiye, polis, hastane ve okul çevrelerindeki evlere hizmet verir.',
+    'Yükseltince kat çıkar ve alanı büyür (en üst seviyede 15 kare); birkaç tanesi bütün şehre yeter.',
   ]],
   ['🏠', 'Evleri büyütmek', [
     'Evin kartında "Yükselt" ile ev büyür; gereken malzemeler kartta resimleriyle yazar.',

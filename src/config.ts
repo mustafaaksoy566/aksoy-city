@@ -52,24 +52,49 @@ export const TAX_PER_JOB = 0.5; // iş yeri başına günlük vergi
 export const ENTRANCE_Z = Z0;
 export const ENTRANCE_LEN = PLOT * START_PLOT_MIN + 3;
 
-// Elektrik ve su yapıları
+// Elektrik ve su yapıları. Şehir büyüdükçe yenisini kurmak yerine olanlar yükseltilir (şehir santralle dolmasın):
+// başta türbin ve su kulesi yeter (küçük, az yükselir), sonra güneş tarlası (orta), büyük şehirde santral ve su
+// pompası (pahalı ama çok güçlü, en üst seviyede on kat üretir: iki tanesi koca şehre yeter)
 export type UtilKind = 'wind' | 'solar' | 'plant' | 'tower' | 'pump';
 export const UTILITIES: Record<UtilKind, { power: number; water: number; upkeep: number }> = {
   wind: { power: 12, water: 0, upkeep: 2 },
-  solar: { power: 25, water: 0, upkeep: 1 },
-  plant: { power: 80, water: 0, upkeep: 10 },
+  solar: { power: 40, water: 0, upkeep: 3 },
+  plant: { power: 200, water: 0, upkeep: 20 },
   tower: { power: 0, water: 12, upkeep: 2 },
-  pump: { power: 0, water: 80, upkeep: 8 },
+  pump: { power: 0, water: 200, upkeep: 18 },
 };
 export const UTIL_KINDS = Object.keys(UTILITIES) as UtilKind[];
-// Elektrik ve su yapıları yükseltilir: bina büyür, aynı yerde kat kat daha çok üretir (az yer kaplasın diye).
-// cost: yapının fiyatının kaç katı, level: gereken şehir seviyesi
-export const UTIL_LEVELS = [
+// Yükseltme seviyeleri (yapı türüne göre): bina büyür, aynı yerde kat kat daha çok üretir.
+// mult: üretim katı, cost: yapının fiyatının kaç katı, level: gereken şehir seviyesi
+type UtilLevel = { mult: number; cost: number; level: number };
+const SMALL_UTIL: UtilLevel[] = [
   { mult: 1, cost: 0, level: 0 },
-  { mult: 2, cost: 1.5, level: 4 },
-  { mult: 3, cost: 3, level: 7 },
-  { mult: 4, cost: 5, level: 10 },
+  { mult: 1.5, cost: 1, level: 2 },
+  { mult: 2, cost: 2, level: 4 },
+  { mult: 2.5, cost: 3, level: 6 },
 ];
+const BIG_UTIL: UtilLevel[] = [
+  { mult: 1, cost: 0, level: 0 },
+  { mult: 2, cost: 1.5, level: 8 },
+  { mult: 3.5, cost: 3, level: 10 },
+  { mult: 5, cost: 5, level: 12 },
+  { mult: 7, cost: 8, level: 14 },
+  { mult: 10, cost: 12, level: 16 },
+];
+export const UTIL_LEVELS: Record<UtilKind, UtilLevel[]> = {
+  wind: SMALL_UTIL,
+  tower: SMALL_UTIL,
+  solar: [
+    { mult: 1, cost: 0, level: 0 },
+    { mult: 2, cost: 1.5, level: 4 },
+    { mult: 3, cost: 3, level: 6 },
+    { mult: 4, cost: 5, level: 8 },
+  ],
+  plant: BIG_UTIL,
+  pump: BIG_UTIL,
+};
+// Yükseltme bakımı da artırır (seviye başına yarım kat)
+export const utilUpkeep = (kind: UtilKind, level: number) => UTILITIES[kind].upkeep * (1 + level * 0.5);
 
 // Metro istasyonu yükseltilir: daha geniş alan. Hatla başka bir istasyona bağlanınca alanı ve etkisi büyür.
 export const METRO_LEVELS = [
@@ -101,6 +126,17 @@ export const SERVICES: Record<ServiceKind, { radius: number; upkeep: number; col
   school: { radius: 6, upkeep: 8, color: '#ffa000', name: 'Okul' },
 };
 export const SERVICE_KINDS = Object.keys(SERVICES) as ServiceKind[];
+// Hizmet binaları da yükseltilir: kat çıkar, kapsama alanı büyür (şehir büyüdükçe yenisi yerine yükselt; en üst
+// seviyede birkaç tanesi bütün şehre yeter). add: alana eklenen kare, cost: yapının fiyatının kaç katı,
+// level: gereken şehir seviyesi
+export const SERVICE_LEVELS = [
+  { add: 0, cost: 0, level: 0 },
+  { add: 3, cost: 3, level: 5 },
+  { add: 6, cost: 6, level: 8 },
+  { add: 9, cost: 10, level: 11 },
+];
+export const serviceRadius = (kind: ServiceKind, level = 0) => SERVICES[kind].radius + (SERVICE_LEVELS[level]?.add ?? 0);
+export const serviceUpkeep = (kind: ServiceKind, level = 0) => SERVICES[kind].upkeep * (1 + level * 0.5);
 
 // Sanayi: fabrika ham madde üretir; hırdavatçı, pazar ve mobilyacı onlardan ürün yapar; depo yer açar
 export type IndustryKind = 'factory' | 'store' | 'market' | 'furniture' | 'bakery' | 'fashion' | 'garden' | 'cafe' | 'electro' | 'depot' | 'trade' | 'port';
@@ -328,7 +364,7 @@ export const TRAFFIC = {
 
 export const COST: Record<BuildTool, number> = {
   road: 10, boulevard: 50, avenue: 150, rail: 25, tunnel: 60, underpass: 3000, res: 20, com: 30, park: 60, bulldoze: 0, station: 2000,
-  wind: 300, solar: 700, plant: 1500, tower: 250, pump: 1200, trade: 1200, busstop: 150, parking: 150,
+  wind: 300, solar: 900, plant: 4000, tower: 250, pump: 3500, trade: 1200, busstop: 150, parking: 150,
   police: 500, fire: 500, health: 800, school: 600,
   factory: 400, store: 600, depot: 300, market: 800, furniture: 1200, uni: 6000, airport: 20000,
   bakery: 1500, fashion: 2000, garden: 2500, cafe: 3000, electro: 4000, port: 8000, beach: 3000, metro: 4000, clocktower: 1200, museum: 7000, funfair: 9000, lighthouse: 2500, marina: 6000,
@@ -360,8 +396,8 @@ export const UNLOCK: Partial<Record<BuildTool, number>> = {
   com: 2, depot: 2, police: 2, busstop: 2,
   store: 3, fire: 3, solar: 3, trade: 3,
   rail: 4, station: 4, tunnel: 10, underpass: 8,
-  health: 4, plant: 4,
-  school: 5, pump: 5,
+  health: 4, plant: 7,
+  school: 5, pump: 6,
   fountain: 2, statue: 3, wheel: 5, stadium: 6,
   market: 4, furniture: 6, uni: 7, airport: 9,
   beach: 6, bakery: 7, port: 8, fashion: 8, garden: 9, cafe: 10, electro: 12, metro: 10, clocktower: 4, museum: 8, funfair: 9, lighthouse: 5, marina: 7,
@@ -386,11 +422,11 @@ export const TOOL_INFO: Record<Tool, { icon: string; label: string; hint: string
   com: { icon: '🏪', label: 'Ticaret', hint: 'Dükkanlar ve ofisler nüfus arttıkça gelişir.' },
   park: { icon: '🌳', label: 'Park', hint: 'Parkların yakınındaki evler daha çok büyür.' },
   bulldoze: { icon: '🚜', label: 'Yık', hint: 'Yıkmak istediğin alanı sürükle.' },
-  wind: { icon: '🌬️', label: 'Türbin', hint: 'Rüzgar türbini: az elektrik, ucuz. Yol kenarına kur.' },
-  solar: { icon: '☀️', label: 'Güneş', hint: 'Güneş paneli: temiz elektrik, kirlilik yapmaz.' },
-  plant: { icon: '🔌', label: 'Santral', hint: 'Elektrik santrali: çok elektrik üretir ama pahalı.' },
-  tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: az su, ucuz. Yol kenarına kur.' },
-  pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası: çok su verir ama pahalı.' },
+  wind: { icon: '🌬️', label: 'Türbin', hint: 'Rüzgar türbini: ucuz, başlangıç için yeter. Az elektrik verir, biraz yükseltilir.' },
+  solar: { icon: '☀️', label: 'Güneş', hint: 'Güneş tarlası: temiz elektrik. Yükselttikçe panel sırası artar, 4 kata kadar üretir.' },
+  plant: { icon: '🔌', label: 'Santral', hint: 'Elektrik santrali: büyük şehrin asıl elektriği. Yükselttikçe 10 kata kadar üretir; yenisini kurmak yerine yükselt.' },
+  tower: { icon: '💧', label: 'Su kulesi', hint: 'Su kulesi: ucuz, başlangıç için yeter. Az su verir, biraz yükseltilir.' },
+  pump: { icon: '🚰', label: 'Su pompası', hint: 'Su pompası ve arıtma tesisi: büyük şehrin asıl suyu. Yükselttikçe 10 kata kadar su verir.' },
   police: { icon: '🚓', label: 'Polis', hint: 'Polis merkezi renkli alandaki evleri korur.' },
   fire: { icon: '🚒', label: 'İtfaiye', hint: 'İtfaiye renkli alandaki evleri yangından korur.' },
   health: { icon: '🏥', label: 'Hastane', hint: 'Hastane renkli alandaki evlere sağlık hizmeti verir.' },

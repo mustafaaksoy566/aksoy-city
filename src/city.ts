@@ -6,7 +6,7 @@ import {
   HAPPY, POLLUTION_RADIUS, FIRE, CRIME, QUAKE, DECOR, DECOR_KINDS, DECOR_MAX, FOOTPRINT,
   PLOT, PLOTS, START_PLOT_MIN, START_PLOT_MAX, OLD_SIZE, LAND, RIVER, BRIDGE_COST, LUXURY_DECOR, ORDERS, NEEDS_WATER, NEEDS_SEA, SAND_ROWS, ROAD_GRADES, ROAD_TOOLS, TRAFFIC,
   ROWS, PLOT_ROWS, DAY_STEPS, START_PZ_MIN, START_PZ_MAX, RIVER_ROWS, COAST_ROW, ISLAND, SEA_BRIDGE, OLD_W, NORTH, ON_SEA,
-  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS, AIRPORT_LEVELS,
+  HOUSE_PRICE, HOUSE_UNLOCK, houseVariant, UTIL_LEVELS, SERVICE_LEVELS, serviceRadius, serviceUpkeep, utilUpkeep, PARKING_LEVELS, METRO_LEVELS, METRO_LINE, UNDERPASS, AIRPORT_LEVELS,
   type BuildTool, type UtilKind, type ServiceKind, type IndustryKind, type DecorKind, type MatId,
 } from './config';
 import { emptyStats, newQuest, questDone, type CityStats, type Quest } from './quests';
@@ -73,9 +73,9 @@ export function areaAround(i: number, r: number, n = 1): number[] {
   return out;
 }
 
-// Bir hizmet binasının kapsadığı kareler (daire şeklinde)
-export function serviceArea(i: number, kind: ServiceKind, n = 1): number[] {
-  return areaAround(i, SERVICES[kind].radius, n);
+// Bir hizmet binasının kapsadığı kareler (daire şeklinde; yükseltildikçe büyür)
+export function serviceArea(i: number, kind: ServiceKind, n = 1, level = 0): number[] {
+  return areaAround(i, serviceRadius(kind, level), n);
 }
 
 export const sizeOf = (tool: BuildTool | Kind) => FOOTPRINT[tool as BuildTool] ?? 1;
@@ -784,7 +784,7 @@ export class City {
     this.tiles.forEach((t, i) => {
       if (!t || !isService(t.kind) || !this.isConnected(i)) return;
       const bit = 1 << SERVICE_KINDS.indexOf(t.kind);
-      for (const c of serviceArea(i, t.kind, t.fp ?? 1)) this.covered[c] |= bit;
+      for (const c of serviceArea(i, t.kind, t.fp ?? 1, t.level)) this.covered[c] |= bit;
     });
     // Hizmet de veren simge yapılar (üniversite = okul)
     this.tiles.forEach((t, i) => {
@@ -833,7 +833,7 @@ export class City {
     let power = 0, water = 0, powerDemand = 0, waterDemand = 0;
     this.tiles.forEach((t, i) => {
       if (t && isUtility(t.kind) && this.isConnected(i)) {
-        const mult = UTIL_LEVELS[t.level]?.mult ?? 1;
+        const mult = UTIL_LEVELS[t.kind][t.level]?.mult ?? 1;
         power += UTILITIES[t.kind].power * mult;
         water += UTILITIES[t.kind].water * mult;
       }
@@ -918,8 +918,8 @@ export class City {
     let sum = 0;
     for (const t of this.tiles) {
       if (!t) continue;
-      if (isUtility(t.kind)) sum += UTILITIES[t.kind].upkeep * (1 + t.level * 0.5);
-      if (isService(t.kind)) sum += SERVICES[t.kind].upkeep;
+      if (isUtility(t.kind)) sum += utilUpkeep(t.kind, t.level);
+      if (isService(t.kind)) sum += serviceUpkeep(t.kind, t.level);
       if (isIndustry(t.kind)) sum += INDUSTRY[t.kind].upkeep;
       if (isDecor(t.kind)) sum += DECOR[t.kind].upkeep + (t.kind === 'parking' ? t.level : t.kind === 'metro' ? t.level * 3 : 0);
     }
@@ -1134,14 +1134,14 @@ export class City {
   // Elektrik ve su yapısını yükselt: aynı yerde daha çok üretir
   utilUpgradeCost(i: number) {
     const t = this.tiles[i];
-    const next = t && isUtility(t.kind) ? UTIL_LEVELS[t.level + 1] : undefined;
+    const next = t && isUtility(t.kind) ? UTIL_LEVELS[t.kind][t.level + 1] : undefined;
     return next ? Math.round(COST[t!.kind as UtilKind] * next.cost) : null;
   }
 
   utilUpgradeBlocker(i: number): string | null {
     const t = this.tiles[i];
     if (!t || !isUtility(t.kind)) return 'Burada altyapı binası yok';
-    const next = UTIL_LEVELS[t.level + 1];
+    const next = UTIL_LEVELS[t.kind][t.level + 1];
     if (!next) return 'En üst seviyede';
     if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
     if (this.money < this.utilUpgradeCost(i)!) return 'Yeterli para yok';
@@ -1152,6 +1152,34 @@ export class City {
     const err = this.utilUpgradeBlocker(i);
     if (err) return err;
     this.money -= this.utilUpgradeCost(i)!;
+    this.tiles[i]!.level++;
+    this.addXp(XP.build * 3);
+    this.refresh();
+    return null;
+  }
+
+  // Hizmet binasını yükselt: kat çıkar, kapsama alanı büyür
+  serviceUpgradeCost(i: number) {
+    const t = this.tiles[i];
+    const next = t && isService(t.kind) ? SERVICE_LEVELS[t.level + 1] : undefined;
+    return next ? Math.round(COST[t!.kind as ServiceKind] * next.cost) : null;
+  }
+
+  serviceUpgradeBlocker(i: number): string | null {
+    const t = this.tiles[i];
+    if (!t || !isService(t.kind)) return 'Burada hizmet binası yok';
+    const next = SERVICE_LEVELS[t.level + 1];
+    if (!next) return 'En üst seviyede';
+    if ((t.fp ?? 1) < sizeOf(t.kind)) return 'Önce Taşı ile otoparklı 2x2 hâline getir';
+    if (this.level < next.level) return `Şehir seviyesi ${next.level} lazım`;
+    if (this.money < this.serviceUpgradeCost(i)!) return 'Yeterli para yok';
+    return null;
+  }
+
+  upgradeService(i: number): string | null {
+    const err = this.serviceUpgradeBlocker(i);
+    if (err) return err;
+    this.money -= this.serviceUpgradeCost(i)!;
     this.tiles[i]!.level++;
     this.addXp(XP.build * 3);
     this.refresh();
@@ -2051,6 +2079,9 @@ export class City {
   growShops() {
     this.tiles.forEach((t, i) => {
       if (!t || t.kind === 'part' || t.locked) return;
+      // Seviye listesi kısalan yapılar (eski kayıtta türbin 4. seviye olabilir) en üst seviyede kalır
+      if (isUtility(t.kind)) t.level = Math.min(t.level, UTIL_LEVELS[t.kind].length - 1);
+      if (isService(t.kind)) t.level = Math.min(t.level, SERVICE_LEVELS.length - 1);
       // Yükseltilmiş havalimanı kendi seviyesinin boyunda olmalı
       const n = t.kind === 'airport' ? Math.max(sizeOf(t.kind), AIRPORT_LEVELS[t.level]?.fp ?? 0) : sizeOf(t.kind);
       if ((t.fp ?? 1) < n) this.growBuilding(i, n);

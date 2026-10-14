@@ -125,14 +125,21 @@ place('beach', 14, 8);
 place('volley', 16, 8);
 place('marina', 28, 8);
 place('lighthouse', 31, 7);
-place('fire', 20, 8);
-place('police', 25, 8);
+// Hizmet binaları kurulur kurulmaz en üst seviyeye yükseltilir (alanları büyür, az bina yeter)
+const TOP_SERVICE = cfg.SERVICE_LEVELS.length - 1;
+const service = (kind, x, z) => {
+  if (!place(kind, x, z)) return false;
+  for (let u = 0; u < TOP_SERVICE; u++) { const e = c.upgradeService(I(x, z)); if (e) errs.push(kind + ' yükseltme: ' + e); }
+  return true;
+};
+service('fire', 20, 8);
+service('police', 25, 8);
 const HOTELS = new Set([[22, 4], [22, 5], [21, 6], [24, 6], [22, 8], [22, 9], [22, 10], [24, 10], [24, 11], [22, 11]].map(([x, z]) => z * W + x));
 // Şehir merkezi: merkez parkın yanında hizmet meydanı (itfaiye, karakol, hastane, okul)
-place('fire', 24, 36);
-place('police', 26, 36);
-place('health', 24, 38);
-place('school', 26, 38);
+service('fire', 24, 36);
+service('police', 26, 36);
+service('health', 24, 38);
+service('school', 26, 38);
 // Kuzey ve güneyde ikinci üniversite ve okullar
 place('uni', 0, 30);
 // Otoparklı dükkânlar: hepsi doğudaki çarşıda (aşağıda); evler çarşıdan beslenir (city.ts updateShops)
@@ -164,7 +171,7 @@ function covered(kind) {
   const out = new Set();
   c.tiles.forEach((t, i) => {
     if (!t) return;
-    if (t.kind === kind) for (const q of serviceArea(i, kind, t.fp ?? 1)) out.add(q);
+    if (t.kind === kind) for (const q of serviceArea(i, kind, t.fp ?? 1, t.level)) out.add(q);
     if (kind === 'school' && t.kind === 'uni') for (const q of cityMod.areaAround(i, cfg.DECOR.uni.radius, 3)) out.add(q);
   });
   return out;
@@ -183,7 +190,7 @@ function serve(kind) {
         if (cells.some(q => c.tiles[q] || cityMod.isSea(q) || cityMod.isWater(q))) continue;
         if (!cells.some(q => near(q % W, Math.floor(q / W)))) continue;
         let gain = 0;
-        for (const q of serviceArea(I(x, z), kind, 2)) if (openSet.has(q) && !cells.includes(q)) gain++;
+        for (const q of serviceArea(I(x, z), kind, 2, TOP_SERVICE)) if (openSet.has(q) && !cells.includes(q)) gain++;
         if (gain > bestGain) {
           bestGain = gain;
           best = [x, z];
@@ -191,7 +198,7 @@ function serve(kind) {
       }
     }
     if (!best) return;
-    place(kind, best[0], best[1]);
+    service(kind, best[0], best[1]);
   }
 }
 for (const k of ['fire', 'police', 'health', 'school']) serve(k);
@@ -210,6 +217,7 @@ function levelAt(x, z) {
   return rnd() < 0.5 ? 2 : 1;
 }
 const MARINA_FRONT = new Set([I(28, 10), I(29, 10)]);
+const GREEN = window.__demoGreen ?? [0.55, 0.4, 0.2]; // alçak, orta ve yüksek mahallelerde park olasılığı
 let sinceLot = 0;
 for (let z = 3; z <= 56; z++) {
   for (let x = 0; x <= 40; x++) {
@@ -230,6 +238,12 @@ for (let z = 3; z <= 56; z++) {
       continue;
     }
     const lv = levelAt(x, z);
+    // Hizmet binaları yükseltildiği için az sayıda; boşalan yerlerin bir kısmı mahalle parkı (nüfus ve trafik
+    // şehrin girişinin kaldırabileceği kadar kalsın)
+    if (z >= 21 && rnd() < (lv <= 4 ? GREEN[0] : lv <= 6 ? GREEN[1] : GREEN[2])) {
+      place('park', x, z);
+      continue;
+    }
     // Alçak evlerin mahallelerinde arada bir otopark ve otobüs durağı (arabalar ve otobüsler buradan çıkar)
     if (lv <= 4 && ++sinceLot >= 9) {
       sinceLot = 0;
@@ -245,10 +259,10 @@ const homes = () => c.tiles.map((t, i) => (t?.kind === 'res' && t.level > 0 ? i 
 
 // --- Metro ağı: her mahallede istasyon, caddelerin altında tüneller (metro olan yerde araba az olur) ---
 for (const [x0, z0] of [[8, 24], [20, 24], [32, 24], [2, 45], [34, 45], [8, 53], [20, 53], [32, 53], [6, 34], [30, 27], [14, 44]]) {
-  // Yeri doluysa yakınındaki bir evin yerine
+  // Yeri doluysa yakınındaki bir evin ya da parkın yerine
   const spot = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [3, 0], [-3, 0], [1, 1], [-1, 1], [1, -1], [-1, -1], [0, 2], [0, -2]].map(([dx, dz]) => [x0 + dx, z0 + dz]).find(([x, z]) => {
     const t = c.tiles[I(x, z)];
-    return (!t || t.kind === 'res') && near(x, z) && z >= 21;
+    return (!t || t.kind === 'res' || t.kind === 'park') && near(x, z) && z >= 21;
   });
   if (!spot) {
     errs.push('metro yer yok ' + x0 + ',' + z0);
@@ -290,30 +304,36 @@ const slots = [...westSlots.map(z => [43, z]), ...eastSlots.map(z => [46, z])].s
 const industry = [];
 for (const [x, z] of slots) industry.push([x, z]);
 // Fabrikalar ve depolar nehrin doğusundaki bu şeritte değil, aşağıdaki sanayi ve çarşı bölgesinde
-// Elektrik ve su: ihtiyaç kadar santral ve pompa, hepsi en üst seviyeye yükseltilir
-const free = industry.filter(([x, z]) => !c.tiles[I(x, z)]);
+// Güneyde büyük havalimanı (yeni arazide, 6x6), güneş tarlaları ve rüzgâr türbinleri (en üst seviyede)
+const maxUtil = (x, z) => {
+  const t = c.tiles[I(x, z)];
+  for (let u = 0; u < cfg.UTIL_LEVELS[t.kind].length - 1; u++) { const e = c.upgradeUtility(I(x, z)); if (e) errs.push(t.kind + ' yükseltme: ' + e); }
+};
+if (place('airport', 13, 64)) {
+  const up = c.upgradeAirport(I(13, 64));
+  if (up) errs.push('havalimanı yükseltme: ' + up);
+}
+for (const x of [1, 4, 7, 14, 16, 20, 24, 28, 31, 38, 41]) if (place('solar', x, 61)) maxUtil(x, 61);
+for (const x of [0, 3, 6, 9, 13, 19, 22, 26, 30, 33, 37, 40, 43]) if (!c.tiles[I(x, 62)] && place('wind', x, 62)) maxUtil(x, 62);
+// Elektrik ve su: şehir santralle dolmasın; ihtiyaç kadar (birkaç) santral ve pompa, hepsi en üst seviyede
+const free = industry.filter(([x, z]) => [[0, 0], [1, 0], [0, 1], [1, 1]].every(([dx, dz]) => !c.tiles[I(x + dx, z + dz)]));
 c.refresh();
 let k = 0;
 while ((c.service.power.supply < c.service.power.demand * 1.12 || c.service.water.supply < c.service.water.demand * 1.12) && k < free.length) {
   const [x, z] = free[k++];
   const kind = c.service.power.supply - c.service.power.demand * 1.12 < c.service.water.supply - c.service.water.demand * 1.12 ? 'plant' : 'pump';
   if (place(kind, x, z)) {
-    for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, z));
+    maxUtil(x, z);
     c.refresh();
   }
 }
-// Kalan yerlere güneş panelleri
-for (; k < free.length; k++) {
+// Nehir kıyısında kalan yerler yeşil: sırayla gölet, çimenli tepe ve dört küçük park
+for (let q = 0; k < free.length; k++, q++) {
   const [x, z] = free[k];
-  if (place('solar', x, z)) for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, z));
+  if (q % 3 === 0) place('lake', x, z);
+  else if (q % 3 === 1) place('hill', x, z);
+  else for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) place('park', x + dx, z + dz);
 }
-// Güneyde büyük havalimanı (yeni arazide, 6x6), güneş tarlaları ve rüzgâr türbinleri
-if (place('airport', 13, 64)) {
-  const up = c.upgradeAirport(I(13, 64));
-  if (up) errs.push('havalimanı yükseltme: ' + up);
-}
-for (const x of [1, 4, 7, 14, 16, 20, 24, 28, 31, 38, 41]) if (place('solar', x, 61)) for (let u = 0; u < 3; u++) c.upgradeUtility(I(x, 61));
-for (const x of [0, 3, 6, 9, 13, 19, 22, 26, 30, 33, 37, 40, 43]) if (!c.tiles[I(x, 62)]) place('wind', x, 62);
 // Eski havaalanının yeri: gölet ve çimenli tepe
 place('lake', 14, 59);
 place('hill', 16, 59);
