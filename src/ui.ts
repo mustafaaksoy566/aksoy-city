@@ -304,10 +304,15 @@ export function toast(msg: string, kind: 'info' | 'error' = 'info') {
 
 // Sürüklerken toplam maliyeti göster
 // --- Hizmet haritası çubuğu (SimCity'deki gibi): hizmetin adı, kaç binaya ulaşıyor, oklarla diğer hizmetler ---
-export interface ServiceBar { icon: string; name: string; ok: number; bad: number; extra: string; okText: string; badText: string }
+// Altta bütün hizmetlerin simgeleri (SimCity gibi): seçili olan renkli, dokununca o hizmete geçer
+export interface ServiceBar {
+  icon: string; name: string; ok: number; bad: number; extra: string; okText: string; badText: string;
+  kinds?: { key: string; icon: string; name: string }[]; current?: string;
+}
+type SvcHandlers = { prev(): void; next(): void; close(): void; pick?(key: string): void };
 let svcBar: HTMLDivElement | null = null;
-let svcOn: { prev(): void; next(): void; close(): void } | null = null;
-export function setServiceBar(s: ServiceBar | null, on?: { prev(): void; next(): void; close(): void }) {
+let svcOn: SvcHandlers | null = null;
+export function setServiceBar(s: ServiceBar | null, on?: SvcHandlers) {
   if (!s) {
     svcBar?.remove();
     svcBar = null;
@@ -320,11 +325,13 @@ export function setServiceBar(s: ServiceBar | null, on?: { prev(): void; next():
     svcBar.innerHTML = `<button class="sv-arrow" data-a="prev" aria-label="Önceki hizmet">‹</button>
       <div class="sv-mid"><b class="sv-title"></b>
         <span class="sv-legend"><i class="dot ok"></i><span class="sv-ok"></span><i class="dot bad"></i><span class="sv-bad"></span></span>
-        <small class="sv-extra"></small></div>
+        <small class="sv-extra"></small><span class="sv-kinds"></span></div>
       <button class="sv-arrow" data-a="next" aria-label="Sonraki hizmet">›</button>
       <button class="sv-close" data-a="close" aria-label="Kapat">${icon('close')}</button>`;
     svcBar.addEventListener('pointerdown', e => e.stopPropagation());
     svcBar.addEventListener('click', e => {
+      const kind = (e.target as HTMLElement).closest<HTMLElement>('[data-k]')?.dataset.k;
+      if (kind) return svcOn?.pick?.(kind);
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a as 'prev' | 'next' | 'close' | undefined;
       if (a && svcOn) svcOn[a]();
     });
@@ -334,6 +341,8 @@ export function setServiceBar(s: ServiceBar | null, on?: { prev(): void; next():
   svcBar.querySelector('.sv-ok')!.textContent = `${s.okText} ${fmt(s.ok)}`;
   svcBar.querySelector('.sv-bad')!.textContent = `${s.badText} ${fmt(s.bad)}`;
   svcBar.querySelector('.sv-extra')!.textContent = s.extra;
+  const row = svcBar.querySelector<HTMLElement>('.sv-kinds')!;
+  row.innerHTML = (s.kinds ?? []).map(k => `<button data-k="${k.key}" class="${k.key === s.current ? 'on' : ''}" aria-label="${k.name}" title="${k.name}">${k.icon}</button>`).join('');
 }
 
 // --- Taşıma/döndürme onayı: ✗ eski yerine, ↻ döndür, ✓ yerleştir ---

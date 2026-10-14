@@ -760,6 +760,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     const lines: InfoCard['lines'] = [road];
     if (next) lines.push({ text: `⬆️ Yükseltince bina büyür, aynı yerde ${fmt(base * next.mult)} ${what} verir (şimdi ${fmt(base * mult)}).${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
     else lines.push({ text: '⭐ En üst seviyede: en çok üretim.' });
+    lines.push({ text: '👆 Binayı basılı tut: elektrik ve su haritası açılır, yolların boyunca nereye gittiği görünür.' });
     // Küçük yapılar başlangıç için: daha çoğu için bir üst yapıyı göster (şehir santralle dolmasın)
     const bigger: Partial<Record<string, [BuildTool, string]>> = { wind: ['solar', 'güneş tarlası'], solar: ['plant', 'santral'], tower: ['pump', 'su pompası'] };
     const up = bigger[t.kind];
@@ -793,6 +794,7 @@ export function describeTile(city: City, i: number, act: CardActions, now = Date
     const lines: InfoCard['lines'] = [road];
     if (next) lines.push({ text: `⬆️ Yükseltince kat çıkar, alanı ${serviceRadius(t.kind, t.level + 1)} kareye büyür. Şehir büyüyünce yenisini kurmak yerine yükselt.${blocker && blocker !== 'Yeterli para yok' ? ` (${blocker})` : ''}` });
     else lines.push({ text: '⭐ En üst seviyede: en geniş alan.' });
+    lines.push({ text: '👆 Binayı basılı tut: hizmet haritası açılır, bu binanın alanı çizgiyle görünür.' });
     return {
       title: TOOL_INFO[t.kind].label,
       subtitle: 'Hizmet binası',

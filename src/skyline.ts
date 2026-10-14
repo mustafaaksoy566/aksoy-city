@@ -938,6 +938,93 @@ function pyramidTower(h: number, seed: number): Built {
   return { g: k.g, door: [0, 0.4] };
 }
 
+// =====================================================================================================
+// Hizmet binalarının kuleleri: karakol, itfaiye, hastane ve okul yükseltildikçe gökdelen gibi yükselir. Hizmet
+// binasının modeline konur (taban y = 0, planın ortası 0,0, ön yüz +z). level 1..3: her seviyede daha yüksek;
+// 2. seviyeden üst gövde daralır (kademede ışıklı teras); tepeler türe göre: karakolda mavi ışık halkası,
+// helikopter pisti ve anten direği; itfaiyede kırmızı fenerli gözetleme kulesi; hastanede parlayan kızıl haç
+// ve ambulans helikopteri pisti; okulda çatı bahçesi, saat ve gözlemevi kubbesi. Tepede ışıklı tabela.
+// =====================================================================================================
+export type ServiceTowerKind = 'police' | 'fire' | 'health' | 'school';
+const SVC_BLUE = new THREE.MeshStandardMaterial({ color: '#3d7bff', emissive: '#2a66ff', emissiveIntensity: 1.1 });
+const SVC_LOOK: Record<ServiceTowerKind, { style: Style; tint: string; metal: number; rough: number; band: THREE.Material; sign: [string, string] }> = {
+  police: { style: 'dark', tint: '#dbe7ff', metal: 0.5, rough: 0.12, band: plain('#1e4fa3', 0.5), sign: ['POLİS', '#1e4fa3'] },
+  fire: { style: 'stone', tint: '#f4c9b9', metal: 0.05, rough: 0.7, band: plain('#c62828', 0.5), sign: ['İTFAİYE', '#c62828'] },
+  health: { style: 'silver', tint: '#ffffff', metal: 0.35, rough: 0.12, band: plain('#f7f8f9', 0.5), sign: ['HASTANE', '#c62828'] },
+  school: { style: 'curtain', tint: '#e9f6dc', metal: 0.4, rough: 0.15, band: plain('#ef6c00', 0.5), sign: ['KAMPÜS', '#ef6c00'] },
+};
+export function serviceTower(kind: ServiceTowerKind, level: number, w: number, d: number, h: number) {
+  const k = new Kit(), L = SVC_LOOK[kind], r = rng(level * 31 + kind.length);
+  const g = glass(L.style, L.tint, L.metal, L.rough);
+  const plan = chamfer(w, d, Math.min(w, d) * 0.12);
+  const bands = FL * 6;
+  // Gövde ve kat bantları
+  const step = level >= 2 ? h * 0.64 : h;
+  k.shaft(plan, 0, step, g);
+  for (let y = bands; y < step - 0.06; y += bands) k.slab(offset(plan, 0.008), y, 0.014, L.band);
+  let top = plan, tw = w, td = d;
+  if (level >= 2) {
+    // Kademe: alt gövdenin çatısı ışıklı teras, üst gövde daha dar
+    roof(k, plan, step);
+    lightRing(k, plan, step + 0.026, 0.008, 0.008);
+    tw = w * 0.76;
+    td = d * 0.8;
+    top = chamfer(tw, td, Math.min(tw, td) * 0.12);
+    k.shaft(top, step, h - step, g);
+    for (let y = step + bands; y < h - 0.06; y += bands) k.slab(offset(top, 0.008), y, 0.014, L.band);
+  }
+  if (kind === 'school') roofGarden(k, top, h, r, 4);
+  else roof(k, top, h);
+  lightRing(k, top, h + 0.026, 0.008, 0.008);
+  // Işıklı tabela: ön ve arka yüzün tepesinde
+  const sign = glowSign(L.sign[0], L.sign[1]);
+  const sw = Math.min(tw * 0.82, 0.4);
+  k.box(sw, 0.075, 0.008, sign, 0, h - 0.115, td / 2 + 0.006);
+  k.box(sw, 0.075, 0.008, sign, 0, h - 0.115, -td / 2 - 0.006, Math.PI);
+  const ty = h + 0.006; // çatı döşemesi
+  const pr = Math.min(tw, td) * 0.4;
+  if (kind === 'police') {
+    // Mavi ışık halkası (gece gündüz yanar), helikopter pisti, anten direği
+    k.add(sides(offset(top, 0.01), h - 0.03, 0.012), SVC_BLUE);
+    if (level >= 2) helipad(k, -tw * 0.12, 0, ty, pr);
+    else hvac(k, -tw * 0.18, 0, ty);
+    antenna(k, tw / 2 - 0.05, -td / 2 + 0.05, ty, 0.18 + level * 0.12);
+    if (level >= 3) for (const s of [-1, 1]) k.add(sides(offset(plan, 0.01), step * (s > 0 ? 0.5 : 0.25), 0.01), SVC_BLUE);
+  } else if (kind === 'fire') {
+    // Gözetleme kulesi: dar taş gövde, tepesinde kırmızı fenerli seyir odası ve sivri çatı
+    const fx = tw / 2 - 0.08, fz = -td / 2 + 0.08, fh = 0.12 + level * 0.06;
+    k.box(0.1, fh, 0.1, L.band, fx, ty, fz);
+    k.cyl(0.055, 0.055, 0.05, RED_LIGHT, fx, ty + fh, fz, 8);
+    k.add(new THREE.ConeGeometry(0.08, 0.07, 8), C.darkMetal, fx, ty + fh + 0.085, fz);
+    if (level >= 2) helipad(k, -tw * 0.14, 0.02, ty, pr * 0.9);
+    else hvac(k, -tw * 0.15, 0, ty);
+    // Cephede itfaiye kırmızısı dikey şeritler
+    for (const s of [-1, 1]) k.box(0.02, step - 0.04, 0.006, L.band, s * (w / 2 - 0.05), 0.02, d / 2 + 0.004);
+  } else if (kind === 'health') {
+    // Parlayan kızıl haç (ön ve arka), ambulans helikopteri pisti
+    for (const s of [1, -1]) {
+      const z = s * (td / 2 + 0.007);
+      k.box(0.13, 0.04, 0.008, RED_LIGHT, 0, h - 0.29, z);
+      k.box(0.04, 0.13, 0.008, RED_LIGHT, 0, h - 0.335, z);
+    }
+    helipad(k, 0, 0, ty, pr);
+    if (level >= 3) bmu(k, tw / 2 - 0.06, -td / 2 + 0.06, ty, 0.6);
+  } else {
+    // Okul: saat (ön yüzde), en üstte gözlemevi kubbesi
+    const cz = td / 2 + 0.006;
+    k.add(new THREE.CylinderGeometry(0.055, 0.055, 0.008, 24).rotateX(Math.PI / 2), C.white, 0, h - 0.24, cz);
+    k.box(0.006, 0.04, 0.004, C.darkMetal, 0, h - 0.245, cz + 0.006);
+    k.box(0.03, 0.006, 0.004, C.darkMetal, 0.012, h - 0.243, cz + 0.006);
+    if (level >= 3) {
+      const R = Math.min(tw, td) * 0.26;
+      k.cyl(R, R, 0.06, C.white, tw * 0.15, ty, 0, 20);
+      k.add(new THREE.SphereGeometry(R, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), STEEL, tw * 0.15, ty + 0.06, 0);
+      k.box(0.03, R * 0.9, 0.02, C.darkMetal, tw * 0.15, ty + 0.06, R * 0.7);
+    }
+  }
+  return k.g;
+}
+
 // --- Kayıt: menüler ve şehir için hazır kuleler 'proc/sky-<biçim>-<boy>' ---
 const DESIGNS: Record<string, { make: (h: number, seed: number) => Built; name: string }> = {
   green: { make: greenTower, name: 'Yeşil kule' },

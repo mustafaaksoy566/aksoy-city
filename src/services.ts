@@ -5,7 +5,7 @@ import { mergeStatic } from './batcher';
 import { KIT } from './towers';
 import { signMat } from './signs';
 import { SITES, OLD_SITES, drawLot, lotLight, entrance } from './sites';
-import { makePolice2, makeFire2 } from './stations';
+import { makePolice2, makeFire2, addServiceTower } from './stations';
 
 // Hizmet binaları gökdelenler gibi ayrıntılı çizilir: karakol, itfaiye, hastane, okul ve belediye.
 // Önlerinde kendi araçları park etmiş; karakol ve itfaiyenin çatısında yanıp sönen ışıklar var.
@@ -120,7 +120,7 @@ function hospital(level = 0) {
   box(st, 1.92, 0.03, 1.92, M.paving, 0, 0, 0);
   drawLot(st, site, -0.94, 0.94, 0.1, 0.96);
   // Ana blok (x -0.9..0.1, z -0.9..-0.3); yükseltildikçe bir kat daha
-  const H = 0.95 + level * 0.16;
+  const H = 0.95;
   st.add(part(KIT.facadeBox(1.0, H, 0.6, 0.03), KIT.BAND[0], -0.4, 0.03 + H / 2, -0.6));
   box(st, 1.02, 0.03, 0.62, M.white, -0.4, 0.03 + H, -0.6);
   // Kırmızı haç ve tabela (ön yüzde)
@@ -155,6 +155,7 @@ function hospital(level = 0) {
   for (const x of [-0.65, -0.18]) for (const s of [-1, 1]) box(st, 0.008, 0.02, 0.025, M.dark, x + s * 0.05, 0.03, -0.02);
   lotLight(st, -0.935, 0.6);
   lotLight(st, 0.935, 0.6);
+  addServiceTower(st, 'health', level, -0.4, -0.62, 0.62, 0.44);
   return mergeStatic([st]);
 }
 
@@ -169,7 +170,7 @@ function school(level = 0) {
   box(st, 1.1, 0.004, 0.62, M.paving, -0.37, 0.03, -0.17);
   drawLot(st, site, -0.94, 0.14, 0.1, 0.96);
   // Bina (x -0.92..0.18, z -0.92..-0.48)
-  const W = 1.1, D = 0.44, H = 0.36 + level * 0.13, cx = -0.37, cz = -0.7, front = cz + D / 2; // yükseldikçe kat çıkar
+  const W = 1.1, D = 0.44, H = 0.36, cx = -0.37, cz = -0.7, front = cz + D / 2; // yükseldikçe kat çıkar
   st.add(part(KIT.facadeBox(W, H, D, 0.03), KIT.BRICK[1], cx, 0.03 + H / 2, cz));
   box(st, W + 0.02, 0.025, D + 0.02, M.white, cx, 0.03 + H, cz);
   // Giriş: beyaz sütunlar ve alınlık, saat, tabela, kapı
@@ -198,6 +199,7 @@ function school(level = 0) {
   for (const z of [-0.8, 0.8]) box(st, 0.16, 0.06, 0.008, M.white, 0.57, 0.04, z);
   tree(st, 0.1, 0.5, 1.1);
   tree(st, 0.12, 0.85, 1.0);
+  addServiceTower(st, 'school', level, -0.72, -0.72, 0.36, 0.34);
   return mergeStatic([st]);
 }
 

@@ -126,10 +126,9 @@ export class TileInput {
             this.hold = null;
             if (!h || h.id !== id || !this.pointers.has(id) || this.pointers.size > 1) return;
             const t = this.tileAt({ clientX: h.x, clientY: h.y }, false);
-            if (this.h.lift(t ? idx(t[0], t[1]) : null)) {
-              this.moving = id;
-              this.tapStart = null;
-            }
+            // Basılı tutma dokunma sayılmaz (parmak kalkınca kart açılmasın)
+            this.tapStart = null;
+            if (this.h.lift(t ? idx(t[0], t[1]) : null)) this.moving = id;
           }, HOLD_MS),
         };
       }

@@ -5,7 +5,7 @@ import {
   LEVEL_REWARD, ROAD_TOOLS, ROAD_GRADES, RES_LEVELS, HOUSE_PRICE, HOUSE_UNLOCK, MAKERS, houseName, type Tool, type BuildTool, type MatId, type ServiceKind,
   UTIL_LEVELS, serviceRadius, type UtilKind,
 } from './config';
-import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, sizeOf, block, isSeaXZ } from './city';
+import { City, DIRS, idx, isUtility, isService, isIndustry, isDecor, isZone, areaAround, serviceArea, sizeOf, block, isSeaXZ } from './city';
 import {
   describeTile, describeStorage, describeQuests, describeHall, describeBudget, describeCity, describeUtility, describePort, describeAchievements, type CardActions,
 } from './info';
@@ -804,12 +804,32 @@ function openTile(cell: CardKey | null) {
   openCard = cell;
   renderCard();
   highlight();
-  // Hizmet, elektrik ya da su binasına (ya da üstteki elektrik/su göstergesine) dokununca hizmet haritası açılır.
-  // Harita açıkken haritayı kaydırmak, boşa ya da başka binaya dokunmak onu kapatmaz (alanı rahatça görülsün);
-  // başka bir hizmet binasına dokununca onun haritasına geçer, sadece haritanın ✕ düğmesi kapatır.
-  const k = typeof cell === 'number' ? mapKindOf(cell) : cell === 'power' || cell === 'water' ? cell : null;
-  if (k) mapKind = k;
+  // Hizmet haritası: hizmet binasını basılı tutunca (lift) ya da üstteki elektrik/su göstergesine dokununca açılır.
+  // Binaya dokununca sadece kartı açılır; harita zaten açıksa dokunulan hizmet binasının haritasına ve alanına
+  // geçer. Haritayı kaydırmak, boşa ya da başka binaya dokunmak onu kapatmaz, sadece ✕ düğmesi kapatır.
+  if (cell === 'power' || cell === 'water') {
+    mapKind = cell;
+    mapFocus = null;
+  } else if (typeof cell === 'number' && mapKind) {
+    const k = mapKindOf(cell);
+    if (k) {
+      mapKind = k;
+      mapFocus = city.anchorOf(cell);
+    }
+  }
   renderServiceMap();
+}
+// Hizmet binasını basılı tutunca: haritası açılır, o binanın alanı vurgulanır
+function openServiceMap(cell: number) {
+  const k = mapKindOf(cell);
+  if (!k) return false;
+  catalog.close();
+  mapKind = k;
+  mapFocus = city.anchorOf(cell);
+  openTile(null);
+  renderServiceMap();
+  play('click', 0.4);
+  return true;
 }
 onInfoClose(() => {
   openCard = null;
@@ -828,6 +848,7 @@ const MAP_INFO: Record<MapKind, { icon: string; name: string }> = {
   school: { icon: '🎓', name: 'Eğitim' },
 };
 let mapKind: MapKind | null = null;
+let mapFocus: number | null = null; // basılı tutulan hizmet binası (alanı vurgulanır)
 function mapKindOf(i: number): MapKind | null {
   const t = city.tiles[city.anchorOf(i)];
   if (!t) return null;
@@ -861,8 +882,34 @@ function renderServiceMap() {
     if (t && t.kind !== 'part' && mapKindOf(i) === k) srcs.push(i);
   });
   const sources = srcs.length;
-  view.showServiceMap({ area: fk ? [] : city.coverageOf(k as ServiceKind), color: '#3fcf4a', bldgs, sources: srcs });
+  // Basılı tutulan bina hâlâ bu haritanın binası mı
+  if (mapFocus !== null && (!city.tiles[mapFocus] || mapKindOf(mapFocus) !== k)) mapFocus = null;
+  const sk = fk ? null : (k as ServiceKind);
+  const zones = sk ? zonesOf(sk) : [];
+  const focusZone = zones.find(z => z.i === mapFocus);
+  const color = sk ? SERVICES[sk].color : '#3fcf4a';
+  view.showServiceMap({
+    // Seçili binanın alanı kendi renginde dolu; seçili yoksa bütün kapsanan yer yeşil
+    area: sk ? (focusZone ? focusZone.cells : city.coverageOf(sk)) : [],
+    color: focusZone ? color : '#3fcf4a',
+    bldgs,
+    sources: srcs,
+    // Her hizmet binasının alanının sınırı (seçili olanınki kalın ve binaların üstünden de görünür)
+    zones: zones.map(z => ({ cells: z.cells, focus: z.i === mapFocus })),
+    zoneColor: color,
+    // Elektrik ve su: üreten yapılardan yollar boyunca evlere akan çizgiler
+    flow: fk ? { segs: flowLines(fk), color: fk === 'power' ? '#ffcf1f' : '#2f9bff' } : null,
+  });
   const s = fk ? city.service[fk] : null;
+  let extra: string;
+  if (s) extra = `Üretim ${fmt(s.supply)} · Kullanım ${fmt(s.demand)}${s.supply < s.demand ? ' · Yetmiyor!' : ''} · ${fk === 'power' ? 'sarı' : 'mavi'} çizgiler ${fk === 'power' ? 'elektriğin' : 'suyun'} yolu`;
+  else if (focusZone) {
+    const t = city.tiles[focusZone.i]!;
+    const r = isService(t.kind) ? serviceRadius(sk!, t.level) : DECOR[t.kind as keyof typeof DECOR].radius;
+    const homes = focusZone.cells.filter(c => city.tiles[c]?.kind === 'res' && city.tiles[c]!.level > 0).length;
+    extra = `${TOOL_INFO[t.kind as BuildTool].label}: ${r} kare alan · alanında ${fmt(homes)} ev · çizgiler her binanın sınırı`;
+  } else if (sources) extra = `${sources} bina hizmet veriyor · çizgiler her binanın alanı · binayı basılı tut: alanını gör`;
+  else extra = 'Henüz hiç yok · İnşa Et → Hizmetler';
   setServiceBar(
     {
       ...MAP_INFO[k],
@@ -870,17 +917,22 @@ function renderServiceMap() {
       bad,
       okText: flow ? 'Var' : 'Hizmet var',
       badText: flow ? 'Yok' : 'Hizmet yok',
-      extra: s
-        ? `Üretim ${fmt(s.supply)} · Kullanım ${fmt(s.demand)}${s.supply < s.demand ? ' · Yetmiyor!' : ''}`
-        : sources
-          ? `${sources} bina hizmet veriyor · yeşil alan hizmetin ulaştığı yer`
-          : 'Henüz hiç yok · İnşa Et → Hizmetler',
+      extra,
+      kinds: MAP_KINDS.map(key => ({ key, icon: MAP_INFO[key].icon, name: MAP_INFO[key].name })),
+      current: k,
     },
     {
       prev: () => cycleMap(-1),
       next: () => cycleMap(1),
+      pick: key => {
+        mapKind = key as MapKind;
+        mapFocus = null;
+        renderServiceMap();
+        play('click', 0.3);
+      },
       close: () => {
         mapKind = null;
+        mapFocus = null;
         renderServiceMap();
         if (openCard !== null) openTile(null);
       },
@@ -890,8 +942,60 @@ function renderServiceMap() {
 function cycleMap(d: number) {
   if (!mapKind) return;
   mapKind = MAP_KINDS[(MAP_KINDS.indexOf(mapKind) + d + MAP_KINDS.length) % MAP_KINDS.length];
+  mapFocus = null;
   renderServiceMap();
   play('click', 0.3);
+}
+// Bir hizmetin her binasının kapsadığı kareler (hizmet binaları ve hizmet de veren simge yapılar)
+function zonesOf(k: ServiceKind) {
+  const out: { i: number; cells: number[] }[] = [];
+  city.tiles.forEach((t, i) => {
+    if (!t || t.kind === 'part' || mapKindOf(i) !== k) return;
+    const cells = isService(t.kind) ? serviceArea(i, k, t.fp ?? 1, t.level) : areaAround(i, DECOR[t.kind as keyof typeof DECOR].radius, t.fp ?? 1);
+    out.push({ i, cells });
+  });
+  return out;
+}
+// Elektrik ve suyun yolu: üreten yapıların yanındaki yollardan başlar, yol ağı boyunca yayılır. Her parça
+// kaynağa yakın uçtan uzak uca yönlü (çizgideki oklar kaynaktan evlere doğru akar); son sayı kaynaktan uzaklık
+function flowLines(fk: 'power' | 'water') {
+  const segs: [number, number, number, number, number][] = [];
+  const road = (x: number, z: number) => x >= 0 && x < SIZE && z >= 0 && z < ROWS && city.isRoad(x, z);
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
+  city.tiles.forEach((t, i) => {
+    if (!t || !isUtility(t.kind) || !city.isConnected(i)) return;
+    if (UTILITIES[t.kind].power > 0 !== (fk === 'power')) return;
+    for (const c of city.cellsOf(i)) {
+      const x = c % SIZE, z = Math.floor(c / SIZE);
+      for (const [dx, dz] of DIRS) {
+        if (!road(x + dx, z + dz)) continue;
+        const a = tileCenter(x, z), b = tileCenter(x + dx, z + dz);
+        segs.push([a.x, a.z, b.x, b.z, 0]);
+        const r = idx(x + dx, z + dz);
+        if (!dist.has(r)) {
+          dist.set(r, 1);
+          queue.push(r);
+        }
+      }
+    }
+  });
+  for (let q = 0; q < queue.length; q++) {
+    const r = queue[q], d = dist.get(r)!;
+    const x = r % SIZE, z = Math.floor(r / SIZE);
+    for (const [dx, dz] of DIRS) {
+      if (!road(x + dx, z + dz)) continue;
+      const n = idx(x + dx, z + dz);
+      if (!dist.has(n)) {
+        dist.set(n, d + 1);
+        queue.push(n);
+      }
+      if (dist.get(n) !== d + 1) continue;
+      const a = tileCenter(x, z), b = tileCenter(x + dx, z + dz);
+      segs.push([a.x, a.z, b.x, b.z, d]);
+    }
+  }
+  return segs;
 }
 
 // Trafik haritası: yol aracı seçiliyken ya da bir yolun kartı açıkken
@@ -1248,7 +1352,11 @@ function faceRoad() {
 const input = new TileInput(renderer.domElement, camera, {
   tool: () => tool,
   lift(cell) {
-    if (photoOn || moving || tool !== 'pan' || cell === null || !city.canMove(cell)) return false;
+    if (photoOn || moving || tool !== 'pan' || cell === null) return false;
+    // Hizmet, elektrik ve su binaları: basılı tutunca hizmet haritası (o binanın alanıyla) açılır; taşımak için
+    // kartındaki Taşı düğmesi
+    if (openServiceMap(cell)) return false;
+    if (!city.canMove(cell)) return false;
     rig.releaseGrab();
     startMove(cell);
     moving!.dragging = true;

@@ -1204,6 +1204,70 @@ const signMats = {
   plate: new THREE.MeshStandardMaterial({ color: '#1e5fbf', roughness: 0.5 }),
   star: new THREE.MeshStandardMaterial({ color: '#ffc928', emissive: '#7a5600', metalness: 0.4, roughness: 0.35 }),
 };
+// Hizmet haritası: bir kare kümesinin dış sınırı (kare kenarları boyunca şerit), zemine yakın
+function zoneOutline(cells: number[], width: number) {
+  const set = new Set(cells);
+  const has = (x: number, z: number) => x >= 0 && x < SIZE && z >= 0 && z < ROWS && set.has(z * SIZE + x);
+  const pos: number[] = [];
+  const y = 0.075, h = width / 2;
+  const rectQuad = (xa: number, za: number, xb: number, zb: number) => pos.push(xa, y, za, xa, y, zb, xb, y, zb, xa, y, za, xb, y, zb, xb, y, za);
+  for (const c of cells) {
+    const x = c % SIZE, z = Math.floor(c / SIZE);
+    const wx = x - X0, wz = z - Z0;
+    if (!has(x, z - 1)) rectQuad(wx - h, wz - h, wx + 1 + h, wz + h);
+    if (!has(x, z + 1)) rectQuad(wx - h, wz + 1 - h, wx + 1 + h, wz + 1 + h);
+    if (!has(x - 1, z)) rectQuad(wx - h, wz - h, wx + h, wz + 1 + h);
+    if (!has(x + 1, z)) rectQuad(wx + 1 - h, wz - h, wx + 1 + h, wz + 1 + h);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  return g;
+}
+// Elektrik/su akış şeridi: her yol parçası kaynağa yakın uçtan uzağa; doku boyunca u = kaynaktan uzaklık (oklar
+// birbirine bağlı akar)
+function flowStrip(segs: [number, number, number, number, number][]) {
+  const pos: number[] = [], uv: number[] = [];
+  const y = 0.08, w = 0.09;
+  for (const [ax, az, bx, bz, d] of segs) {
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    const nx = (-(bz - az) / len) * w, nz = ((bx - ax) / len) * w;
+    const u0 = d * 2, u1 = d * 2 + len * 2;
+    pos.push(ax + nx, y, az + nz, ax - nx, y, az - nz, bx - nx, y, bz - nz, ax + nx, y, az + nz, bx - nx, y, bz - nz, bx + nx, y, bz + nz);
+    uv.push(u0, 1, u0, 0, u1, 0, u0, 1, u1, 0, u1, 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+// Akış dokusu: beyaz zeminli şeritte ileri bakan ok (renk malzemeden gelir)
+let flowTex: THREE.CanvasTexture | null = null;
+function flowTexture() {
+  if (flowTex) return flowTex;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 32;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  g.fillRect(0, 7, 64, 18);
+  g.fillStyle = '#ffffff';
+  g.strokeStyle = '#6b6b6b';
+  g.lineWidth = 3;
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(16, 3);
+  g.lineTo(46, 16);
+  g.lineTo(16, 29);
+  g.lineTo(25, 16);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  flowTex = new THREE.CanvasTexture(c);
+  flowTex.wrapS = THREE.RepeatWrapping;
+  flowTex.colorSpace = THREE.SRGBColorSpace;
+  return flowTex;
+}
+
 function starSign(level: number, k: number) {
   const g = new THREE.Group();
   const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z = 0) => {
@@ -2102,7 +2166,17 @@ export class CityView {
   // Hizmet haritası (SimCity gibi): şehir beyaza boyanır; hizmeti veren binalar (santral, pompa, itfaiye...) kendi
   // renkleriyle örtünün üstünde kalır ve altlarında yanıp sönen halka olur (hizmet nereden geliyor belli olsun);
   // evlerin kendisi renklenir (hizmet var açık yeşil, yok kırmızı); hizmetin ulaştığı yer yerde açık yeşil.
-  showServiceMap(map: { area: number[]; color: string; bldgs: { i: number; ok: boolean }[]; sources: number[] } | null) {
+  showServiceMap(
+    map: {
+      area: number[];
+      color: string;
+      bldgs: { i: number; ok: boolean }[];
+      sources: number[];
+      zones?: { cells: number[]; focus: boolean }[];
+      zoneColor?: string;
+      flow?: { segs: [number, number, number, number, number][]; color: string } | null;
+    } | null,
+  ) {
     this.mapVeil.visible = !!map;
     this.mapArea.count = 0;
     this.mapJob = null;
@@ -2111,7 +2185,25 @@ export class CityView {
       if (o.userData.own) (o as THREE.Mesh).geometry?.dispose();
     }
     this.mapOverlay.userData.rings = [];
+    this.flowMesh = null;
     if (!map) return;
+    // Her hizmet binasının alanının sınırı; seçili binanınki kalın ve binaların üstünden de görünür
+    for (const z of map.zones ?? []) {
+      const m = new THREE.Mesh(zoneOutline(z.cells, z.focus ? 0.14 : 0.07), this.zoneMat(map.zoneColor ?? map.color, z.focus));
+      m.renderOrder = z.focus ? 985 : 955;
+      m.userData.own = true;
+      m.frustumCulled = false;
+      this.mapOverlay.add(m);
+    }
+    // Elektrik ve suyun yolu: yollar boyunca kaynaktan evlere akan oklu şerit
+    if (map.flow && map.flow.segs.length) {
+      const m = new THREE.Mesh(flowStrip(map.flow.segs), this.flowMat(map.flow.color));
+      m.renderOrder = 958;
+      m.userData.own = true;
+      m.frustumCulled = false;
+      this.mapOverlay.add(m);
+      this.flowMesh = m;
+    }
     const c = new THREE.Color(map.color);
     map.area.forEach((i, n) => {
       this.tmp.position.copy(tileCenter(i % SIZE, Math.floor(i / SIZE))).setY(0.045);
@@ -2250,6 +2342,30 @@ export class CityView {
     }
     return m;
   }
+  private flowMesh: THREE.Mesh | null = null;
+  private zoneMat(color: string, focus: boolean) {
+    const key = 'zone' + color + focus;
+    let m = this.overlayMats.get(key);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: focus ? 1 : 0.75, depthWrite: false, depthTest: !focus, side: THREE.DoubleSide });
+      this.overlayMats.set(key, m);
+    }
+    return m;
+  }
+  private flowMat(color: string) {
+    const key = 'flow' + color;
+    let m = this.overlayMats.get(key) as THREE.MeshBasicMaterial | undefined;
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color, map: flowTexture(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      this.overlayMats.set(key, m);
+    }
+    return m;
+  }
+  // Akış çizgisindeki oklar kaynaktan uzağa kayar
+  private animateFlow(dt: number) {
+    const m = this.flowMesh?.material as THREE.MeshBasicMaterial | undefined;
+    if (m?.map) m.map.offset.x -= dt * 1.2;
+  }
   private ringMat(color: string) {
     const key = 'ring' + color;
     let m = this.overlayMats.get(key);
@@ -2332,6 +2448,7 @@ export class CityView {
         s.scale.setScalar(Math.max(s.userData.foot, d * 0.045));
       }
     }
+    this.animateFlow(dt);
     const night = Math.min(1, BULB.emissiveIntensity / 2);
     for (const o of this.animated) {
       animateUtility(o, this.time, dt, night);

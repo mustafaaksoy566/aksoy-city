@@ -8,6 +8,16 @@ import { pm, M, add, box, cyl, rod, item, tree, planter, bench } from './parts';
 import { SITES, drawLot, lotLight, entrance } from './sites';
 import { person } from './shops';
 import { flatRoof, hvac } from './stores';
+import { serviceTower } from './skyline';
+
+// Yükseltilmiş hizmet binasının kulesi (gökdelen gibi): seviyeye göre boy
+export const TOWER_H = { police: [0, 1.1, 1.8, 2.6], fire: [0, 1.0, 1.7, 2.4], health: [0, 1.5, 2.1, 2.8], school: [0, 0.95, 1.5, 2.2] };
+export function addServiceTower(st: THREE.Object3D, kind: keyof typeof TOWER_H, level: number, x: number, z: number, w: number, d: number) {
+  if (level < 1) return;
+  const t = serviceTower(kind, level, w, d, TOWER_H[kind][Math.min(3, level)]);
+  t.position.set(x, 0.03, z);
+  st.add(t);
+}
 
 // Otoparklı 2x2 karakol, itfaiye ve depo (SimCity'deki gibi): arkada bina, önünde kendi otoparkı ve kapısı.
 // Dünya ölçüsünde çizilir (alan -0.96..0.96, ön yüz +z yola bakar); şehirdeki arabalar ve insanlar aynı boyda
@@ -111,8 +121,8 @@ export function makePolice2(level = 0) {
   drawLot(st, site, -0.94, 0.94, 0.1, 0.96);
   const [dx, dz] = site.door;
   walkway(st, -0.94, 0.94, dx);
-  // Ana bina (x -0.88..0.36, z -0.88..-0.38); yükseltildikçe bir kat daha
-  const W = 1.24, D = 0.5, H = 0.42 + level * 0.13, cx = -0.26, cz = -0.63, front = cz + D / 2;
+  // Ana bina (x -0.88..0.36, z -0.88..-0.38); yükseltildikçe içinden emniyet kulesi yükselir
+  const W = 1.24, D = 0.5, H = 0.42, cx = -0.26, cz = -0.63, front = cz + D / 2;
   st.add(part(KIT.facadeBox(W, H, D, 0.03), KIT.BAND[1], cx, 0.03 + H / 2, cz));
   box(st, W + 0.012, 0.04, D + 0.012, BLUE, cx, 0.4, cz);
   flatRoof(st, cx, cz, W, D, 0.03 + H, M.white);
@@ -160,6 +170,7 @@ export function makePolice2(level = 0) {
   person(st, dx - 0.2, -0.04, Math.PI * 0.8, 5, 'stand', 0.03, 1.05);
   lotLight(st, -0.935, 0.6);
   lotLight(st, 0.935, 0.6);
+  addServiceTower(st, 'police', level, -0.52, -0.64, 0.5, 0.42);
   g.add(mergeStatic([st]));
   blinkers(g, [[cx + 0.3, 0.03 + H + 0.045, front - 0.05]]);
   return g;
@@ -205,8 +216,8 @@ export function makeFire2(level = 0) {
   st.add(part(KIT.facadeBox(0.16, 0.98, 0.16, 0.03), KIT.BRICK[0], -0.8, 0.03 + 0.49, -0.78));
   box(st, 0.18, 0.03, 0.18, M.white, -0.8, 1.0, -0.78);
   add(st, new THREE.ConeGeometry(0.14, 0.12, 4).rotateY(Math.PI / 4), DARK, -0.8, 1.09, -0.78);
-  // Ofis ve yatakhane (x 0.18..0.92, z -0.92..-0.4); yükseltildikçe yatakhaneye kat çıkar
-  const oW = 0.74, oD = 0.52, oH = 0.34 + level * 0.12, ox = 0.55, oz = -0.66, of = oz + oD / 2;
+  // Ofis ve yatakhane (x 0.18..0.92, z -0.92..-0.4); yükseltildikçe içinden itfaiye kulesi yükselir
+  const oW = 0.74, oD = 0.52, oH = 0.34, ox = 0.55, oz = -0.66, of = oz + oD / 2;
   st.add(part(KIT.facadeBox(oW, oH, oD, 0.03), KIT.BRICK[1], ox, 0.03 + oH / 2, oz));
   box(st, oW + 0.012, 0.025, oD + 0.012, M.white, ox, 0.03 + oH - 0.025, oz);
   flatRoof(st, ox, oz, oW, oD, 0.03 + oH, M.white);
@@ -226,6 +237,7 @@ export function makeFire2(level = 0) {
   person(st, 0.28, -0.14, 0.4, 1, 'stand', 0.03, 1.05, pm('#263238', 0.7));
   person(st, 0.36, -0.12, -2.6, 6, 'stand', 0.03, 1.05, pm('#263238', 0.7));
   lotLight(st, 0.935, 0.6);
+  addServiceTower(st, 'fire', level, 0.55, -0.66, 0.5, 0.42);
   g.add(mergeStatic([st]));
   blinkers(g, [[cx, 0.03 + H + 0.045, front - 0.05]]);
   return g;
