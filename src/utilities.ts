@@ -86,6 +86,29 @@ function hyperboloid(r: number, h: number) {
   }
   return new THREE.LatheGeometry(pts, 28);
 }
+// Buhar bulutu: yumuşak kenarlı, topak topak beyaz leke (Sprite: yüzü hep kameraya döner, balon gibi parlamaz)
+let steamTex: THREE.Texture | null = null;
+function steamTexture() {
+  if (steamTex) return steamTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d')!;
+  const blob = (x: number, y: number, r: number, a: number) => {
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, `rgba(255,255,255,${a})`);
+    grad.addColorStop(0.5, `rgba(255,255,255,${a * 0.6})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+  };
+  blob(64, 68, 54, 0.95);
+  for (const [x, y, r] of [[42, 60, 30], [84, 56, 32], [62, 38, 30], [72, 84, 26], [38, 84, 22], [92, 82, 22]]) blob(x, y, r, 0.75);
+  steamTex = new THREE.CanvasTexture(c);
+  steamTex.colorSpace = THREE.SRGBColorSpace;
+  return steamTex;
+}
+// Soğutma kulesi yerleri [x, z, yarıçap]: birbirine, bacaya, binaya ve trafo sahasına değmez (seviyeyle biri daha)
+const COOLERS: [number, number, number][] = [[0.22, -0.22, 0.2], [-0.16, -0.29, 0.15], [0.3, 0.17, 0.13]];
 function powerPlant(level: number) {
   const g = new THREE.Group();
   const st = new THREE.Group();
@@ -96,49 +119,59 @@ function powerPlant(level: number) {
   st.add(part(KIT.facadeBox(0.53, 0.05, 0.31, 0.2), KIT.BAND[0], -0.18, 0.205, 0.22));
   box(st, 0.55, 0.02, 0.33, M.darkSteel, -0.18, 0.27, 0.22);
   box(st, 0.14, 0.09, 0.012, M.darkSteel, -0.3, 0.03, 0.375);
-  // Baca: kırmızı-beyaz bantlar, bakım platformu, tepede uyarı lambası
-  const ch = 0.95 + level * 0.12;
-  for (let k = 0; k < 6; k++) add(st, new THREE.CylinderGeometry(0.045 - k * 0.002, 0.047 - k * 0.002, ch / 6, 14), k % 2 ? M.white : M.red, -0.38, 0.03 + (ch / 6) * (k + 0.5), 0.0);
-  add(st, new THREE.CylinderGeometry(0.06, 0.06, 0.012, 14), M.darkSteel, -0.38, 0.03 + ch * 0.7, 0);
-  add(st, new THREE.SphereGeometry(0.012, 8, 6), lamp(), -0.38, 0.04 + ch, 0);
-  // Soğutma kuleleri: seviye arttıkça bir tane daha
-  const towers: [number, number, number][] = [[0.22, -0.2, 0.2], [0.27, 0.12, 0.17], [-0.05, -0.3, 0.15], [-0.2, -0.28, 0.13]];
-  const n = Math.min(towers.length, 1 + Math.ceil(level / 1.5));
-  const tops: THREE.Vector3[] = [];
+  // Baca: kırmızı-beyaz bantlar, bakım platformu, tepede uyarı lambası (en üst seviyede yanında ikinci, kısa baca)
+  const chimney = (x: number, z: number, ch: number, r: number) => {
+    for (let k = 0; k < 6; k++) add(st, new THREE.CylinderGeometry(r - k * 0.002, r + 0.002 - k * 0.002, ch / 6, 14), k % 2 ? M.white : M.red, x, 0.03 + (ch / 6) * (k + 0.5), z);
+    add(st, new THREE.CylinderGeometry(r + 0.015, r + 0.015, 0.012, 14), M.darkSteel, x, 0.03 + ch * 0.7, z);
+    add(st, new THREE.SphereGeometry(0.012, 8, 6), lamp(), x, 0.04 + ch, z);
+  };
+  chimney(-0.38, -0.06, 0.95 + level * 0.12, 0.045);
+  if (level >= 3) chimney(-0.27, -0.06, 0.8, 0.036);
+  // Soğutma kuleleri: seviye arttıkça bir tane daha (en çok üç; yerleri birbirine değmez)
+  const n = Math.min(COOLERS.length, 1 + level);
+  const tops: [THREE.Vector3, number][] = [];
+  const shell = new THREE.MeshStandardMaterial({ color: '#dedbd4', roughness: 0.95, side: THREE.DoubleSide });
   for (let k = 0; k < n; k++) {
-    const [x, z, r] = towers[k];
+    const [x, z, r] = COOLERS[k];
     const h = r * 3.4;
-    add(st, hyperboloid(r, h), new THREE.MeshStandardMaterial({ color: '#dedbd4', roughness: 0.95, side: THREE.DoubleSide }), x, 0.03, z);
+    add(st, hyperboloid(r, h), shell, x, 0.03, z);
     add(st, new THREE.CylinderGeometry(r * 0.7, r * 0.7, 0.012, 24, 1, true), M.darkConcrete, x, 0.03 + h - 0.006, z);
     add(st, new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.02, 24, 1, true), M.darkConcrete, x, 0.04, z);
-    tops.push(new THREE.Vector3(x, 0.03 + h, z));
+    tops.push([new THREE.Vector3(x, 0.03 + h, z), r]);
   }
-  // Trafo sahası ve elektrik direkleri
+  // En üst seviyede kömür siloları (sol arka köşe)
+  if (level >= 3) {
+    for (const z of [-0.42, -0.31]) {
+      add(st, new THREE.CylinderGeometry(0.042, 0.042, 0.26, 14), M.concrete, -0.42, 0.16, z);
+      add(st, new THREE.ConeGeometry(0.044, 0.03, 14), M.darkSteel, -0.42, 0.305, z);
+    }
+  }
+  // Trafo sahası ve elektrik direği (ön sağ köşe; teller trafolara iner)
   for (let k = 0; k < 3; k++) {
     box(st, 0.07, 0.07, 0.05, M.darkSteel, 0.1 + k * 0.1, 0.03, 0.36);
     for (const dx of [-0.02, 0.02]) add(st, new THREE.CylinderGeometry(0.006, 0.006, 0.05, 6), M.white, 0.1 + k * 0.1 + dx, 0.125, 0.36);
   }
-  pylon(st, 0.42, 0.42, 0.32);
-  pylon(st, 0.42, -0.05, 0.32);
-  rod(st, new THREE.Vector3(0.32, 0.32, 0.42), new THREE.Vector3(0.32, 0.32, -0.05), 0.002, M.darkSteel);
-  rod(st, new THREE.Vector3(0.52, 0.32, 0.42), new THREE.Vector3(0.52, 0.32, -0.05), 0.002, M.darkSteel);
-  // Kömür/yakıt borusu
-  const pipe = add(st, new THREE.CylinderGeometry(0.018, 0.018, 0.4, 8), M.steel, 0.0, 0.12, 0.02);
+  pylon(st, 0.43, 0.43, 0.32);
+  for (const [k, ax] of [[0, 0.33], [2, 0.53]] as [number, number][]) rod(st, new THREE.Vector3(ax, 0.32, 0.43), new THREE.Vector3(0.1 + k * 0.1, 0.15, 0.36), 0.002, M.darkSteel);
+  // Kömür/yakıt borusu (türbin binasının arkasında)
+  const pipe = add(st, new THREE.CylinderGeometry(0.018, 0.018, 0.3, 8), M.steel, -0.1, 0.12, 0.04);
   pipe.rotation.z = Math.PI / 2;
   g.add(mergeStatic([st]));
-  // Buhar: soğutma kulelerinden yükselen bulutlar (animateUtility)
-  const puffs: THREE.Mesh[] = [];
-  const steam = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.8, depthWrite: false });
-  tops.forEach((top, k) => {
-    for (let p = 0; p < 3; p++) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), steam.clone());
-      m.userData.phase = p / 3 + k * 0.17;
-      m.userData.base = top;
-      puffs.push(m);
-      g.add(m);
+  // Buhar: her soğutma kulesinden yükselip rüzgârla sürüklenen yumuşak bulutlar (animateUtility)
+  const puffs: THREE.Object3D[] = [];
+  tops.forEach(([top, r], k) => {
+    for (let p = 0; p < 4; p++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: steamTexture(), transparent: true, depthWrite: false, opacity: 0 }));
+      s.userData.phase = p / 4 + k * 0.13;
+      s.userData.base = top;
+      s.userData.size = r * 2.4; // kulenin ağzı kadar başlar, yükseldikçe büyür
+      s.userData.steam = true;
+      puffs.push(s);
+      g.add(s);
     }
   });
-  g.userData.smoke = { puffs, base: tops[0] };
+  g.userData.smoke = { puffs, base: tops[0][0] };
+  animateUtility(g, 0, 0); // menü resminde de buhar yerinde dursun
   return g;
 }
 
@@ -319,18 +352,29 @@ export function makeUtility(kind: UtilKind, level = 0): THREE.Object3D {
   return waterPump(level);
 }
 
-// Pervaneleri döndür, buharı yükselt
-export function animateUtility(obj: THREE.Object3D, time: number, dt: number) {
+// Pervaneleri döndür, buharı yükselt. night: gece (0..1); santral buharı gece koyulaşır (Sprite ışık almaz)
+const STEAM_DAY = new THREE.Color('#ffffff'), STEAM_NIGHT = new THREE.Color('#566079');
+export function animateUtility(obj: THREE.Object3D, time: number, dt: number, night = 0) {
   const spin = obj.userData.spin as THREE.Object3D | undefined;
   if (spin) spin.rotation.z -= dt * 2.2;
   const smoke = obj.userData.smoke as { puffs: THREE.Mesh[]; base: THREE.Vector3 } | undefined;
   if (smoke) {
     for (const p of smoke.puffs) {
       const base = (p.userData.base as THREE.Vector3 | undefined) ?? smoke.base;
+      const mat = p.material as THREE.MeshStandardMaterial | THREE.SpriteMaterial;
+      if (p.userData.steam) {
+        // Kule ağzından yavaşça yükselir, büyür ve rüzgârla yana kayar; hızla belirir, yavaşça dağılır
+        const k = (time * 0.12 + p.userData.phase) % 1;
+        p.position.set(base.x + k * 0.22 + k * k * 0.1, base.y + 0.04 + k * 0.5, base.z - k * 0.08);
+        p.scale.setScalar(p.userData.size * (0.9 + k * 1.5));
+        mat.opacity = Math.min(1, k * 5) * Math.pow(1 - k, 1.1);
+        mat.color.copy(STEAM_DAY).lerp(STEAM_NIGHT, night * 0.85);
+        continue;
+      }
       const k = (time * 0.3 + p.userData.phase) % 1;
       p.position.copy(base).add(new THREE.Vector3(k * 0.12, k * 0.55, 0));
       p.scale.setScalar(0.7 + k * 1.6);
-      (p.material as THREE.MeshStandardMaterial).opacity = 0.8 * (1 - k);
+      mat.opacity = 0.8 * (1 - k);
     }
   }
 }

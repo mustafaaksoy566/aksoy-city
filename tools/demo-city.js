@@ -86,8 +86,12 @@ place('beach', 25, 18);
 place('beach', 31, 18);
 place('marina', 36, 18);
 place('lighthouse', 39, 18);
-// Eyfel parkı (doğu, 30-34 sıraları): Eyfel gerçek boyuna yakın 5x5, bloğun tamamı
-place('eiffel', 30, 30);
+// Eyfel parkı (doğu, 30-34 sıraları): 3x3 Eyfel güneydeki yola bakar; çevresinde göl, heykel, çeşme ve parklar
+place('eiffel', 31, 32);
+place('lake', 32, 30);
+place('statue', 30, 30);
+place('fountain', 34, 30);
+for (let z = 30; z <= 34; z++) for (let x = 30; x <= 34; x++) if (!c.tiles[I(x, z)]) place('park', x, z);
 // Lunapark (batı, 30-34 sıraları)
 place('funfair', 12, 30);
 place('wheel', 15, 30);
@@ -205,15 +209,16 @@ function levelAt(x, z) {
   if (d <= 20) return 3;
   return rnd() < 0.5 ? 2 : 1;
 }
+const MARINA_FRONT = new Set([I(28, 10), I(29, 10)]);
 let sinceLot = 0;
 for (let z = 3; z <= 56; z++) {
   for (let x = 0; x <= 40; x++) {
     const i = I(x, z);
     if (c.tiles[i] || (z >= 13 && z <= 19)) continue;
     if (z <= 12 && !cityMod.isIslandXZ(x, z)) continue;
-    // Ada: sadece birkaç otel kulesi, gerisi park
+    // Ada: sadece birkaç otel kulesi, gerisi park (yat limanının iskelelerinin uzandığı kıyı boş kalır)
     if (z <= 12 && !HOTELS.has(i)) {
-      place('park', x, z);
+      if (!MARINA_FRONT.has(i)) place('park', x, z);
       continue;
     }
     if (z === 56) {

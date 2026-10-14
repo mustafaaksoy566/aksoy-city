@@ -9,7 +9,7 @@ import { parkingGarage, metro, bigAirport } from './places';
 import { SIGNAL_MATS, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
-import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor } from './water';
+import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor, mouthHalf } from './water';
 
 // Hareket eden parçası olan nesneler (pervane, duman, dönme dolap, ışık, alev) ayrı çizilir;
 // geri kalan her şey 8x8'lik bölgeler halinde birleştirilir.
@@ -996,24 +996,30 @@ function river() {
   const s = COAST_ROW;
   water(plane(2, rb + 1 - s, a + 1, (rb + 1 + s) / 2));
   water(plane(a, 2, a / 2, ra + 1));
-  // Ağız: nehir kumsalın kenarından deniz seviyesine iner, genişleyip denizin rengine karışarak kaybolur
-  const rows: [number, number, number, number][] = [
-    // [kıyıdan uzaklık, yükseklik, yarım genişlik, görünürlük]
-    // Kumsalın içinden kısa bir ağız: nehir suyu deniz seviyesine iner ve hemen denizin rengine karışır
-    [0, RIVER_Y, 1, 1], [0.6, SEA_Y + 0.004, 1.04, 0.75], [1.2, SEA_Y + 0.004, 1.15, 0.25], [1.8, SEA_Y + 0.004, 1.3, 0],
-  ];
+  // Ağız: nehir suyu kumsalın içindeki huniden (water.ts mouthHalf, kıyıları dalgalı) deniz seviyesine iner,
+  // genişleyip denizin rengine karışarak kaybolur; ucu dalgalı (düz kenarlı üçgen değil)
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const cx = wx(a + 1), z0 = wz(s);
-  const edge = waterColor(0), mid = waterColor(1);
-  rows.forEach(([d, y, h, alpha], k) => {
-    // Her sırada üç köşe: kenarlar sığ, ortası koyu
-    pos.push(cx - h, y, z0 - d, cx, y, z0 - d, cx + h, y, z0 - d);
-    col.push(edge.r, edge.g, edge.b, alpha, mid.r, mid.g, mid.b, alpha, edge.r, edge.g, edge.b, alpha);
-    if (k) {
-      const o = (k - 1) * 3;
-      for (const c of [0, 1]) idx.push(o + c, o + c + 1, o + c + 3, o + c + 3, o + c + 1, o + c + 4);
+  const tint = new THREE.Color();
+  const ROWS_N = 22, COLS_N = 10;
+  for (let r = 0; r <= ROWS_N; r++) {
+    const d = (r / ROWS_N) * 2.8;
+    const y = d < 0.5 ? THREE.MathUtils.lerp(RIVER_Y, SEA_Y + 0.004, THREE.MathUtils.smoothstep(d, 0, 0.5)) : SEA_Y + 0.004;
+    for (let q = 0; q <= COLS_N; q++) {
+      const u = (q / COLS_N) * 2 - 1;
+      pos.push(cx + u * mouthHalf(d, u < 0 ? -1 : 1), y, z0 - d);
+      // Ucu dalgalı: suyun karıştığı yer kenardan kenara değişir; açıkta kenarları da yumuşar
+      const wv = Math.sin(u * 5.3 + 1.1) * 0.5 + Math.sin(u * 11.7) * 0.3;
+      let alpha = 1 - THREE.MathUtils.smoothstep(d, 0.7 + 0.35 * wv, 2.3 + 0.4 * wv);
+      alpha *= 1 - THREE.MathUtils.smoothstep(Math.abs(u), 0.7, 1) * THREE.MathUtils.smoothstep(d, 0.9, 1.6);
+      waterColor(1 - Math.abs(u), tint);
+      col.push(tint.r, tint.g, tint.b, Math.max(0, alpha));
+      if (r && q) {
+        const o = (r - 1) * (COLS_N + 1) + q - 1, p = o + COLS_N + 1;
+        idx.push(o, o + 1, p, p, o + 1, p + 1);
+      }
     }
-  });
+  }
   const mouth = new THREE.BufferGeometry();
   mouth.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   mouth.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));
@@ -2318,8 +2324,9 @@ export class CityView {
         s.scale.setScalar(Math.max(s.userData.foot, d * 0.045));
       }
     }
+    const night = Math.min(1, BULB.emissiveIntensity / 2);
     for (const o of this.animated) {
-      animateUtility(o, this.time, dt);
+      animateUtility(o, this.time, dt, night);
       animateService(o, this.time);
       animateDecor(o, dt);
       animatePort(o, this.time, (Date.now() - this.city.lastShipped) / 1000);

@@ -958,14 +958,18 @@ function harborRects(): Harbor[] {
     const x = i % SIZE, z = Math.floor(i / SIZE);
     const rot = (FACING_TURNS[t.facing] * Math.PI) / 2;
     const dx = Math.round(Math.sin(rot)), dz = Math.round(Math.cos(rot));
-    // Önündeki kare deniz değilse (nehir kıyısındaki liman) havuz yok
+    // Önündeki sırada deniz yoksa (nehir kıyısındaki liman) havuz yok; adanın kıyısında önündeki karelerin biri
+    // adanın kenarı olabilir (iskele zaten oraya uzanır), orada bina varsa havuz kazılmaz
     const fx = dx > 0 ? x + n : dx < 0 ? x - 1 : x, fz = dz > 0 ? z + n : dz < 0 ? z - 1 : z;
-    if (!isSeaXZ(fx, fz)) return;
+    const front = Array.from({ length: n }, (_, k) => (dx ? [fx, z + k] : [x + k, fz]));
+    if (!front.some(([px, pz]) => isSeaXZ(px, pz))) return;
+    if (front.some(([px, pz]) => px >= 0 && px < SIZE && city.tiles[pz * SIZE + px])) return;
     const c = tileCenter(x + (n - 1) / 2, z + (n - 1) / 2);
-    const h = n / 2, reach = 2.4;
+    // Havuz yapının genişliğinden biraz geniş (iskelenin ucundaki tekneler de suda kalsın)
+    const h = n / 2, reach = 2.4, side = h + 0.12;
     const ex = c.x + dx * h, ez = c.z + dz * h;
-    if (dx) out.push({ x0: Math.min(ex, ex + dx * reach), x1: Math.max(ex, ex + dx * reach), z0: c.z - h + 0.02, z1: c.z + h - 0.02 });
-    else out.push({ x0: c.x - h + 0.02, x1: c.x + h - 0.02, z0: Math.min(ez, ez + dz * reach), z1: Math.max(ez, ez + dz * reach) });
+    if (dx) out.push({ x0: Math.min(ex, ex + dx * reach), x1: Math.max(ex, ex + dx * reach), z0: c.z - side, z1: c.z + side });
+    else out.push({ x0: c.x - side, x1: c.x + side, z0: Math.min(ez, ez + dz * reach), z1: Math.max(ez, ez + dz * reach) });
   });
   return out;
 }

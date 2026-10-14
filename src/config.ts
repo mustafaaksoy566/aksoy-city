@@ -344,7 +344,7 @@ export const COST: Record<BuildTool, number> = {
 // yoksa taşınınca büyür.
 export const FOOTPRINT: Partial<Record<BuildTool, number>> = {
   store: 2, market: 2, furniture: 2, bakery: 2, fashion: 2, garden: 2, cafe: 2, electro: 2, police: 2, fire: 2, depot: 2,
-  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 5, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 3, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 5, liberty: 3, colosseum: 5, pyramid: 6,
+  health: 2, school: 2, plant: 2, solar: 2, pump: 2, factory: 2, wheel: 2, stadium: 5, station: 2, trade: 2, uni: 3, airport: 4, port: 2, beach: 2, museum: 2, funfair: 3, marina: 2, mosque: 3, zoo: 3, lake: 2, biglake: 3, hill: 2, volley: 2, observatory: 2, eiffel: 3, liberty: 3, colosseum: 5, pyramid: 6,
   maiden: 3, hagia: 4, taj: 5, bigben: 3, parthenon: 4, chichen: 3, opera: 5, stonehenge: 2, cappadocia: 3, ephesus: 2, pamukkale: 3, troy: 2,
   galata: 2, pisa: 2,
 };

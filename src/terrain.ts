@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SIZE, ROWS, X0, Z0, ENTRANCE_Z, COAST_ROW, ISLAND, RIVER, RIVER_ROWS } from './config';
 import { mergeStatic } from './batcher';
-import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV, WATER, waterColor } from './water';
+import { SEA_Y, RIVER_Y, riverMat, seaMat, worldUV, WATER, waterColor, mouthHalf } from './water';
 import { isRiverXZ, isSeaXZ } from './city';
 import { forest, type TreeSpot, type TreeType } from './trees';
 import { palm, lighthouseTower } from './landmarks';
@@ -182,13 +182,31 @@ function inRiverBed(x: number, z: number) {
 }
 const RIVER_BED = RIVER_Y - 0.12;
 
+// --- Nehrin ağzı: kumsalın içinden denize açılan, kıyıları dalgalı huni (biçimi water.ts mouthHalf) ---
+const MOUTH_X = (RIVER[0] + RIVER[1] + 1) / 2 - X0, MOUTH_Z = COAST_ROW - Z0;
+// 1 ağzın içinde (su), 0 dışında (kum); kenarı denize doğru yumuşar
+function mouthAt(x: number, z: number) {
+  const d = MOUTH_Z - z;
+  if (d < -0.001 || d > 4) return 0;
+  const out = Math.abs(x - MOUTH_X) - mouthHalf(d, x < MOUTH_X ? -1 : 1);
+  const w = 0.06 + smooth(d, 0, 0.4) * 0.3; // kenar en az iki ızgara aralığında iner (testere dişi olmasın)
+  return 1 - smooth(out, -w, w);
+}
+
 // --- Rıhtım havuzları: liman ve yat limanlarının önünde kumsal yok, derin su (main.ts setHarbors) ---
 export interface Harbor { x0: number; x1: number; z0: number; z1: number }
 let harbors: Harbor[] = [];
 const inHarbor = (x: number, z: number) => harbors.some(h => x > h.x0 && x < h.x1 && z > h.z0 && z < h.z1);
-// Zemin ızgarası (havuz değişince yalnız o bölgedeki köşeler yeniden hesaplanır)
+// Havuza yakınlık: içinde 1, kenarından 0.7 uzakta 0 (suyun rengi ve kıyı dalgaları için)
+function harborW(x: number, z: number) {
+  let w = 0;
+  for (const h of harbors) w = Math.max(w, 1 - smooth(Math.hypot(Math.max(h.x0 - x, x - h.x1, 0), Math.max(h.z0 - z, z - h.z1, 0)), 0, 0.7));
+  return w;
+}
+// Zemin ve deniz ızgarası (havuz değişince yalnız o bölgedeki köşeler yeniden hesaplanır)
 let groundGeo: THREE.BufferGeometry | null = null;
 let groundXs: number[] = [], groundZs: number[] = [];
+let seaGeo: THREE.BufferGeometry | null = null;
 const harborKey = (list: Harbor[]) => list.map(h => [h.x0, h.x1, h.z0, h.z1].map(v => v.toFixed(2)).join(',')).join(';');
 export function setHarbors(list: Harbor[]) {
   if (harborKey(list) === harborKey(harbors)) return;
@@ -198,6 +216,7 @@ export function setHarbors(list: Harbor[]) {
   // Eski ve yeni havuzların çevresindeki köşeler (zemin düz gölgeli: normal gerekmez)
   const x0 = Math.min(...changed.map(h => h.x0)) - 1, x1 = Math.max(...changed.map(h => h.x1)) + 1;
   const z0 = Math.min(...changed.map(h => h.z0)) - 1, z1 = Math.max(...changed.map(h => h.z1)) + 1;
+  const inBox = (x: number, z: number) => x >= x0 && x <= x1 && z >= z0 && z <= z1;
   const pos = groundGeo.attributes.position as THREE.BufferAttribute;
   const col = groundGeo.attributes.color as THREE.BufferAttribute;
   const c = new THREE.Color();
@@ -217,6 +236,18 @@ export function setHarbors(list: Harbor[]) {
   pos.needsUpdate = true;
   col.needsUpdate = true;
   groundGeo.computeBoundingSphere();
+  // Havuzdaki suyun rengi (köpük değil derin su) ve kıyı dalgaları (havuzun önünde dalga yok)
+  if (seaGeo) {
+    const sp = seaGeo.attributes.position as THREE.BufferAttribute;
+    const sc = seaGeo.attributes.color as THREE.BufferAttribute;
+    for (let k = 0; k < sp.count; k++) {
+      if (!inBox(sp.getX(k), sp.getZ(k))) continue;
+      seaColor(sp.getX(k), sp.getZ(k), c);
+      sc.setXYZ(k, c.r, c.g, c.b);
+    }
+    sc.needsUpdate = true;
+  }
+  maskSurf();
 }
 
 export function heightAt(x: number, z: number) {
@@ -225,14 +256,12 @@ export function heightAt(x: number, z: number) {
   // Şehrin kenarına yakın dış kısım şehrin kenarıyla birleşir: nehrin çıktığı yerde de yatak (set kalmasın)
   const bed = inRiverBed(clampX(x), clampZ(z));
   if (d <= 0 && bed) return RIVER_BED;
-  // Nehrin ağzı: kumsalın içinden denize açılır; ağzın iki yanındaki kum yatağa doğru eğimle iner (dik duvar olmasın)
-  if (d <= 0 && z <= COAST_ROW - Z0 && z > COAST_Z - WATERLINE - 0.6) {
-    const mx0 = RIVER[0] - X0 + 0.02, mx1 = RIVER[1] + 1 - X0 - 0.02;
-    const out = x < mx0 ? mx0 - x : x > mx1 ? x - mx1 : 0;
-    const inside = z < COAST_ROW - Z0 - 0.01 ? 1 - smooth(out, 0, 1.2) : out === 0 ? 1 : 0;
-    if (inside > 0) {
+  // Nehrin ağzı: kumsalın içinden denize açılan huni; iki yanındaki kum dili dalgalı kıvrılarak yatağa iner
+  if (d <= 0) {
+    const m = mouthAt(x, z);
+    if (m > 0) {
       const y = shore(coast(x, z));
-      return lerp(y, Math.min(y, RIVER_Y - 0.08), inside);
+      return lerp(y, Math.min(y, RIVER_Y - 0.08), m);
     }
   }
   if (inHarbor(x, z)) return Math.min(shore(coast(x, z)), SEA_Y - 0.3);
@@ -277,12 +306,14 @@ const tmpSand = new THREE.Color();
 function shoreColor(x: number, y: number, c: number, land: THREE.Color, out: THREE.Color) {
   if (y < SEA_Y + 0.004) return out.lerpColors(C.shallow, C.deep, Math.min(1, (SEA_Y - y) / 1.2));
   const sand = smooth(c - sandLine(x), -0.2, 0.2) * (1 - smooth(y, 0.2, 0.45));
-  tmpSand.lerpColors(C.sand, C.wet, smooth(c, WATERLINE - 0.35, WATERLINE - 0.05));
+  // Su kenarına yakın kum ıslak (kıyıda da, nehrin ağzının ve liman havuzunun kenarında da)
+  const wet = Math.max(smooth(c, WATERLINE - 0.35, WATERLINE - 0.05), 1 - smooth(y, SEA_Y + 0.02, SEA_Y + 0.08));
+  tmpSand.lerpColors(C.sand, C.wet, wet);
   return out.copy(land).lerp(tmpSand, sand);
 }
 
-// Şehrin içindeki zemin rengi (nehrin dibi kumlu)
-function cityColor(x: number, z: number, out: THREE.Color) {
+// Şehrin içindeki zemin rengi (nehrin dibi kumlu). y: zeminin yüksekliği (verilmezse kıyının olağan yüksekliği)
+function cityColor(x: number, z: number, out: THREE.Color, y?: number) {
   // Sadece suyun altında kalan köşeler (iki yanı da nehir olan) kumlu; kıyıdaki köşeler çimen kalır
   const tx = (v: number) => Math.min(SIZE - 1, Math.max(0, Math.floor(v + X0)));
   const tz = (v: number) => Math.min(ROWS - 1, Math.max(0, Math.floor(v + Z0)));
@@ -291,13 +322,13 @@ function cityColor(x: number, z: number, out: THREE.Color) {
     return out.copy(C.bed);
   }
   const c = coast(x, z);
-  return shoreColor(x, shore(c), c, C.ground, out);
+  return shoreColor(x, y ?? shore(c), c, C.ground, out);
 }
 
 const tmpLand = new THREE.Color();
 function colorAt(x: number, z: number, y: number, out: THREE.Color) {
   const d = edgeDist(x, z);
-  if (d <= 0) return cityColor(x, z, out);
+  if (d <= 0) return cityColor(x, z, out, y);
   const land = tmpLand;
   // Dağda kaya ve kar daha aşağıdan başlar
   y += Math.min(3.5, mountain(x, z) * 0.2);
@@ -380,8 +411,9 @@ function buildGround() {
   const col = new THREE.Color();
   // Tünel ağzında ve kayak pistlerinde sık ızgara (keskin kenarlar, net pistler); kuzeyde kıyı ve ada sık
   const bank = (lo: number, hi: number) => [lo + 0.03, hi - 0.03];
-  const xs = withLines(refine(refine(cityAxis(WEST, EAST), HW.portal - 3, HW.portal + 1, 0.5), -61, HW.portal - 3.5, 0.5), bank(RIVER[0] - X0, RIVER[1] + 1 - X0));
-  const zs = withLines(refine(cityAxis(ZN, ZS, -14), -18, -2, 0.5), [...bank(RIVER_ROWS[0] - Z0, RIVER_ROWS[1] + 1 - Z0), COAST_Z + 0.25, COAST_Z - 0.25, COAST_Z - 0.75]);
+  // Nehrin ağzında da sık ızgara (kum dillerinin dalgalı kenarı görünsün)
+  const xs = withLines(refine(refine(refine(cityAxis(WEST, EAST), HW.portal - 3, HW.portal + 1, 0.5), -61, HW.portal - 3.5, 0.5), MOUTH_X - 3.5, MOUTH_X + 4, 0.25), bank(RIVER[0] - X0, RIVER[1] + 1 - X0));
+  const zs = withLines(refine(refine(cityAxis(ZN, ZS, -14), -18, -2, 0.5), MOUTH_Z - 2.5, MOUTH_Z - 0.125, 0.125), [...bank(RIVER_ROWS[0] - Z0, RIVER_ROWS[1] + 1 - Z0), COAST_Z + 0.25, COAST_Z - 0.25, COAST_Z - 0.75]);
   const geo = grid(xs, zs, (x, z, pos, colors, k) => {
     const y = heightAt(x, z);
     pos.set([x, y, z], k * 3);
@@ -398,17 +430,28 @@ function buildGround() {
 
 // Deniz: kıyıda köpük ve turkuaz sığ su, açıkta koyu mavi
 const SEA = WATER;
+function seaColor(x: number, z: number, col: THREE.Color) {
+  let c = coast(x, z) - WATERLINE; // su kenarından uzaklık
+  // Liman havuzlarında ve nehrin ağzında su derin: kumsal kenarındaki köpük ve soluk sığ su rengi olmaz
+  const hw = harborW(x, z);
+  if (hw > 0) c = Math.max(c, lerp(c, 4.5, hw));
+  const m = mouthAt(x, z);
+  if (m > 0) c = Math.max(c, 2.4 * m * (1 - smooth(MOUTH_Z - z, 1.4, 3.5)));
+  if (c < 3.5) col.lerpColors(SEA.foam, SEA.shallow, smooth(c, -0.2, 1.2));
+  else if (c < 9) col.lerpColors(SEA.shallow, SEA.mid, smooth(c, 3.5, 9));
+  else col.lerpColors(SEA.mid, SEA.deep, smooth(c, 9, 34));
+  return col;
+}
 function buildSea() {
   const lines = axis(EXTENT, 1, 30, 24);
-  const geo = grid(lines, lines, (x, z, pos, colors, k) => {
+  // Nehrin ağzında sık ızgara (suyun rengi kum dillerinin dalgalı kenarını izlesin)
+  const xs = refine(lines, MOUTH_X - 3.5, MOUTH_X + 4, 0.25), zs = refine(lines, MOUTH_Z - 4, MOUTH_Z + 0.5, 0.25);
+  const col = new THREE.Color();
+  const geo = grid(xs, zs, (x, z, pos, colors, k) => {
     pos.set([x, SEA_Y, z], k * 3);
-    const c = coast(x, z) - WATERLINE; // su kenarından uzaklık
-    const col = new THREE.Color();
-    if (c < 3.5) col.lerpColors(SEA.foam, SEA.shallow, smooth(c, -0.2, 1.2));
-    else if (c < 9) col.lerpColors(SEA.shallow, SEA.mid, smooth(c, 3.5, 9));
-    else col.lerpColors(SEA.mid, SEA.deep, smooth(c, 9, 34));
-    col.toArray(colors, k * 3);
+    seaColor(x, z, col).toArray(colors, k * 3);
   });
+  seaGeo = geo;
   const normals = new Float32Array(geo.attributes.position.count * 3);
   for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
@@ -671,10 +714,24 @@ function shoreStrip(points: [THREE.Vector3, THREE.Vector3][], closed: boolean, v
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
   geo.setIndex(idx);
+  geo.userData.alpha = col.filter((_, k) => k % 4 === 3); // asıl saydamlık (maskSurf bununla çarpar)
+  surfStrips.push(geo);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.renderOrder = 1;
   mesh.frustumCulled = false;
   return mesh;
+}
+// Dalga şeritleri: nehrin ağzında (nehir denize akar, dalga kırılmaz) ve liman havuzlarının önünde dalga yok
+const surfStrips: THREE.BufferGeometry[] = [];
+const surfMask = (x: number, z: number) => smooth(Math.hypot(x - MOUTH_X, (z - MOUTH_Z) * 0.5), 1.9, 3.4) * (1 - harborW(x, z));
+function maskSurf() {
+  for (const geo of surfStrips) {
+    const p = geo.attributes.position as THREE.BufferAttribute;
+    const col = geo.attributes.color as THREE.BufferAttribute;
+    const base = geo.userData.alpha as number[];
+    for (let k = 0; k < p.count; k++) col.setW(k, base[k] * surfMask(p.getX(k), p.getZ(k)));
+    col.needsUpdate = true;
+  }
 }
 function buildSurf() {
   const g = new THREE.Group();
@@ -712,6 +769,7 @@ function buildSurf() {
     g.add(shoreStrip(sh.pts(WATERLINE, WATERLINE + 1.6), sh.closed, 1.3, SURF, 0.95, 0));
     g.add(shoreStrip(sh.pts(WATERLINE - 0.06, WATERLINE + 0.16), sh.closed, 1, FOAM, 1, 1));
   }
+  maskSurf();
   return g;
 }
 // Her karede: dalgalar kıyıya yürür, köpük gelip gider; gece sönükleşir

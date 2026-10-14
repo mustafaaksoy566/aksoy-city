@@ -2054,7 +2054,26 @@ export class City {
       // Yükseltilmiş havalimanı kendi seviyesinin boyunda olmalı
       const n = t.kind === 'airport' ? Math.max(sizeOf(t.kind), AIRPORT_LEVELS[t.level]?.fp ?? 0) : sizeOf(t.kind);
       if ((t.fp ?? 1) < n) this.growBuilding(i, n);
+      // Gerçek boyundan büyük kalmış simge yapı (eski 5x5 Eyfel → 3x3): eski alanının içinde küçülür
+      else if ((t.fp ?? 1) > n && isDecor(t.kind) && t.kind !== 'airport') this.shrinkBuilding(i, n);
     });
+  }
+
+  // Binayı yerinde n x n'e küçült: yeni alan eskisinin içinde (önce ortalı, olmazsa yola değen yerleşim)
+  shrinkBuilding(i: number, n: number): string | null {
+    const t = this.tiles[i];
+    if (!t) return 'Burada bina yok';
+    const d = (t.fp ?? 1) - n;
+    const x = i % SIZE, z = Math.floor(i / SIZE);
+    const offs = Array.from({ length: d + 1 }, (_, k) => k).sort((p, q) => Math.abs(p - d / 2) - Math.abs(q - d / 2));
+    for (const oz of offs) {
+      for (const ox of offs) {
+        if (this.moveCheck(i, x + ox, z + oz, n)) continue;
+        this.moveBuilding(i, x + ox, z + oz, undefined, n);
+        return null;
+      }
+    }
+    return 'Burada küçülecek yer yok';
   }
 
   // Binayı yerinde n x n'e büyüt: yeni alan eskisini içine alır (önce ortalı yerleşim denenir). Olmazsa hata.

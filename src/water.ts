@@ -9,6 +9,16 @@ export const SEA_Y = -0.28; // deniz seviyesi
 export const RIVER_Y = -0.24; // şehirdeki nehrin yüzeyi (denize akarken biraz iner)
 const UV_SCALE = 7; // dalga dokusu kaç birimde bir tekrar etsin
 
+// Nehrin ağzı (terrain.ts zemini ve view.ts ağızdaki su aynı biçimi kullanır): rıhtım duvarlarının bittiği yerden
+// (d = 0) denize doğru huni gibi genişler; iki yanındaki kum dili dalgalı kıvrılır (düz kenarlı üçgen olmasın).
+// d: rıhtımın ucundan denize doğru uzaklık, side: -1 batı, 1 doğu kıyısı. Ağzın ortasına uzaklık olarak yarım genişlik.
+export const MOUTH_LEN = 1.3; // kumsalın içindeki kısım (bundan sonrası suyun altında)
+export function mouthHalf(d: number, side: number) {
+  const t = Math.min(1, Math.max(0, d / MOUTH_LEN));
+  const wave = Math.sin(d * 3.1 + side) * 0.12 + Math.sin(d * 7.3 + side * 1.7) * 0.08 + Math.sin(d * 13.1 + side * 4.2) * 0.04;
+  return 0.98 + 1.4 * Math.pow(t, 1.5) + (side > 0 ? 0.3 : 0) * t * t + Math.max(0, d - MOUTH_LEN) * 0.8 + wave * Math.min(1, t * 3);
+}
+
 // Kendini tekrar eden dalga yüksekliğinden normal doku üret (tam sayı frekanslı sinüsler = dikişsiz)
 function waveNormals(size = 128) {
   const waves = [
