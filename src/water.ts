@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { noSnow } from './season';
 
 // Su yüzeyi: nehir ve deniz aynı dalga dokusunu paylaşır; doku yavaşça kayınca su ışıldar.
 // Dokunun yeri dünya koordinatından hesaplanır, böylece nehir parçaları ve deniz birbirine dikişsiz bağlanır.
@@ -58,6 +59,7 @@ export const seaMat = new THREE.MeshStandardMaterial({
   transparent: true, opacity: 0.88,
 });
 export const riverMat = seaMat;
+noSnow(seaMat); // su donmaz, kar tutmaz
 
 // Geometrinin doku koordinatlarını dünya konumundan ver (geometri dünya yerinde olmalı)
 export function worldUV(geo: THREE.BufferGeometry) {

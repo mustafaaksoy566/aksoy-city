@@ -361,6 +361,9 @@ place('stonehenge', 56, 31);
 // Kapadokya (balonlarıyla) ve Efes, z = 33 bulvarının kuzeyinde
 if (!place('cappadocia', 52, 30)) errs.push('kapadokya');
 if (!place('ephesus', 58, 31)) errs.push('efes');
+// Pamukkale ve Truva Atı, z = 45 yolunun kuzeyinde
+if (!place('pamukkale', 52, 42)) errs.push('pamukkale');
+if (!place('troy', 60, 43)) errs.push('truva');
 place('biglake', 49, 27);
 place('lake', 60, 27);
 place('hill', 49, 37);

@@ -8,7 +8,8 @@ import { carModel } from './cars';
 import { EXTRA_DECOR, archGeo, dome, gable, pitched, stoneMat, stoneUV, rock, motorYacht } from './landmarks';
 
 // Dünya harikaları: Özgürlük Anıtı, Kız Kulesi, Ayasofya, Tac Mahal, Big Ben, Parthenon, Chichen Itza,
-// Sidney Opera Binası, Stonehenge, Kapadokya (uçan balonlarıyla) ve Efes (Celsus Kütüphanesi). Hepsi kodla
+// Sidney Opera Binası, Stonehenge, Kapadokya (uçan balonlarıyla), Efes (Celsus Kütüphanesi), Pamukkale ve
+// Truva Atı. Hepsi kodla
 // çizilir; dokular da (bayrak, saat kadranı, gotik cephe, karo, tüf katmanları, balon boyası) tuvale kodla boyanır. Yerel ölçü 1x1: n karelik yapı n*0.96 kat büyütülür, içindeki bank, lamba ve
 // ağaç gibi eşyalar 1/(n*0.96) ile küçültülür. y = 0 yol hizası, zemin plakası 0.03'te biter; ön yüz +z yola
 // bakar (Opera'da suya, Kız Kulesi denizin içinde). Sabit parçalar tek parçada birleştirilir.
@@ -1781,9 +1782,251 @@ function ephesus() {
   return g;
 }
 
+// ======================= Pamukkale (3x3) =======================
+// Bembeyaz traverten basamakları: önden arkaya yükselen beş kademe, her kademenin önü yay yay taşan havuzlar
+// (turkuaz su, aralarında beyaz setler). Tepede Hierapolis: yarım daire tiyatro, sütunlu cadde, içinde sütun
+// parçaları duran Antik Havuz; servi ve çam ağaçları, ziyaretçi merdiveni.
+const PK = {
+  trav: pm('#f4f5f0', 0.5),
+  trav2: pm('#e8eae3', 0.55),
+  water: new THREE.MeshStandardMaterial({ color: '#8ad9e3', roughness: 0.08, metalness: 0.1 }),
+  deep: new THREE.MeshStandardMaterial({ color: '#63c6d6', roughness: 0.08, metalness: 0.1 }),
+  grass: pm('#94b95e', 1),
+  soil: pm('#d9cfb2', 1),
+  ruin: pm('#dccaa5', 0.9),
+  ruin2: pm('#cbb68e', 0.9),
+};
+// Bir kademenin ön kenarı: x boyunca yan yana havuzlar, her biri öne doğru yay çizer
+function terraceEdge(seed: number) {
+  const xs = [-0.47];
+  while (xs[xs.length - 1] < 0.47) xs.push(Math.min(0.47, xs[xs.length - 1] + 0.12 + hash(seed + xs.length) * 0.09));
+  if (0.47 - xs[xs.length - 2] < 0.06) xs.splice(xs.length - 2, 1);
+  return xs;
+}
+// Kademenin gövdesi: önü yaylı, arkası düz; Shape (x, -z) düzleminde çizilir, yukarı doğru çekilir
+function terraceBlock(xs: number[], zf: number, zb: number, bulge: number, h: number) {
+  const s = new THREE.Shape();
+  s.moveTo(xs[0], -zb);
+  s.lineTo(xs[0], -zf);
+  for (let j = 0; j < xs.length - 1; j++) s.quadraticCurveTo((xs[j] + xs[j + 1]) / 2, -(zf + bulge * 2), xs[j + 1], -zf);
+  s.lineTo(xs[xs.length - 1], -zb);
+  s.lineTo(xs[0], -zb);
+  return flat(new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: 6 }));
+}
+// Bir havuzun suyu: önü kademenin yayından rim kadar içeride, arkası bir üst kademenin önünde
+function poolWater(x0: number, x1: number, zf: number, zb: number, bulge: number, rim: number) {
+  const s = new THREE.Shape();
+  const a = x0 + rim, b = x1 - rim;
+  // Ön kenar kademenin yayından içeride: uçlarda rim / 2, ortada rim kadar beyaz set kalır
+  const front = zf - rim / 2;
+  s.moveTo(a, -zb);
+  s.lineTo(a, -front);
+  s.quadraticCurveTo((a + b) / 2, -(zf + bulge * 2 - rim * 2.5), b, -front);
+  s.lineTo(b, -zb);
+  s.lineTo(a, -zb);
+  return flat(new THREE.ShapeGeometry(s, 6));
+}
+function pamukkale() {
+  const n = 3, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, PK.grass, 0, 0, 0);
+  // Önde, en alttaki kademenin dibinde sığ turkuaz gölet
+  box(st, 0.96, 0.003, 0.08, PK.trav2, 0, 0.03, 0.44);
+  add(st, flat(new THREE.PlaneGeometry(0.92, 0.05)), PK.deep, 0, 0.0345, 0.445);
+  // Beş kademe: her biri bir öncekinden geride ve yüksekte; arkada yayla (Hierapolis) en üst kademenin üstü
+  const T = 5, back = -0.49;
+  const fronts = [0.4, 0.31, 0.22, 0.13, 0.04];
+  // Yukarı çıktıkça kademeler daralır (yamaç gibi): her kademe bir şerit, arkası bir üstteki kademenin altına
+  // girer; yanlarda yamacın çimeni görünür. En üstteki kademe arkaya kadar uzanır (yayla).
+  const half = (k: number) => 0.47 - k * 0.03;
+  const edges = fronts.map((_, k) => terraceEdge(k * 17 + 3).map(x => (x * half(k)) / 0.47));
+  for (let k = 0; k < T; k++) {
+    const top = 0.03 + (k + 1) * 0.03;
+    const zb = k < T - 1 ? fronts[k + 1] - 0.03 : back;
+    add(st, terraceBlock(edges[k], fronts[k], zb, 0.016, top - 0.03), k % 2 ? PK.trav2 : PK.trav, 0, 0.03, 0);
+    // Kademenin önünden sarkan traverten damlaları (her havuzun yayı boyunca)
+    const ex = edges[k];
+    for (let j = 0; j < ex.length - 1; j++) {
+      for (const u of [0.2, 0.5, 0.8]) {
+        const x = ex[j] + (ex[j + 1] - ex[j]) * u;
+        const z = fronts[k] + 0.016 * 4 * u * (1 - u) + 0.002;
+        const h = 0.02 + hash(k * 31 + j * 3 + u * 10) * 0.009;
+        cyl(st, 0.0042, 0.0016, h, PK.trav, x, top - h - 0.001, z, 6);
+      }
+    }
+    // Havuzlar (en üst kademede yalnızca önde; arkası yayla)
+    const wb = k < T - 1 ? fronts[k + 1] - 0.004 : fronts[k] - 0.07;
+    const xs = edges[k];
+    for (let j = 0; j < xs.length - 1; j++) {
+      const deep = hash(k * 9 + j) > 0.6;
+      add(st, poolWater(xs[j], xs[j + 1], fronts[k], wb, 0.016, 0.008), deep ? PK.deep : PK.water, 0, top + 0.0025, 0);
+    }
+  }
+  const py = 0.03 + T * 0.03; // yaylanın yüksekliği
+  // Yayla: toprak ve çimen lekeleri
+  box(st, 0.44, 0.003, 0.3, PK.soil, 0.1, py, -0.31);
+  box(st, 0.2, 0.003, 0.22, PK.grass, -0.23, py, -0.36);
+  // Tiyatro: yarım halka oturma basamakları (sahne öne bakar)
+  const tx = 0.17, tz = -0.3;
+  for (let k = 0; k < 6; k++) {
+    const r0 = 0.05 + k * 0.016, r1 = r0 + 0.017;
+    const sh = new THREE.Shape();
+    sh.moveTo(r1, 0);
+    sh.absarc(0, 0, r1, 0, Math.PI, false);
+    sh.lineTo(-r0, 0);
+    sh.absarc(0, 0, r0, Math.PI, 0, true);
+    add(st, flat(new THREE.ExtrudeGeometry(sh, { depth: 0.006 * (k + 1), bevelEnabled: false, curveSegments: 12 })), k % 2 ? PK.ruin : PK.ruin2, tx, py + 0.003, tz);
+  }
+  box(st, 0.26, 0.012, 0.03, PK.ruin2, tx, py + 0.003, tz + 0.035);
+  for (let k = 0; k < 6; k++) cyl(st, 0.0045, 0.005, 0.03 + hash(k + 70) * 0.03, PK.ruin, tx - 0.11 + k * 0.044, py + 0.015, tz + 0.045, 8);
+  // Sütunlu cadde (bir kısmı kırık)
+  for (let k = 0; k < 9; k++) {
+    const r = hash(k + 80), x = -0.3 + k * 0.045;
+    if (r < 0.15) continue;
+    cyl(st, 0.0055, 0.0062, r > 0.55 ? 0.07 : 0.02 + r * 0.06, PK.ruin, x, py + 0.003, -0.2, 8);
+  }
+  // Antik Havuz: içinde devrik sütun parçaları duran turkuaz havuz
+  frame(st, 0.14, 0.1, 0.012, 0.01, PK.ruin2, -0.23, py + 0.003, -0.35);
+  add(st, flat(new THREE.PlaneGeometry(0.12, 0.08)), PK.deep, -0.23, py + 0.011, -0.35);
+  for (let k = 0; k < 3; k++) {
+    const d = add(st, new THREE.CylinderGeometry(0.006, 0.006, 0.04, 8), PK.ruin, -0.265 + k * 0.035, py + 0.012, -0.355 + (k % 2) * 0.02);
+    d.rotation.set(0, k * 1.1, Math.PI / 2);
+  }
+  // Ziyaretçi merdiveni: sol yamaçta, her kademenin yanından yukarı çıkar
+  for (let i = 0; i < 12; i++) {
+    const z = 0.42 - i * 0.04;
+    const k = Math.max(0, fronts.filter(f => f >= z).length - 1);
+    box(st, 0.03, 0.013 * (i + 1), 0.04, PK.ruin2, -(half(k) + 0.018), 0.03, z);
+  }
+  // Yamacın iki yanı çimenli: ağaçlar
+  for (const [x, z] of [[-0.45, -0.45], [0.45, -0.42], [0.45, -0.2], [0.46, 0.05], [-0.46, -0.25]] as [number, number][]) plant(st, PROPS.treeSmall, x, z, n, 0.5);
+  for (const [x, z] of [[0.46, 0.2], [-0.45, -0.05]] as [number, number][]) plant(st, PROPS.treeLarge, x, z, n, 0.4);
+  // Ağaçlar, lambalar, bank
+  for (const [x, z] of [[-0.31, -0.46], [-0.08, -0.46], [0.32, -0.12], [-0.06, -0.3], [-0.33, -0.12]] as [number, number][]) {
+    const t = makeTreeAt(PROPS.treeSmall, x, z, n, 0.5);
+    t.position.y = py - 0.03;
+    st.add(t);
+  }
+  for (const [x, z] of [[0.33, -0.22], [0.33, -0.44]] as [number, number][]) {
+    const t = makeTreeAt(PROPS.treePine, x, z, n, 0.45);
+    t.position.y = py - 0.03;
+    st.add(t);
+  }
+  const l = item(st, 0.05, -0.22, 0, 1, py - 0.03);
+  lamp(l, 0, 0, s, 0.14);
+  g.add(mergeStatic([st]));
+  return g;
+}
+// Ağacı yerden yüksekteki bir yüzeye dikmek için (tree() y = 0.03'e diker)
+function makeTreeAt(path: string, x: number, z: number, n: number, size: number) {
+  const holder = new THREE.Group();
+  plant(holder, path, x, z, n, size);
+  return holder;
+}
+
+// ======================= Truva Atı (2x2) =======================
+// Çanakkale'deki tahta at: kalaslardan çakılmış gövde, yan pencereler, uzun boyun ve baş, yele ve kuyruk;
+// tahta platform ve arka bacakların arasından karnına çıkan merdiven. Arkada Truva'nın eğimli taş surları ve
+// yıkık kulesi, önde taş döşeli meydan, zeytin ve servi ağaçları.
+const PLANKS = canvasTex(64, 128, g => {
+  for (let y = 0, k = 0; y < 128; y += 16, k++) {
+    g.fillStyle = ['#a8743f', '#9a6936', '#b07c45', '#946232'][k % 4];
+    g.fillRect(0, y, 64, 16);
+    g.fillStyle = 'rgba(60, 35, 15, 0.55)';
+    g.fillRect(0, y, 64, 1.5);
+    g.fillStyle = 'rgba(255, 220, 170, 0.12)';
+    for (let x = 0; x < 64; x += 7) g.fillRect(x + (k % 2) * 3, y + 4 + (x % 3), 4, 1);
+    g.fillStyle = 'rgba(40, 25, 10, 0.6)';
+    g.fillRect(((k * 23) % 50) + 4, y + 6, 2, 2);
+    g.fillRect(((k * 23) % 50) + 4, y + 10, 1, 4);
+  }
+});
+const TR = {
+  wood: new THREE.MeshStandardMaterial({ map: PLANKS, roughness: 0.85 }),
+  dark: pm('#5b3a1e', 0.9),
+  hole: pm('#2b1d12', 1),
+  wall: stoneMat('#c8b48e'),
+  wall2: pm('#b59f78', 0.95),
+  ground: pm('#a9b46c', 1),
+  plaza: pm('#d6c9a6', 1),
+};
+// Kalaslı kutu: dokusu gerçek ölçüye göre (bir kalas 0.02 yerel birim)
+const plank = (w: number, h: number, d: number) => uvBox(w, h, d, 0.08, 0.16);
+function troy() {
+  const n = 2, s = small(n);
+  const g = new THREE.Group();
+  const st = new THREE.Group();
+  box(st, 0.98, 0.03, 0.98, TR.ground, 0, 0, 0);
+  box(st, 0.72, 0.003, 0.44, TR.plaza, 0.02, 0.03, 0.16);
+  // Surlar: arkada yay çizen eğimli taş duvar, bir yerinde yıkık kule
+  for (let k = 0; k < 9; k++) {
+    const a = -1.1 + k * 0.275;
+    const x = Math.sin(a) * 0.5, z = -0.53 + Math.cos(a) * 0.13;
+    const h = k === 6 ? 0.06 : 0.11 + hash(k + 3) * 0.03;
+    const w = add(st, frustum(0.13, 0.06, h, 0.12, 0.035), TR.wall2, x, 0.03 + h / 2, z);
+    w.rotation.y = Math.atan2(0.13 * Math.sin(a), 0.5 * Math.cos(a));
+  }
+  const tw = add(st, uvBox(0.12, 0.17, 0.1, 0.08, 0.08), TR.wall, -0.3, 0.03 + 0.085, -0.4);
+  tw.rotation.y = 0.35;
+  for (let k = 0; k < 6; k++) rock(st, -0.15 + hash(k + 40) * 0.5, 0.04, -0.3 + hash(k + 41) * 0.08, 0.012 + hash(k) * 0.01, 1.3, 0.7, 1, PT.rock);
+  // Atın platformu
+  const ax = 0.0, az = 0.08;
+  add(st, plank(0.44, 0.03, 0.2), TR.wood, ax, 0.045, az);
+  const y0 = 0.06;
+  // Bacaklar (hafif açık), toynaklar
+  for (const [lx, lz] of [[-0.12, -0.045], [-0.12, 0.045], [0.11, -0.045], [0.11, 0.045]]) {
+    add(st, plank(0.036, 0.14, 0.036), TR.wood, ax + lx, y0 + 0.07, az + lz);
+    box(st, 0.042, 0.012, 0.042, TR.dark, ax + lx, y0, az + lz);
+  }
+  // Gövde: kalaslı kutu, göğüs ve sağrı biraz daha geniş
+  const by = y0 + 0.14;
+  add(st, plank(0.32, 0.12, 0.13), TR.wood, ax, by + 0.06, az);
+  add(st, plank(0.06, 0.13, 0.14), TR.wood, ax - 0.135, by + 0.065, az);
+  add(st, plank(0.06, 0.13, 0.14), TR.wood, ax + 0.135, by + 0.065, az);
+  box(st, 0.33, 0.008, 0.135, TR.dark, ax, by + 0.12, az);
+  // Yan pencereler (iki yanda üçer)
+  for (const sz of [-1, 1]) for (let k = 0; k < 3; k++) box(st, 0.03, 0.03, 0.004, TR.hole, ax - 0.07 + k * 0.07, by + 0.04, az + sz * 0.0665);
+  // Boyun (öne eğik), baş, kulaklar, gözler, yele
+  const neck = add(st, plank(0.075, 0.22, 0.085), TR.wood, ax + 0.18, by + 0.17, az);
+  neck.rotation.z = -0.5;
+  const head = add(st, plank(0.16, 0.065, 0.07), TR.wood, ax + 0.27, by + 0.27, az);
+  head.rotation.z = -0.35;
+  box(st, 0.05, 0.03, 0.06, TR.dark, ax + 0.34, by + 0.225, az).rotation.z = -0.35;
+  for (const sz of [-1, 1]) {
+    const ear = add(st, new THREE.ConeGeometry(0.012, 0.04, 4), TR.wood, ax + 0.215, by + 0.32, az + sz * 0.022);
+    ear.rotation.z = -0.3;
+    add(st, new THREE.SphereGeometry(0.007, 8, 6), TR.hole, ax + 0.275, by + 0.29, az + sz * 0.036);
+  }
+  const mane = box(st, 0.02, 0.22, 0.02, TR.dark, ax + 0.155, by + 0.08, az);
+  mane.rotation.z = -0.5;
+  mane.position.set(ax + 0.138, by + 0.193, az);
+  // Kuyruk
+  const tail = box(st, 0.02, 0.12, 0.016, TR.dark, ax - 0.18, by - 0.04, az);
+  tail.rotation.z = -0.35;
+  // Arka bacakların arasından karna çıkan merdiven
+  for (const sz of [-1, 1]) rod(st, [ax - 0.06, y0 + 0.01, az + sz * 0.018], [ax - 0.03, by, az + sz * 0.018], 0.003, TR.dark, 4);
+  for (let k = 1; k < 7; k++) {
+    const t = k / 7;
+    rod(st, [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az - 0.018], [ax - 0.06 + t * 0.03, y0 + 0.01 + t * (by - y0 - 0.01), az + 0.018], 0.0025, TR.dark, 4);
+  }
+  // Meydanda sütun parçaları, ağaçlar, lambalar, banklar
+  for (let k = 0; k < 5; k++) {
+    const d = add(st, new THREE.CylinderGeometry(0.01, 0.01, 0.03, 10), TR.wall2, -0.38 + hash(k + 60) * 0.2, 0.04, 0.3 + hash(k + 61) * 0.12);
+    d.rotation.set(0, hash(k + 62) * 3, Math.PI / 2);
+  }
+  for (const [x, z] of [[0.42, -0.2], [0.44, 0.42], [-0.44, 0.1]] as [number, number][]) plant(st, PROPS.treeLarge, x, z, n, 0.42);
+  for (const [x, z] of [[-0.44, -0.12], [0.44, 0.1], [-0.44, 0.44]] as [number, number][]) plant(st, PROPS.treeSmall, x, z, n, 0.5);
+  for (const x of [-0.3, 0.3]) lamp(st, x, 0.38, s, 0.16);
+  bench(st, 0.18, 0.43, Math.PI, s);
+  bench(st, -0.12, 0.43, Math.PI, s);
+  g.add(mergeStatic([st]));
+  return g;
+}
+
 // Simge yapılar arasına kaydet (landmarks.ts makeDecor önce buraya bakar)
 const WONDERS: Partial<Record<DecorKind, () => THREE.Object3D>> = {
-  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge, cappadocia, ephesus,
+  liberty, maiden, hagia, taj, bigben: bigBen, parthenon, chichen, opera, stonehenge, cappadocia, ephesus, pamukkale, troy,
 };
 Object.assign(EXTRA_DECOR, WONDERS);
 export const WONDER_KINDS = Object.keys(WONDERS) as DecorKind[];

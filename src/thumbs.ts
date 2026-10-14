@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SEASON_U } from './season';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 // Menüler için küçük resimler: her aracın 3D modelini bir kere çizip resme çeviriyoruz.
@@ -26,6 +27,17 @@ export function thumbRenderer(size = 160, opts: { env?: boolean } = {}) {
   return {
     render(items: [string, THREE.Object3D][]): Map<string, string> {
       const out = new Map<string, string>();
+      if (!renderer) return out;
+      // Menü resimleri hep yaz görünümünde (kar ve sonbahar yaprakları olmadan)
+      const season = [SEASON_U.snow.value, SEASON_U.autumn.value];
+      SEASON_U.snow.value = SEASON_U.autumn.value = 0;
+      try {
+        return this.draw(items, out);
+      } finally {
+        [SEASON_U.snow.value, SEASON_U.autumn.value] = season;
+      }
+    },
+    draw(items: [string, THREE.Object3D][], out: Map<string, string>): Map<string, string> {
       if (!renderer) return out;
       for (const [key, obj] of items) {
         scene.add(obj);

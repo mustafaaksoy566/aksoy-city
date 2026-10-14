@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { noSnow } from './season';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Yol parçaları (kodla çizilir): düz yol, yaya geçitli düz yol, viraj, T kavşak, dörtlü kavşak.
@@ -228,7 +229,12 @@ function grainTexture() {
   return t;
 }
 let ROAD_MAT: THREE.MeshStandardMaterial | null = null;
-const roadMat = () => (ROAD_MAT ??= new THREE.MeshStandardMaterial({ vertexColors: true, map: grainTexture(), roughness: 0.92, metalness: 0 }));
+// Yollar kışın temizlenmiş: kar tutmaz (season.ts)
+const roadMat = () => (ROAD_MAT ??= noSnowMat(new THREE.MeshStandardMaterial({ vertexColors: true, map: grainTexture(), roughness: 0.92, metalness: 0 })));
+const noSnowMat = <T extends THREE.Material>(m: T) => {
+  noSnow(m);
+  return m;
+};
 // Doku koordinatları yukarıdan (x, z): kare başına iki tekrar
 function topUV(geo: THREE.BufferGeometry) {
   const p = geo.attributes.position;

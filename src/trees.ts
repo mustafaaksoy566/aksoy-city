@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { withSnow, autumnPatch } from './season';
 
 // Ağaçlar: yuvarlak yapraklı ağaç, çam, servi, çalı ve çiçekli ağaç.
 // Yapraklar alttan koyu, üstten açık (güneş üstten vuruyor gibi); her yüzey biraz farklı tonda, el yapımı gibi.
@@ -134,7 +135,14 @@ export function treeParts(type: TreeType, detail: number, gray = false) {
 }
 
 // --- Şehirdeki ağaç modelleri (makeModel ile kullanılır) ---
+// Yapraklar: yaprak döken ağaçlar sonbaharda sararır (leaf işareti: birleştirilince de ayrı parçada kalır),
+// çam ve servi hep yeşil
 const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+leafMat.userData.leaf = true;
+withSnow(leafMat, autumnPatch);
+leafMat.customProgramCacheKey = () => 'leaf';
+const needleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+const evergreen = (type: TreeType) => type === 'pine' || type === 'cypress';
 const woodMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
 
 export const TREE_MODELS: Record<string, () => THREE.Object3D> = {};
@@ -145,7 +153,7 @@ for (const [name, type, detail] of [
   TREE_MODELS[`proc/tree-${name}`] = () => {
     const { crown, wood } = treeParts(type, detail);
     const g = new THREE.Group();
-    for (const [geo, m] of [[crown, leafMat], [wood, woodMat]] as [THREE.BufferGeometry | null, THREE.Material][]) {
+    for (const [geo, m] of [[crown, evergreen(type) ? needleMat : leafMat], [wood, woodMat]] as [THREE.BufferGeometry | null, THREE.Material][]) {
       if (!geo) continue;
       const mesh = new THREE.Mesh(geo, m);
       mesh.castShadow = true;
@@ -159,8 +167,7 @@ for (const [name, type, detail] of [
 // --- Çevredeki ormanlar ---
 // Yapraklar rüzgârda hafifçe sallanır (gölgeler sabit kalır)
 const wind = { value: 0 };
-const forestLeaf = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
-forestLeaf.onBeforeCompile = shader => {
+const swayPatch = (shader: THREE.WebGLProgramParametersWithUniforms) => {
   shader.uniforms.uWind = wind;
   shader.vertexShader = 'uniform float uWind;\n' + shader.vertexShader.replace(
     '#include <begin_vertex>',
@@ -174,7 +181,16 @@ forestLeaf.onBeforeCompile = shader => {
     #endif`,
   );
 };
+// Çam ve servi ormanı hep yeşil; yaprak döken ağaçlar sonbaharda sararır. İkisinde de kışın kar tutar.
+const forestLeaf = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+withSnow(forestLeaf, swayPatch);
 forestLeaf.customProgramCacheKey = () => 'forest-leaf';
+const forestDecid = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+withSnow(forestDecid, sh => {
+  swayPatch(sh);
+  autumnPatch(sh);
+});
+forestDecid.customProgramCacheKey = () => 'forest-decid';
 
 export function updateTrees(time: number) {
   wind.value = time;
@@ -189,7 +205,7 @@ export function forest(spots: TreeSpot[]): THREE.Group {
     const list = spots.filter(s => s.type === type);
     if (!list.length) continue;
     const { crown, wood } = treeParts(type, 0, true);
-    const leaves = new THREE.InstancedMesh(crown, forestLeaf, list.length);
+    const leaves = new THREE.InstancedMesh(crown, evergreen(type) ? forestLeaf : forestDecid, list.length);
     list.forEach((s, i) => {
       leaves.setMatrixAt(i, s.matrix);
       leaves.setColorAt(i, s.color);

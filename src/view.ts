@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { noSnow } from './season';
 import { SIZE, X0, RES_LEVELS, COM_LEVELS, PROPS, PLOT, PLOTS, RIVER, RIVER_ROWS, COAST_ROW, ROWS, PLOT_ROWS, Z0, ENTRANCE_Z, MATERIALS, MAKERS, UNDERPASS, type MatId } from './config';
 import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, isZone, isWater, isWaterXZ, isSandXZ, isSeaXZ } from './city';
 import { makeDecor, animateDecor, palm } from './landmarks';
@@ -254,6 +255,7 @@ const CUL = {
   curb: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.curb, roughness: 0.4 }),
   yellow: new THREE.MeshStandardMaterial({ color: ROAD_COLORS.line, roughness: 0.4 }),
 };
+noSnow(CUL.asphalt, CUL.yellow, roadDeco.asphalt, roadDeco.paint, roadDeco.yellow); // yollar kışın temizlenmiş
 // Yarım halka (kapalı uç tarafı -z): iç ve dış yarıçap, kalınlık
 function halfRing(r0: number, r1: number, depth: number) {
   const s = new THREE.Shape();

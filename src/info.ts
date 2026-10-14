@@ -7,6 +7,7 @@ import { City, isService, isUtility, isDecor, isIndustry, serviceArea } from './
 import { questProgress, questDone, questText } from './quests';
 import { productPic } from './production';
 import { ACHIEVEMENTS, achievementState } from './achievements';
+import { SEASONS, seasonOf } from './season';
 
 // Bir binaya (ya da üstteki düğmelere) dokununca çıkan kartın içeriği
 export interface InfoCard {
@@ -34,6 +35,7 @@ export interface CardActions {
   sell(mat: MatId): void;
   claim(n: number): void;
   achieve(id: string): void;
+  showSpot(cells: number[]): void; // kamerayı bu yerlerden ekrandakine en yakın olana götür, kartını aç
   buyLand(plot: number): void;
   upgradeMaker(i: number): void;
   upgradeUtil(i: number): void;
@@ -164,6 +166,7 @@ export function describeRoad(city: City, i: number, act: CardActions): InfoCard 
 
 export function describeHall(city: City, act: CardActions): InfoCard {
   const happy = city.happiness;
+  const wants = citizenWants(city);
   const pending = Math.floor(city.treasury);
   return {
     title: HALL_INFO.label,
@@ -175,9 +178,77 @@ export function describeHall(city: City, act: CardActions): InfoCard {
       { icon: '📈', value: `+${fmt(Math.round(perDay(city.dailyTax)))}`, label: 'Günlük vergi' },
       { icon: '😊', value: `${mood(happy)} ${pct(happy)}`, label: 'Mutluluk' },
     ],
-    lines: [{ text: `Mutlu şehir daha çok vergi öder: şu an x${(0.5 + happy).toFixed(1)}` }],
+    lines: [
+      { text: `Mutlu şehir daha çok vergi öder: şu an x${(0.5 + happy).toFixed(1)}` },
+      ...(wants.length ? [] : [{ ok: true, text: '😊 Halk memnun: şu an bir isteği yok.' }]),
+    ],
+    tiles: wants.map(w => ({
+      section: '📣 Halkın istekleri',
+      icon: w.icon,
+      name: w.name,
+      sub: w.sub,
+      note: 'Göster',
+      enabled: true,
+      run: () => act.showSpot(w.cells),
+    })),
     actions: [{ label: `Vergiyi topla  💰${fmt(pending)}`, enabled: pending > 0, primary: true, run: () => act.collect() }],
   };
+}
+
+// Halkın istekleri: evlerin büyüyemediği nedenler ve şehirdeki sorunlar (en çok evi ilgilendiren üstte).
+// Her istek bir yer listesi taşır; "Göster" kamerayı oraya götürür.
+interface Want { icon: string; name: string; sub: string; cells: number[]; weight: number }
+function citizenWants(city: City): Want[] {
+  const groups = new Map<string, number[]>();
+  const put = (key: string, i: number) => {
+    let list = groups.get(key);
+    if (!list) groups.set(key, (list = []));
+    list.push(i);
+  };
+  const svc: Partial<Record<(typeof SERVICE_KINDS)[number], number>> = {};
+  city.tiles.forEach((t, i) => {
+    if (!t) return;
+    if (t.fire) put('fire', i);
+    if (t.damaged) put('damaged', i);
+    if (t.kind === 'road' && city.congestion(i) > 1) put('traffic', i);
+    if (t.kind !== 'res' || t.level < 1 || t.fire || t.damaged) return;
+    const b = city.upgradeBlocker(i);
+    if (!b || b === 'En üst seviyede') return;
+    if (b.startsWith('Önce')) put(city.isConnected(i) ? 'utility' : 'road', i);
+    else if (b.startsWith('Yakında park')) put('park', i);
+    else if (b.startsWith('Dükkan')) put('shop', i);
+    else if (b.startsWith('Dört hizmet')) {
+      put('service', i);
+      for (const k of SERVICE_KINDS) if (!city.isCovered(i, k)) svc[k] = (svc[k] ?? 0) + 1;
+    } else if (b.startsWith('Yakında bir simge')) put('decor', i);
+    else if (b.startsWith('Gökdelen')) put('boulevard', i);
+    else if (b.startsWith('Dev gökdelen')) put('metro', i);
+    else if (b.startsWith('Şehre daha fazla')) put('utility', i);
+  });
+  const svcText = (Object.entries(svc) as [(typeof SERVICE_KINDS)[number], number][])
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${SERVICES[k].name} ${fmt(n)}`)
+    .join(', ');
+  const INFO: Record<string, [string, string, (n: number) => string, number]> = {
+    fire: ['🔥', '"Yangın var, itfaiye yetişsin!"', n => `${fmt(n)} binada yangın · kartından söndür`, 1000],
+    damaged: ['🏚️', '"Depremde evimiz hasar gördü"', n => `${fmt(n)} ev · kartından onar`, 900],
+    road: ['🛣️', '"Evimizin yolu şehre bağlı değil"', n => `${fmt(n)} ev · yolu şehir girişine bağla`, 800],
+    utility: ['⚡', '"Elektrik ve su yetmiyor"', n => `${fmt(n)} ev bekliyor · santral ya da su pompası kur`, 700],
+    traffic: ['🚗', '"Trafik çok sıkışık"', n => `${fmt(n)} kare yol tıkalı · cadde, alt geçit, metro`, 3],
+    park: ['🌳', '"Evimizin yakınında park olsun"', n => `${fmt(n)} ev · büyümek için yakında park`, 1],
+    shop: ['🛍️', '"Alışveriş yapacak dükkân yok"', n => `${fmt(n)} ev · büyümek için dükkân`, 1],
+    service: ['🚒', '"Hizmetler mahallemize ulaşmıyor"', n => `${fmt(n)} ev · eksik: ${svcText}`, 1],
+    decor: ['🗽', '"Mahallemize bir simge yapı"', n => `${fmt(n)} ev · 6. seviye için yakında simge yapı`, 1],
+    boulevard: ['🌷', '"Önümüzdeki yol bulvar ya da cadde olsun"', n => `${fmt(n)} ev · 7. seviye için`, 1],
+    metro: ['🚇', '"Yakına metro ya da tren istasyonu"', n => `${fmt(n)} ev · 8. seviye için`, 1],
+  };
+  return [...groups]
+    .map(([key, cells]) => {
+      const [icon, name, sub, w] = INFO[key];
+      return { icon, name, sub: sub(cells.length), cells, weight: cells.length * w };
+    })
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 8);
 }
 
 // Para göstergesine dokununca: günlük gelir-gider dökümü
@@ -229,7 +300,7 @@ export function describeCity(city: City, name = 'Aksoy City'): InfoCard {
   const shops = city.tiles.filter(t => t && (MAKERS as string[]).includes(t.kind) && t.kind !== 'factory').length;
   return {
     title: name,
-    subtitle: `Şehir seviyesi ${p.level} · ${fmt(dayNumber(city.day))}. gün`,
+    subtitle: `Şehir seviyesi ${p.level} · ${fmt(dayNumber(city.day))}. gün · ${SEASONS[seasonOf(dayNumber(city.day))].icon} ${SEASONS[seasonOf(dayNumber(city.day))].name}`,
     icon: '🏙️',
     tone: '#1e6fd9',
     stats: [

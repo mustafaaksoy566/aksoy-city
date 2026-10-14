@@ -623,7 +623,7 @@ export function openSettings(state: SettingsState, on: SettingsHandlers) {
     <label class="row name-row"><span>Şehrin adı</span><input id="city-input" maxlength="18" value="${esc(state.name)}" autocomplete="off" spellcheck="false"></label>
     <div class="row">${icon(state.sound ? 'soundOn' : 'soundOff')}<span>Ses efektleri</span><button class="switch${state.sound ? ' on' : ''}" data-k="sound" aria-label="Ses"></button></div>
     <div class="row">${icon('music')}<span>Müzik</span><button class="switch${state.music ? ' on' : ''}" data-k="music" aria-label="Müzik"></button></div>
-    <div class="row">${icon('rain')}<span>Yağmur</span><button class="switch${state.rain ? ' on' : ''}" data-k="rain" aria-label="Yağmur"></button></div>
+    <div class="row">${icon('rain')}<span>Yağmur ve kar</span><button class="switch${state.rain ? ' on' : ''}" data-k="rain" aria-label="Yağmur"></button></div>
     <div class="row">${icon('screen')}<span>Grafik</span><span class="segc">${q.map(([k, l]) => `<button data-q="${k}" class="${state.quality === k ? 'on' : ''}">${l}</button>`).join('')}</span></div>
     <button class="help-row">${icon('help')}Nasıl oynanır?</button>
     <button class="demo-row">${icon('build')}${state.demo ? 'Hazır şehri yeniden aç' : 'Hazır şehri aç (örnek büyük şehir)'}</button>
@@ -721,11 +721,13 @@ const HELP: [string, string, string[]][] = [
     'Sağdaki kupa Başarımlar: şehir büyüdükçe kademeler tamamlanır, ödülünü oradan al.',
     'Her gün oyuna girince günlük hediye gelir; art arda gelinen günlerde büyür, 7. gün en büyüğü.',
     'Nüfus ve bütçe kartlarında son günlerin grafiği var.',
+    'Mutluluk göstergesine dokun: belediye kartında halkın istekleri yazar, Göster ile oraya gidilir.',
     'Sol alttaki fotoğraf makinesi arayüzü gizler: açıyı seç, istersen akşam ya da gece yap, deklanşöre bas.',
   ]],
   ['🎮', 'Kumanda', [
     'Tek parmakla kaydır, iki parmakla yakınlaştır ve döndür. İki parmağı yukarı-aşağı kaydırınca kamera eğilir.',
     'Bir binaya basılı tut: taşı ve çevir. Pusulaya dokununca harita kuzeye döner.',
+    'Bir yıl 28 gün: ilkbahar, yaz, sonbahar ve kış yedişer gün. Kışın kar yağar, sonbaharda yapraklar sararır.',
     'Bir gün, bir gece-gündüz turudur (2 dakika). Para ve büyüme bundan bağımsız işler.',
   ]],
 ];

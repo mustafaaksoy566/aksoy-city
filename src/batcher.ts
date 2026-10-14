@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { withSnow, autumnPatch, noSnow } from './season';
 
 // Performans: çok sayıda ayrı nesneyi birkaç büyük parçada birleştirir.
 // Telefonda asıl yavaşlık "çizim sayısı"ndan geliyor; 1 büyük parça, 100 küçük parçadan çok daha hızlı çizilir.
@@ -8,11 +9,21 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 // - Dokulu malzemeler ve pencereler (gece yandıkları için) kendi malzemeleriyle gruplanır.
 
 const vertexColorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+// Ağaç yaprakları ayrı bir parçada: sonbaharda renkleri değişir (season.ts)
+const leafMergedMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+leafMergedMat.userData.leaf = true;
+withSnow(leafMergedMat, autumnPatch);
+leafMergedMat.customProgramCacheKey = () => 'leaf-merged';
+// Kar tutmayan düz renkli parçalar (yol asfaltı ve çizgileri) de tek parçada: renkleri köşelere yazılır
+const plainNoSnowMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+noSnow(plainNoSnowMat);
 
-type Kind = 'vc' | 'tex' | 'keep';
+type Kind = 'vc' | 'tex' | 'keep' | 'leaf' | 'plain';
 
 function classify(mat: THREE.Material): Kind {
   const m = mat as THREE.MeshStandardMaterial;
+  if (m.userData?.leaf) return 'leaf';
+  if (m.userData?.noSnow && !m.map && !m.transparent) return 'plain';
   if (m.map) return 'tex';
   // Pencereler ve far gibi gece yanan, saydam ya da ışık saçan malzemeler kendileri kalsın
   if (m.name === 'window' || m.name === 'lamp' || /headlight/i.test(m.name) || m.transparent || (m.emissiveIntensity > 0 && m.emissive?.getHex())) return 'keep';
@@ -69,10 +80,10 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
       if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || !mesh.visible) return;
       const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
       const kind = classify(mat);
-      if (kind === 'vc') {
+      if (kind === 'vc' || kind === 'leaf' || kind === 'plain') {
         // Kendi köşe renkleri olan modeller (ağaçlar) renklerini korur
         const own = mat.vertexColors && !!mesh.geometry.attributes.color;
-        push('vc', vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], own ? undefined : mat.color));
+        push(kind, kind === 'leaf' ? leafMergedMat : kind === 'plain' ? plainNoSnowMat : vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], own ? undefined : mat.color));
       } else if (kind === 'tex') {
         // Dokulu malzemeye göre grupla; köşe renkli dokulu modeller (yollar) renklerini korusun
         const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];

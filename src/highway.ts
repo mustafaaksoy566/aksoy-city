@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { noSnow } from './season';
 import { ROAD_COLORS } from './assets';
 import { mergeStatic, bakeModel, vertexColorMat } from './batcher';
 import { makeBus } from './sky';
@@ -137,6 +138,7 @@ const M = {
   pole: new THREE.MeshStandardMaterial({ color: '#7d8791', roughness: 0.5, metalness: 0.5 }),
   grass: new THREE.MeshStandardMaterial({ color: '#69b94e', roughness: 1 }),
 };
+noSnow(M.asphalt, M.line, M.yellow); // otoyol kışın temizlenmiş
 const lampMat = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff3c4', emissiveIntensity: 0 });
 lampMat.name = 'lamp';
 const mesh = (geo: THREE.BufferGeometry, m: THREE.Material) => {

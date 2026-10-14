@@ -10,6 +10,7 @@ import {
 } from './info';
 import { readyAchievements, claimAchievement } from './achievements';
 import { GIFT_DAYS, giftDay, giftReward, claimGift, skipGiftToday } from './gift';
+import { installSnow, SEASON_U, SEASONS, seasonOf } from './season';
 import { Sky } from './sky';
 import { CameraRig } from './camera';
 import { Weather } from './weather';
@@ -71,6 +72,8 @@ const writePref = (key: string, value: string) => {
 };
 
 // --- Sahne, kamera, ışık ---
+// Kış: bütün malzemelere kar örtüsü eklenir (ilk çizimden önce)
+installSnow();
 const container = document.getElementById('app')!;
 // stencil: alt geçit hendeklerinde zemini delmek için (bkz. view.ts underHole)
 const renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
@@ -414,6 +417,25 @@ const cardActions: CardActions = {
       toast('🎁 Görev ödülü alındı!');
     }
     afterChange();
+  },
+  // Halkın istekleri: ekranın ortasına en yakın yere git, kartını aç
+  showSpot(cells) {
+    if (!cells.length) return;
+    let best = cells[0], bestD = Infinity;
+    for (const i of cells) {
+      const p = tileCenter(i % SIZE, Math.floor(i / SIZE));
+      const d = p.distanceToSquared(rig.target);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    const a = city.anchorOf(best) ?? best;
+    const n = city.tiles[a]?.fp ?? 1;
+    const target = tileCenter((a % SIZE) + (n - 1) / 2, Math.floor(a / SIZE) + (n - 1) / 2);
+    tweenTo({ target, distance: Math.min(rig.distance, 16), yaw: rig.yaw, tilt: rig.tilt }, () => openTile(a));
+    openTile(null);
+    play('click', 0.3);
   },
   achieve(id) {
     // '*': hazır olanların hepsi (bir kademe alınınca sıradaki de hazırsa o da alınır)
@@ -1498,6 +1520,27 @@ document.getElementById('settings')!.addEventListener('click', () => {
   );
 });
 
+// --- Mevsimler: kışın kar yağar ve şehrin üstü beyazlar, sonbaharda yapraklar sararır (season.ts) ---
+let season = seasonOf(dayNumber(city.day));
+// Kışın açılırsa yerde kar vardır
+let snowCover = season === 3 && weather.enabled ? 0.7 : 0;
+SEASON_U.autumn.value = season === 2 ? 1 : season === 3 ? 0.6 : 0;
+const SEASON_NEWS = ['🌸 İlkbahar geldi! Ağaçlar yeşeriyor.', '☀️ Yaz geldi!', '🍂 Sonbahar geldi! Yapraklar sararıyor.', '❄️ Kış geldi! Kar yağabilir.'];
+function updateSeason(dt: number) {
+  const s = seasonOf(dayNumber(city.day));
+  if (s !== season) {
+    season = s;
+    toast(SEASON_NEWS[s]);
+  }
+  weather.winter = season === 3;
+  // Yağan kar birikir; kış bitince (ya da yağış kapatılınca) erir
+  if (weather.snowing && weather.amount > 0.05) snowCover = Math.min(1, snowCover + (dt * weather.amount) / 35);
+  else if (season !== 3 || !weather.enabled) snowCover = Math.max(0, snowCover - dt / 45);
+  SEASON_U.snow.value = snowCover * 0.85;
+  const autumn = season === 2 ? 1 : season === 3 ? 0.6 : 0;
+  SEASON_U.autumn.value += (autumn - SEASON_U.autumn.value) * Math.min(1, dt / 20);
+}
+
 // --- Başarımlar: yeni tamamlanan kademe bir kez haber verilir (ödül Başarımlar kartından alınır) ---
 const shownAch = new Set<string>();
 let achTimer = 0;
@@ -1778,6 +1821,7 @@ function frame() {
   updateTrees(clock.elapsedTime);
   followShadow();
   dayNight.dome.position.copy(camera.position);
+  updateSeason(dt);
   const look = photoTod ?? tod;
   fireworks.update(dt, phase(look).night, showSpots);
   dayNight.update(look, dt, weather.amount);
