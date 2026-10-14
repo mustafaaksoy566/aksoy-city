@@ -6,7 +6,7 @@ import { City, DIRS, idx, inBounds, isUtility, isService, isIndustry, isDecor, i
 import { makeDecor, animateDecor, palm } from './landmarks';
 import { makePark } from './fun';
 import { parkingGarage, metro, bigAirport } from './places';
-import { SIGNAL_MATS, signalGroup } from './signals';
+import { SIGNAL_LAMP, signalLampGeo, signalGroup } from './signals';
 import { mergeStatic, disposeMerged } from './batcher';
 import { railPiece } from './rails';
 import { riverMat, worldUV, RIVER_Y, SEA_Y, waterColor, mouthHalf } from './water';
@@ -37,8 +37,7 @@ const hash = (x: number, z: number, seed = 0) => {
 };
 
 // Sokak lambasının ucunda gece yanan ışık (DayNight 'lamp' adlı malzemeyi yakar)
-const lampMat = new THREE.MeshStandardMaterial({ color: '#fff3c4', emissive: '#fff2c0', emissiveIntensity: 0 });
-lampMat.name = 'lamp';
+const lampMat = BULB; // parklardaki lambalarla aynı malzeme: bölgede tek çizim
 // Sokak lambası: kaldırımda ince koyu direk, yola doğru kavisli kol, ucunda yassı lamba başlığı (altı gece yanar).
 // Kol yerel -x yönünde uzanır (rot ile yola çevrilir).
 const POLE_MAT = new THREE.MeshStandardMaterial({ color: '#3a4652', roughness: 0.45, metalness: 0.55 });
@@ -93,6 +92,69 @@ function lampGlow(g: THREE.Object3D, x: number, y: number, z: number, groundY: n
   top.position.set(x, y, z);
   top.rotation.x = -Math.PI / 2;
   g.add(top);
+}
+
+// Hareketli binalar (rüzgâr gülü, karakol, göl...) eskiden bütün parçalarıyla ayrı ayrı çiziliyordu (13 rüzgâr gülü =
+// 143 çizim, karakol başına 16). Kıpırdamayan parçaları bölgenin birleştirilmiş parçasına katılır (2. katmana alınır:
+// kamera ve gölge onları ayrıca çizmez); binada yalnız userData'daki canlandırmaların tuttuğu parçalar (pervane,
+// ördek, gemi...) kalır. Canlandırması kendi işleviyle (step) yürüyen binalara dokunulmaz: hangi parçayı oynattığı
+// bilinemez. Bina taşınırken ya da inşa edilirken parçalar yeniden görünür olur (showStatic).
+const STATIC_PARTS = new WeakMap<THREE.Object3D, THREE.Mesh[]>();
+function markStatic(o: THREE.Object3D) {
+  const keep = new Set<THREE.Object3D>();
+  let unsafe = false;
+  const scan = (v: unknown, depth: number) => {
+    if (!v || depth > 5 || unsafe) return;
+    if (typeof v === 'function') {
+      unsafe = true;
+      return;
+    }
+    if (typeof v !== 'object') return;
+    const x = v as THREE.Object3D & THREE.Material;
+    if (x.isObject3D) {
+      keep.add(x);
+      return;
+    }
+    if (x.isMaterial || ArrayBuffer.isView(v) || (v as THREE.Vector3).isVector3 || (v as THREE.Texture).isTexture) return;
+    if (Array.isArray(v)) v.forEach(y => scan(y, depth + 1));
+    else for (const k of Object.keys(v)) scan((v as Record<string, unknown>)[k], depth + 1);
+  };
+  o.traverse(n => {
+    // Sarmalayıcı grup userData'sını içteki modelle paylaşır (yükseltilmiş binalar): o model tutulmuş sayılmaz
+    if (n !== o && n.userData !== o.userData && (n.name || Object.keys(n.userData).length)) keep.add(n);
+    for (const k of Object.keys(n.userData)) scan(n.userData[k], 0);
+  });
+  if (unsafe) return false;
+  const statics: THREE.Mesh[] = [];
+  o.traverse(n => {
+    const m = n as THREE.Mesh;
+    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.children.length || !m.visible) return;
+    for (let p: THREE.Object3D | null = m; p && p !== o; p = p.parent) if (keep.has(p)) return;
+    statics.push(m);
+  });
+  if (!statics.length) return false;
+  STATIC_PARTS.set(o, statics);
+  showStatic(o, false);
+  return true;
+}
+function showStatic(o: THREE.Object3D, on: boolean) {
+  for (const m of STATIC_PARTS.get(o) ?? []) m.layers.set(on ? 0 : 1);
+}
+
+// Bölge parçaları ekran kartına gönderildikten sonra telefonun belleğindeki kopyaları silinir (bölge değişince
+// zaten bina modellerinden yeniden birleştiriliyor). Büyük şehirde yüzlerce MB: iPhone'da bellek dolunca oyun takılıyordu.
+function dropArray(this: { array: unknown }) {
+  this.array = null;
+}
+function freeAfterUpload(g: THREE.Object3D) {
+  g.traverse(o => {
+    const geo = (o as THREE.Mesh).geometry;
+    if (!geo) return;
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
+    for (const a of Object.values(geo.attributes)) (a as THREE.BufferAttribute).onUpload(dropArray);
+    geo.index?.onUpload(dropArray);
+  });
 }
 
 export function streetLight(dx: number, dz: number, rot: number) {
@@ -210,7 +272,6 @@ const signalGeo = {
   armZ: new THREE.BoxGeometry(0.009, 0.009, 0.2),
   headX: new THREE.BoxGeometry(0.02, 0.072, 0.028),
   headZ: new THREE.BoxGeometry(0.028, 0.072, 0.02),
-  lamp: new THREE.SphereGeometry(0.0085, 8, 6),
 };
 const SIGNAL_DIRS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 // mask: kavşağa hangi yönlerden yol geliyor (kuzey 1, doğu 2, güney 4, batı 8)
@@ -240,9 +301,9 @@ function signalPost(tile: number, mask: number) {
     add(rx ? signalGeo.headZ : signalGeo.headX, POLE_MAT, hx, 0.335, hz);
     // Lambalar başlığın arabaya bakan yüzünde
     const lx = hx - fx * 0.012, lz = hz - fz * 0.012;
-    add(signalGeo.lamp, SIGNAL_MATS.red[k], lx, 0.358, lz);
-    add(signalGeo.lamp, SIGNAL_MATS.amber[k], lx, 0.335, lz);
-    add(signalGeo.lamp, SIGNAL_MATS.green[k], lx, 0.312, lz);
+    add(signalLampGeo(0, k), SIGNAL_LAMP, lx, 0.358, lz);
+    add(signalLampGeo(1, k), SIGNAL_LAMP, lx, 0.335, lz);
+    add(signalLampGeo(2, k), SIGNAL_LAMP, lx, 0.312, lz);
   }
   return g;
 }
@@ -1383,6 +1444,7 @@ export class CityView {
   private animated = new Set<THREE.Object3D>(); // türbin, santral, polis ışıkları
   private live = new Set<number>(); // ayrı çizilen kareler
   private chunks = new Map<number, THREE.Group>(); // birleştirilmiş bölgeler
+  private split = new Set<number>(); // hareketli binalar: kıpırdamayan parçaları bölgeyle birlikte çizilir
   private dirty = new Set<number>(); // yeniden birleştirilecek bölgeler
   shadowDirty = true; // gölgeler yeniden çizilmeli mi
   private coverage: THREE.InstancedMesh;
@@ -1516,7 +1578,10 @@ export class CityView {
         for (let x = cx; x < cx + PLOT; x++) {
           const i = idx(x, z);
           const o = this.objs.get(i);
-          if (o && !this.live.has(i) && !this.hidden.has(i)) list.push(o);
+          if (o && this.split.has(i) && !this.hidden.has(i)) {
+            o.updateMatrixWorld(true);
+            list.push(...(STATIC_PARTS.get(o) ?? []));
+          } else if (o && !this.live.has(i) && !this.hidden.has(i)) list.push(o);
           else if (!this.city.tiles[i] && !isWater(i)) {
             const n = this.nature(i);
             if (n) list.push(n);
@@ -1526,6 +1591,7 @@ export class CityView {
       if (list.length) {
         const g = mergeStatic(list);
         g.matrixAutoUpdate = false; // bölge hiç kıpırdamaz
+        freeAfterUpload(g);
         this.root.add(g);
         this.chunks.set(c, g);
       }
@@ -1644,6 +1710,7 @@ export class CityView {
       this.live.delete(i);
     }
     this.animated.delete(old);
+    this.split.delete(i);
     this.objs.delete(i);
     this.tall.delete(i);
     this.hidden.delete(i);
@@ -1806,6 +1873,8 @@ export class CityView {
     this.dirty.add(this.chunkOf(i));
     const moving = needsLive(o);
     if (moving) this.animated.add(o);
+    // Hareketli binanın kıpırdamayan parçaları bölgeyle birlikte çizilir (inşaat bitince de, bkz. update)
+    if (moving && !animate && markStatic(o)) this.split.add(i);
     if (moving || animate) {
       this.root.add(o);
       this.live.add(i);
@@ -2117,7 +2186,7 @@ export class CityView {
   }
 
   // --- Bina taşınırken: birleşik bölgeden çıkar, havaya kalkar ve parmağı izler ---
-  private lifted: { i: number; obj: THREE.Object3D; pos: THREE.Vector3; rot: number; wasLive: boolean } | null = null;
+  private lifted: { i: number; obj: THREE.Object3D; pos: THREE.Vector3; rot: number; wasLive: boolean; wasSplit: boolean } | null = null;
   startMove(i: number) {
     const o = this.objs.get(i);
     if (!o) return;
@@ -2127,7 +2196,13 @@ export class CityView {
       this.root.add(o);
       this.dirty.add(this.chunkOf(i));
     }
-    this.lifted = { i, obj: o, pos: o.position.clone(), rot: o.rotation.y, wasLive };
+    // Hareketli binanın bölgeyle çizilen parçaları binayla birlikte kalksın
+    const wasSplit = this.split.delete(i);
+    if (wasSplit) {
+      showStatic(o, true);
+      this.dirty.add(this.chunkOf(i));
+    }
+    this.lifted = { i, obj: o, pos: o.position.clone(), rot: o.rotation.y, wasLive, wasSplit };
     o.position.y += 0.3;
     this.shadowDirty = true;
   }
@@ -2155,6 +2230,11 @@ export class CityView {
     if (moved) return;
     l.obj.position.copy(l.pos);
     l.obj.rotation.y = l.rot;
+    if (l.wasSplit && this.objs.get(l.i) === l.obj) {
+      showStatic(l.obj, false);
+      this.split.add(l.i);
+      this.dirty.add(this.chunkOf(l.i));
+    }
     if (!l.wasLive && this.objs.get(l.i) === l.obj) {
       this.root.remove(l.obj);
       this.live.delete(l.i);
@@ -2229,6 +2309,7 @@ export class CityView {
         if (!m.isMesh) return;
         m.material = Array.isArray(m.material) ? m.material.map(x => this.overMat(x)) : this.overMat(m.material);
         m.renderOrder = 970;
+        m.layers.set(0); // bölgeyle çizilen parçalar da kopyada görünsün
       });
       this.mapOverlay.add(copy);
       // Yanıp sönen halka
@@ -2420,6 +2501,9 @@ export class CityView {
         this.root.remove(s.obj);
         this.live.delete(s.i);
         this.dirty.add(this.chunkOf(s.i));
+      } else if (this.objs.get(s.i) === s.obj && !this.split.has(s.i) && markStatic(s.obj)) {
+        this.split.add(s.i);
+        this.dirty.add(this.chunkOf(s.i));
       }
       return false;
     });
@@ -2433,6 +2517,9 @@ export class CityView {
       if (this.objs.get(p.i) === p.obj && !needsLive(p.obj)) {
         this.root.remove(p.obj);
         this.live.delete(p.i);
+        this.dirty.add(this.chunkOf(p.i));
+      } else if (this.objs.get(p.i) === p.obj && !this.split.has(p.i) && markStatic(p.obj)) {
+        this.split.add(p.i);
         this.dirty.add(this.chunkOf(p.i));
       }
       return false;

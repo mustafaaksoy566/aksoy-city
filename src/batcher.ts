@@ -55,7 +55,11 @@ function prepare(src: THREE.BufferGeometry, matrix: THREE.Matrix4, keep: string[
     for (let k = 0; k < n; k++) color.toArray(c, k * 3);
     g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
   }
-  if (!g.index) g.setIndex([...Array(n).keys()]);
+  if (!g.index) {
+    const ix = new Uint32Array(n);
+    for (let k = 0; k < n; k++) ix[k] = k;
+    g.setIndex(new THREE.BufferAttribute(ix, 1));
+  }
   // Ters ölçeklenmiş (aynalanmış) parçalarda üçgen yönünü düzelt
   if (matrix.determinant() < 0) {
     const idx = g.index!.array as Uint32Array | Uint16Array;
@@ -65,12 +69,95 @@ function prepare(src: THREE.BufferGeometry, matrix: THREE.Matrix4, keep: string[
   return g;
 }
 
+// Birleştirme tek geçişte yapılır: her parçanın köşeleri dünya konumuna çevrilirken doğrudan ortak dizilere
+// yazılır (ara kopya yok). Eskiden her parça önce kopyalanıp taşınıyor, sonra bir daha birleştiriliyordu; bir bina
+// büyüyünce bölgesi yeniden birleştirilirken telefonda belirgin takılma oluyordu.
+interface Part { geo: THREE.BufferGeometry; m: THREE.Matrix4; tint?: THREE.Color }
+interface Bucket { mat: THREE.Material; uv: boolean; color: boolean; parts: Part[]; verts: number; count: number }
+
+// Bilgiyi düz Float32 dizi olarak oku (araya serpiştirilmiş, normalize ya da farklı boyutlu olanlar çevrilir)
+function flat(attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, size: number): ArrayLike<number> {
+  const a = attr as THREE.BufferAttribute;
+  if (a.isBufferAttribute && !a.normalized && a.itemSize === size) return a.array;
+  const out = new Float32Array(attr.count * size);
+  for (let k = 0; k < attr.count; k++) {
+    for (let s = 0; s < size; s++) out[k * size + s] = s === 0 ? attr.getX(k) : s === 1 ? attr.getY(k) : s === 2 ? attr.getZ(k) : attr.getW(k);
+  }
+  return out;
+}
+
+const NM = new THREE.Matrix3();
+function build(b: Bucket): THREE.BufferGeometry {
+  const P = new Float32Array(b.verts * 3), N = new Float32Array(b.verts * 3);
+  const C = b.color ? new Float32Array(b.verts * 3) : null;
+  const U = b.uv ? new Float32Array(b.verts * 2) : null;
+  const I = b.verts > 65535 ? new Uint32Array(b.count) : new Uint16Array(b.count);
+  let v = 0, o = 0;
+  for (const { geo, m, tint } of b.parts) {
+    const n = geo.attributes.position.count;
+    const p = flat(geo.attributes.position, 3), nr = flat(geo.attributes.normal, 3);
+    const e = m.elements, q = NM.getNormalMatrix(m).elements;
+    for (let k = 0; k < n; k++) {
+      const x = p[k * 3], y = p[k * 3 + 1], z = p[k * 3 + 2];
+      const w = v * 3 + k * 3;
+      P[w] = e[0] * x + e[4] * y + e[8] * z + e[12];
+      P[w + 1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+      P[w + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+      const a = nr[k * 3], bb = nr[k * 3 + 1], c = nr[k * 3 + 2];
+      const nx = q[0] * a + q[3] * bb + q[6] * c, ny = q[1] * a + q[4] * bb + q[7] * c, nz = q[2] * a + q[5] * bb + q[8] * c;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      N[w] = nx / l;
+      N[w + 1] = ny / l;
+      N[w + 2] = nz / l;
+    }
+    if (C) {
+      if (tint) for (let k = 0; k < n; k++) tint.toArray(C, (v + k) * 3);
+      else C.set(flat(geo.attributes.color, 3) as Float32Array, v * 3);
+    }
+    if (U && geo.attributes.uv) U.set(flat(geo.attributes.uv, 2) as Float32Array, v * 2);
+    const flip = m.determinant() < 0; // aynalanmış parçada üçgen yönü ters çevrilir
+    if (geo.index) {
+      const ia = geo.index.array, cnt = geo.index.count;
+      for (let k = 0; k < cnt; k += 3) {
+        I[o + k] = ia[k] + v;
+        I[o + k + 1] = (flip ? ia[k + 2] : ia[k + 1]) + v;
+        I[o + k + 2] = (flip ? ia[k + 1] : ia[k + 2]) + v;
+      }
+      o += cnt;
+    } else {
+      for (let k = 0; k + 2 < n; k += 3) {
+        I[o + k] = v + k;
+        I[o + k + 1] = v + (flip ? k + 2 : k + 1);
+        I[o + k + 2] = v + (flip ? k + 1 : k + 2);
+      }
+      o += n - (n % 3);
+    }
+    v += n;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  if (U) g.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+  if (C) g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  g.setIndex(new THREE.BufferAttribute(I, 1));
+  return g;
+}
+
 export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
-  const groups = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[] }>();
-  const push = (key: string, mat: THREE.Material, geo: THREE.BufferGeometry) => {
-    let grp = groups.get(key);
-    if (!grp) groups.set(key, (grp = { mat, geos: [] }));
-    grp.geos.push(geo);
+  const buckets = new Map<string, Bucket>();
+  const put = (key: string, mat: THREE.Material, uv: boolean, color: boolean, mesh: THREE.Mesh, tint?: THREE.Color) => {
+    let geo = mesh.geometry;
+    if (!geo.attributes.position) return;
+    if (!geo.attributes.normal) {
+      geo = geo.clone();
+      geo.computeVertexNormals();
+    }
+    let b = buckets.get(key);
+    if (!b) buckets.set(key, (b = { mat, uv, color, parts: [], verts: 0, count: 0 }));
+    b.parts.push({ geo, m: mesh.matrixWorld, tint });
+    const n = geo.attributes.position.count;
+    b.verts += n;
+    b.count += geo.index ? geo.index.count : n - (n % 3);
   };
 
   for (const root of objects) {
@@ -80,39 +167,25 @@ export function mergeStatic(objects: THREE.Object3D[]): THREE.Group {
       if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || !mesh.visible) return;
       const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
       const kind = classify(mat);
+      const own = mat.vertexColors && !!mesh.geometry.attributes.color;
       if (kind === 'vc' || kind === 'leaf' || kind === 'plain') {
         // Kendi köşe renkleri olan modeller (ağaçlar) renklerini korur
-        const own = mat.vertexColors && !!mesh.geometry.attributes.color;
-        push(kind, kind === 'leaf' ? leafMergedMat : kind === 'plain' ? plainNoSnowMat : vertexColorMat, prepare(mesh.geometry, mesh.matrixWorld, ['position', 'normal', 'color'], own ? undefined : mat.color));
-      } else if (kind === 'tex') {
-        // Dokulu malzemeye göre grupla; köşe renkli dokulu modeller (yollar) renklerini korusun
-        const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
-        push(`tex|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, keep));
+        put(kind, kind === 'leaf' ? leafMergedMat : kind === 'plain' ? plainNoSnowMat : vertexColorMat, false, true, mesh, own ? undefined : mat.color);
       } else {
-        // Köşe renkli ayrı malzemeler (ör. arabaların farları) renklerini korusun
-        const keep = mat.vertexColors && mesh.geometry.attributes.color ? ['position', 'normal', 'uv', 'color'] : ['position', 'normal', 'uv'];
-        push(`keep|${mat.uuid}`, mat, prepare(mesh.geometry, mesh.matrixWorld, keep));
+        // Dokulu malzemeler kendi malzemesiyle gruplanır; köşe renkli olanlar (yollar, farlar) renklerini korur
+        put(`${kind}|${mat.uuid}|${own}`, mat, true, own, mesh);
       }
     });
   }
 
   const out = new THREE.Group();
-  const addMesh = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
-    const mesh = new THREE.Mesh(geo, mat);
+  for (const b of buckets.values()) {
+    if (!b.verts) continue;
+    const mesh = new THREE.Mesh(build(b), b.mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     out.add(mesh);
-  };
-  for (const { mat, geos } of groups.values()) {
-    const merged = mergeGeometries(geos, false);
-    if (merged) {
-      geos.forEach(g => g.dispose());
-      addMesh(merged, mat);
-    } else {
-      // Birleştirilemediyse hiçbir şey kaybolmasın: parçalar ayrı ayrı çizilir
-      for (const g of geos) addMesh(g, mat);
-    }
   }
   // Dış grup taşınabilir, döndürülebilir ve büyütülebilir kalır (binalar bu grubu doğrudan döndürüp yerine koyar)
   return out;

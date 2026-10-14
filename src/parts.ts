@@ -45,7 +45,7 @@ export const WATER = new THREE.MeshStandardMaterial({ color: '#4aa8e0', roughnes
 export const SPRAY = new THREE.MeshStandardMaterial({ color: '#eaf8ff', transparent: true, opacity: 0.45, roughness: 0.1, depthWrite: false });
 export const PYRAMID = new THREE.MeshStandardMaterial({ color: '#a9dcf2', transparent: true, opacity: 0.55, roughness: 0.08, metalness: 0.4, depthWrite: false });
 export const FLOWERS = ['#e53935', '#fdd835', '#ec407a', '#ab47bc', '#ffffff', '#ff7043'].map(c => pm(c, 0.9));
-export const FLOWER_GEO = new THREE.IcosahedronGeometry(0.011, 0);
+export const FLOWER_GEO = new THREE.OctahedronGeometry(0.012, 0); // çiçek: binlercesi var, sekiz yüzlü yeterli
 export const PAINT = ['#e53935', '#1e88e5', '#fdd835', '#43a047', '#8e24aa', '#fb8c00', '#00acc1', '#ec407a'].map(c => pm(c, 0.55));
 
 export type V3 = [number, number, number];
@@ -108,13 +108,14 @@ export function bench(g: THREE.Object3D, x: number, z: number, rot = 0, s = 1) {
   back.rotation.x = -0.2;
   for (const sx of [-0.038, 0.038]) box(b, 0.005, 0.03, 0.03, M.iron, sx, 0, -0.003);
 }
-// Sokak lambası: ince direk, gece yanan küre
+// Sokak lambası: ince direk, gece yanan küre (küçük olduğu için az üçgenli)
+const LAMP_GEO = new THREE.SphereGeometry(0.014, 8, 5);
 export function lamp(g: THREE.Object3D, x: number, z: number, s = 1, h = 0.17) {
   const l = item(g, x, z, 0, s);
-  cyl(l, 0.009, 0.011, 0.012, M.iron, 0, 0, 0, 8);
-  cyl(l, 0.004, 0.006, h, M.iron, 0, 0, 0, 6);
-  add(l, new THREE.SphereGeometry(0.014, 10, 8), BULB, 0, h + 0.012, 0);
-  cyl(l, 0.004, 0.012, 0.008, M.iron, 0, h + 0.024, 0, 8);
+  cyl(l, 0.009, 0.011, 0.012, M.iron, 0, 0, 0, 6);
+  cyl(l, 0.004, 0.006, h, M.iron, 0, 0, 0, 5);
+  add(l, LAMP_GEO, BULB, 0, h + 0.012, 0);
+  cyl(l, 0.004, 0.012, 0.008, M.iron, 0, h + 0.024, 0, 6);
 }
 // Ağaç (hazır çizilmiş ağaç modelleri, köşe renkleriyle birleşir)
 export function tree(g: THREE.Object3D, path: string, x: number, z: number, s = 1, rot = 0) {

@@ -1950,6 +1950,7 @@ let prodTimer = 0;
 let lastReady = 0;
 let fpsAvg = 60;
 
+let shadowWait = 0;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.25);
   if (dt > 0) fpsAvg += (1 / dt - fpsAvg) * 0.05;
@@ -1988,8 +1989,12 @@ function frame() {
 
   view.update(dt);
   metroView.update(dt);
-  if (view.shadowDirty) {
+  // Gölgeler en fazla saniyede üç kez yeniden çizilir: inşaat sürerken her karede çizilince (bütün şehir bir kez
+  // daha) telefon takılıyordu
+  shadowWait -= dt;
+  if (view.shadowDirty && shadowWait <= 0) {
     view.shadowDirty = false;
+    shadowWait = 0.33;
     renderer.shadowMap.needsUpdate = true;
   }
   adaptQuality(dt);

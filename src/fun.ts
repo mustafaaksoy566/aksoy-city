@@ -723,7 +723,7 @@ function gardenPark(st: THREE.Group, rot: number) {
   add(st, new THREE.SphereGeometry(0.012, 8, 6), M.gold, 0, 0.27, 0);
   for (let k = 0; k < 4; k++) {
     const a = Math.PI / 4 + (k * Math.PI) / 2;
-    add(st, new THREE.IcosahedronGeometry(0.026, 1), M.hedge, Math.sin(a) * 0.19, 0.055, Math.cos(a) * 0.19);
+    add(st, new THREE.IcosahedronGeometry(0.026, 0), M.hedge, Math.sin(a) * 0.19, 0.055, Math.cos(a) * 0.19);
     bench(st, Math.sin(a) * 0.345, Math.cos(a) * 0.345, a + Math.PI);
   }
   // Köşeler: iki köşede ağaç, ikisinde çiçek tarhı
@@ -762,8 +762,8 @@ function pondPark(st: THREE.Group, rot: number) {
   for (const [x, z] of [[-0.18, -0.2], [-0.14, -0.24], [0.08, 0.0], [-0.2, 0.0]] as [number, number][]) cyl(st, 0.02, 0.02, 0.003, M.pad, x, 0.037, z, 10);
   for (const [x, z, r] of [[0.0, -0.18, 0.5], [0.05, -0.14, 1.2], [-0.12, -0.05, 2.6]] as [number, number, number][]) {
     const d = item(st, x, z, r, 1, 0.036);
-    add(d, new THREE.SphereGeometry(0.012, 8, 6).scale(1, 0.7, 1.4), M.white, 0, 0.006, 0);
-    add(d, new THREE.SphereGeometry(0.007, 8, 6), M.white, 0, 0.016, 0.012);
+    add(d, new THREE.SphereGeometry(0.012, 6, 4).scale(1, 0.7, 1.4), M.white, 0, 0.006, 0);
+    add(d, new THREE.SphereGeometry(0.007, 6, 4), M.white, 0, 0.016, 0.012);
     add(d, new THREE.ConeGeometry(0.003, 0.008, 4).rotateX(Math.PI / 2), M.yellow, 0, 0.016, 0.021);
   }
   // Sazlar
@@ -778,9 +778,11 @@ function pondPark(st: THREE.Group, rot: number) {
   const path = new THREE.CubicBezierCurve3(
     new THREE.Vector3(-0.49, 0, 0.3), new THREE.Vector3(-0.1, 0, 0.3), new THREE.Vector3(0.2, 0, 0.3), new THREE.Vector3(0.49, 0, 0.0),
   );
+  // Yalnız üst yüzü olan yuvarlak taşlar (yan yüzleri çimenin içinde görünmüyordu, boşa üçgendi)
+  const disc = new THREE.CircleGeometry(0.045, 10).rotateX(-Math.PI / 2);
   for (let k = 0; k <= 22; k++) {
     const p = path.getPoint(k / 22);
-    cyl(st, 0.045, 0.045, 0.004, M.path, p.x, 0.03, p.z, 12);
+    add(st, disc, M.path, p.x, 0.034, p.z);
   }
   bench(st, -0.12, 0.2, Math.PI);
   bench(st, 0.16, 0.2, Math.PI + 0.3);

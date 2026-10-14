@@ -94,22 +94,25 @@ export function treeParts(type: TreeType, detail: number, gray = false) {
   const [lo, hi] = (gray ? GRAY : LEAVES[type]).map(c => new THREE.Color(c));
   let crown: THREE.BufferGeometry;
   let wood: THREE.BufferGeometry | null = null;
+  // Yandaki ve alttaki küçük yaprak kümeleri sade çizilir (üstteki büyük kümeler yuvarlak kalır): ağaç başına
+  // üçgen sayısı yarıdan aza iner, şehirde binlerce ağaç olduğu için telefonda belirgin hızlanma
+  const small = Math.max(0, detail - 1);
   if (type === 'pine') {
     // Kat kat sarkan dallar: alttan üste daralan beş kat, her kat biraz döndürülmüş
     const tiers = [0, 1, 2, 3, 4].map(k => cone(0.2 - k * 0.034, 0.2 - k * 0.012, 0.22 + k * 0.088, 9).rotateY(k * 0.5));
     crown = paint(merge(tiers), lo, hi, 0.12, 0.66, 2);
     wood = trunk(0.034, 0.2);
   } else if (type === 'cypress') {
-    crown = paint(merge([blob(0.1, detail, 0, 0.32, 0, 2.3, 0.16), blob(0.075, detail, 0, 0.56, 0, 2.0, 0.16), blob(0.045, detail, 0, 0.72, 0, 1.8, 0.1)]), lo, hi, 0.1, 0.78, 3);
+    crown = paint(merge([blob(0.1, detail, 0, 0.32, 0, 2.3, 0.16), blob(0.075, detail, 0, 0.56, 0, 2.0, 0.16), blob(0.045, small, 0, 0.72, 0, 1.8, 0.1)]), lo, hi, 0.1, 0.78, 3);
     wood = trunk(0.03, 0.12);
   } else if (type === 'bush') {
     crown = paint(
       merge([
         blob(0.11, detail, 0, 0.08, 0, 0.78),
-        blob(0.085, detail, 0.09, 0.065, 0.03, 0.78),
-        blob(0.08, detail, -0.075, 0.06, 0.05, 0.78),
-        blob(0.07, detail, 0.02, 0.06, -0.085, 0.78),
-        blob(0.06, detail, -0.03, 0.13, -0.01, 0.8),
+        blob(0.085, small, 0.09, 0.065, 0.03, 0.78),
+        blob(0.08, small, -0.075, 0.06, 0.05, 0.78),
+        blob(0.07, small, 0.02, 0.06, -0.085, 0.78),
+        blob(0.06, small, -0.03, 0.13, -0.01, 0.8),
       ]),
       lo, hi, 0, 0.18, 4,
     );
@@ -118,13 +121,13 @@ export function treeParts(type: TreeType, detail: number, gray = false) {
     crown = paint(
       merge([
         blob(0.15, detail, 0, 0.42, 0),
-        blob(0.12, detail, 0.115, 0.36, 0.04),
-        blob(0.115, detail, -0.105, 0.37, -0.05),
-        blob(0.11, detail, 0.025, 0.355, -0.115),
-        blob(0.105, detail, -0.04, 0.345, 0.115),
+        blob(0.12, small, 0.115, 0.36, 0.04),
+        blob(0.115, small, -0.105, 0.37, -0.05),
+        blob(0.11, small, 0.025, 0.355, -0.115),
+        blob(0.105, small, -0.04, 0.345, 0.115),
         blob(0.1, detail, 0.06, 0.53, 0.035),
-        blob(0.085, detail, -0.065, 0.52, -0.03),
-        blob(0.07, detail, 0.005, 0.61, 0),
+        blob(0.085, small, -0.065, 0.52, -0.03),
+        blob(0.07, small, 0.005, 0.61, 0),
       ]),
       lo, hi, 0.24, 0.66, type === 'blossom' ? 5 : 1,
     );
